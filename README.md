@@ -79,6 +79,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 
 - `docs/deployment-aws-ec2.md`
 
+## Product Guide
+
+- End-user + operator guide: `docs/user-guide.md`
+
 ## Required Environment Variables for Full Functionality
 
 - `ODDS_API_KEY` (The Odds API)
@@ -103,9 +107,13 @@ If you are running low on The Odds API credits, tune these:
 - `ODDS_POLL_INTERVAL_IDLE_SECONDS` (default `300`): cadence when no events are returned
 - `ODDS_POLL_INTERVAL_LOW_CREDIT_SECONDS` (default `900`): cadence when credits are low
 - `ODDS_API_LOW_CREDIT_THRESHOLD` (default `200`): triggers low-credit cadence at or below this value
+- `ODDS_API_TARGET_DAILY_CREDITS` (default `1200`): budget guardrail; poller stretches interval to stay near this burn rate
 - `ODDS_API_BOOKMAKERS` (optional): comma-separated bookmaker keys to reduce request cost
 
 The poller reads response headers (`x-requests-remaining`, `x-requests-used`, `x-requests-last`) and automatically slows down in low-credit mode.
+It also applies a daily budget interval floor using `x-requests-last`:
+
+`min_interval_seconds = ceil((x_requests_last * 86400) / ODDS_API_TARGET_DAILY_CREDITS)`
 
 ## Core API Routes
 

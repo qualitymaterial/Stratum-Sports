@@ -68,12 +68,13 @@ export async function getMe(token: string) {
 }
 
 export async function getDiscordAuthUrl() {
-  return apiRequest<{ url: string }>("/auth/discord/login");
+  return apiRequest<{ url: string; state: string }>("/auth/discord/login");
 }
 
-export async function discordCallback(code: string) {
+export async function discordCallback(code: string, state: string) {
+  const params = new URLSearchParams({ code, state });
   return apiRequest<{ access_token: string; user: User }>(
-    `/auth/discord/callback?code=${code}`,
+    `/auth/discord/callback?${params.toString()}`,
     { method: "POST" },
   );
 }

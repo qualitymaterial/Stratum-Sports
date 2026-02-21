@@ -7,6 +7,8 @@ import { LoadingState } from "@/components/LoadingState";
 import { discordCallback } from "@/lib/api";
 import { setSession } from "@/lib/auth";
 
+const DISCORD_STATE_KEY = "stratum_discord_oauth_state";
+
 function CallbackContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -14,12 +16,20 @@ function CallbackContent() {
 
     useEffect(() => {
         const code = searchParams.get("code");
-        if (!code) {
-            setError("No code provided from Discord");
+        const state = searchParams.get("state");
+        if (!code || !state) {
+            setError("Missing OAuth callback parameters from Discord");
             return;
         }
 
-        void discordCallback(code)
+        const expectedState = sessionStorage.getItem(DISCORD_STATE_KEY);
+        sessionStorage.removeItem(DISCORD_STATE_KEY);
+        if (!expectedState || expectedState !== state) {
+            setError("OAuth state mismatch. Restart Discord login.");
+            return;
+        }
+
+        void discordCallback(code, state)
             .then((result) => {
                 setSession(result.access_token, result.user);
                 router.replace("/app/dashboard");

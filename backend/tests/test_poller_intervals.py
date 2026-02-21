@@ -1,3 +1,5 @@
+import math
+
 from app.tasks.poller import determine_poll_interval, settings
 
 
@@ -13,3 +15,15 @@ def test_poll_interval_uses_idle_when_no_events_seen() -> None:
 def test_poll_interval_uses_low_credit_when_remaining_is_low() -> None:
     result = {"events_seen": 12, "api_requests_remaining": settings.odds_api_low_credit_threshold}
     assert determine_poll_interval(result) == settings.odds_poll_interval_low_credit_seconds
+
+
+def test_poll_interval_respects_daily_budget_guardrail() -> None:
+    result = {
+        "events_seen": 12,
+        "api_requests_remaining": settings.odds_api_low_credit_threshold + 100,
+        "api_requests_last": 3,
+    }
+    expected_budget_interval = math.ceil((3 * 86400) / settings.odds_api_target_daily_credits)
+    assert determine_poll_interval(result) == max(
+        settings.odds_poll_interval_seconds, expected_budget_interval
+    )

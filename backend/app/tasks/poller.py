@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -30,9 +31,16 @@ def determine_poll_interval(cycle_result: dict | None) -> int:
 
     events_seen = cycle_result.get("events_seen", 0)
     if isinstance(events_seen, int) and events_seen == 0:
-        return idle_interval
+        target_interval = idle_interval
+    else:
+        target_interval = active_interval
 
-    return active_interval
+    requests_last = cycle_result.get("api_requests_last")
+    if isinstance(requests_last, int) and requests_last > 0 and settings.odds_api_target_daily_credits > 0:
+        budget_interval = math.ceil((requests_last * 86400) / settings.odds_api_target_daily_credits)
+        target_interval = max(target_interval, max(1, budget_interval))
+
+    return target_interval
 
 
 @asynccontextmanager
@@ -88,6 +96,7 @@ async def main() -> None:
             "idle_interval_seconds": settings.odds_poll_interval_idle_seconds,
             "low_credit_interval_seconds": settings.odds_poll_interval_low_credit_seconds,
             "low_credit_threshold": settings.odds_api_low_credit_threshold,
+            "target_daily_credits": settings.odds_api_target_daily_credits,
         },
     )
 
@@ -139,6 +148,7 @@ async def main() -> None:
                     "sleep_seconds": round(sleep_seconds, 2),
                     "events_seen": (cycle_result or {}).get("events_seen"),
                     "api_requests_remaining": (cycle_result or {}).get("api_requests_remaining"),
+                    "api_requests_last": (cycle_result or {}).get("api_requests_last"),
                 },
             )
 

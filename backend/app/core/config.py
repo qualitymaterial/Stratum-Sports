@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     odds_poll_interval_idle_seconds: int = 300
     odds_poll_interval_low_credit_seconds: int = 900
     odds_api_low_credit_threshold: int = 200
+    odds_api_target_daily_credits: int = 1200
     odds_api_regions: str = "us"
     odds_api_markets: str = "spreads,totals,h2h"
     odds_api_bookmakers: str = ""

@@ -1,19 +1,28 @@
+import logging
+from urllib.parse import urlencode
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import create_access_token
+from app.core.security import (
+    create_access_token,
+    create_oauth_state_token,
+    decode_oauth_state_token,
+)
 from app.models.user import User
 
 settings = get_settings()
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 DISCORD_AUTH_URL = "https://discord.com/api/oauth2/authorize"
 DISCORD_TOKEN_URL = "https://discord.com/api/oauth2/token"
 DISCORD_USER_URL = "https://discord.com/api/users/@me"
+
 
 @router.get("/login")
 async def discord_login():
@@ -22,28 +31,55 @@ async def discord_login():
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Discord Client ID not configured"
         )
-    
+
+    state = create_oauth_state_token(provider="discord")
     params = {
         "client_id": settings.discord_client_id,
         "redirect_uri": settings.discord_redirect_uri,
         "response_type": "code",
         "scope": "identify email",
+        "state": state,
     }
-    from urllib.parse import urlencode
     query_string = urlencode(params)
     auth_url = f"{DISCORD_AUTH_URL}?{query_string}"
-    return {"url": auth_url}
+    return {"url": auth_url, "state": state}
+
 
 @router.post("/callback")
 async def discord_callback(
+    request: Request,
     code: str = Query(...),
-    db: AsyncSession = Depends(get_db)
+    state: str = Query(...),
+    db: AsyncSession = Depends(get_db),
 ):
     if not settings.discord_client_id or not settings.discord_client_secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Discord OAuth not configured"
         )
+
+    state_payload = decode_oauth_state_token(state, provider="discord")
+    if state_payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid OAuth state",
+        )
+
+    # Replay protection for state token (best-effort if Redis is available).
+    redis = getattr(request.app.state, "redis", None)
+    if redis is not None:
+        try:
+            state_key = f"oauth:discord:state:{state_payload['nonce']}"
+            first_use = await redis.set(state_key, "1", ex=60 * 15, nx=True)
+            if not first_use:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid OAuth state",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Discord OAuth state replay guard unavailable")
 
     # 1. Exchange code for access token
     async with httpx.AsyncClient() as client:
@@ -61,9 +97,9 @@ async def discord_callback(
         if token_resp.status_code != 200:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to exchange token: {token_resp.text}"
+                detail="Failed to exchange token with Discord",
             )
-        
+
         token_data = token_resp.json()
         access_token = token_data["access_token"]
 
@@ -77,7 +113,7 @@ async def discord_callback(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Failed to fetch user info from Discord"
             )
-        
+
         discord_user = user_resp.json()
         discord_id = discord_user["id"]
         email = discord_user.get("email")
@@ -89,15 +125,16 @@ async def discord_callback(
             )
 
     # 3. Create or find user
-    stmt = select(User).where((User.discord_id == discord_id) | (User.email == email))
+    normalized_email = email.lower()
+    stmt = select(User).where((User.discord_id == discord_id) | (User.email == normalized_email))
     db_user = (await db.execute(stmt)).scalar_one_or_none()
 
     if not db_user:
         # New user via Discord
         db_user = User(
-            email=email,
+            email=normalized_email,
             discord_id=discord_id,
-            password_hash=None, # Social login
+            password_hash=None,  # Social login
             tier="free",
         )
         db.add(db_user)
@@ -118,5 +155,7 @@ async def discord_callback(
             "id": str(db_user.id),
             "email": db_user.email,
             "tier": db_user.tier,
+            "is_admin": db_user.is_admin,
+            "created_at": db_user.created_at,
         }
     }

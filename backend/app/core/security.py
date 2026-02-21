@@ -1,3 +1,4 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -39,3 +40,30 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
+
+
+def create_oauth_state_token(provider: str, expires_minutes: int = 10) -> str:
+    expire = datetime.now(UTC) + timedelta(minutes=expires_minutes)
+    to_encode: dict[str, Any] = {
+        "type": "oauth_state",
+        "provider": provider,
+        "nonce": secrets.token_urlsafe(24),
+        "exp": expire,
+    }
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_oauth_state_token(token: str, provider: str) -> dict[str, Any] | None:
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+
+    if payload.get("type") != "oauth_state":
+        return None
+    if payload.get("provider") != provider:
+        return None
+    nonce = payload.get("nonce")
+    if not isinstance(nonce, str) or len(nonce) < 16:
+        return None
+    return payload

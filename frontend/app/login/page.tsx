@@ -7,6 +7,8 @@ import { FormEvent, useState } from "react";
 import { getDiscordAuthUrl, login } from "@/lib/api";
 import { setSession } from "@/lib/auth";
 
+const DISCORD_STATE_KEY = "stratum_discord_oauth_state";
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -16,7 +18,8 @@ export default function LoginPage() {
 
   const onDiscordLogin = async () => {
     try {
-      const { url } = await getDiscordAuthUrl();
+      const { url, state } = await getDiscordAuthUrl();
+      sessionStorage.setItem(DISCORD_STATE_KEY, state);
       window.location.href = url;
     } catch (err) {
       setError("Failed to start Discord login");
