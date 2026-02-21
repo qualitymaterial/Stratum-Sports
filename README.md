@@ -82,6 +82,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 ## Product Guide
 
 - End-user + operator guide: `docs/user-guide.md`
+- Release notes / changelog: `CHANGELOG.md`
 
 ## Required Environment Variables for Full Functionality
 
