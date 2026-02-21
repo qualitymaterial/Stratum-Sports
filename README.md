@@ -22,6 +22,8 @@ This is an analytics product, not a picks service and not gambling advice.
   - `MOVE`
   - `KEY_CROSS`
   - `MULTIBOOK_SYNC`
+  - `DISLOCATION` (book vs persisted consensus outlier)
+  - `STEAM` (fast synchronized multi-book line moves)
 - Free vs Pro enforcement:
   - Free delayed odds (10 minutes)
   - Free watchlist limit of 3
@@ -116,11 +118,200 @@ It also applies a daily budget interval floor using `x-requests-last`:
 
 `min_interval_seconds = ceil((x_requests_last * 86400) / ODDS_API_TARGET_DAILY_CREDITS)`
 
+## Close Capture Mode (Live Polling)
+
+Close capture mode boosts cadence near tipoff while reducing far-from-tip polling to improve close-line quality with bounded request growth.
+
+Cadence bands per event:
+- `minutes_to_tip > 180`: 15m cadence (or slower if base cadence is slower)
+- `180 >= minutes_to_tip > 60`: 5m cadence
+- `60 >= minutes_to_tip > -15`: 60s cadence
+- `minutes_to_tip <= -15`: event polling stops
+
+Environment controls:
+- `STRATUM_CLOSE_CAPTURE_ENABLED` (default `true`)
+- `STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE` (default `10`)
+
+Quota safety:
+- poller tracks per-event `next_poll_at` in memory and only ingests due events
+- hard cap on due events per cycle via `STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE`
+- existing low-credit and budget header checks remain active
+
+## One-Off Historical Backfill (NBA)
+
+Use this one-off tool to backfill recent historical odds snapshots into `games` and `odds_snapshots` for charts/backtests.
+
+Historical endpoint strategy (The Odds API v4):
+- Preferred: `GET /v4/historical/sports/{sport_key}/odds?date=...`
+- Fallback: `GET /v4/historical/sports/{sport_key}/events/{event_id}/odds?date=...`
+- The tool uses `date` (ISO8601 `Z`) for historical snapshots and reads `x-requests-*` headers for budget control.
+
+Probe only (no writes) to verify endpoint support before running a full backfill:
+
+```bash
+docker compose run --rm --no-deps backend \
+  python -m app.tools.backfill_history \
+  --probe_only true \
+  --start 2026-02-18T00:00:00Z \
+  --end 2026-02-22T00:00:00Z \
+  --sport_key basketball_nba \
+  --markets spreads,totals \
+  --max_events 1 \
+  --max_requests 5
+```
+
+Command:
+
+```bash
+docker compose run --rm --no-deps backend \
+  python -m app.tools.backfill_history \
+  --start 2026-02-18T00:00:00Z \
+  --end 2026-02-22T00:00:00Z \
+  --sport_key basketball_nba \
+  --markets spreads,totals,h2h \
+  --max_events 10 \
+  --max_requests 200 \
+  --min_requests_remaining 50
+```
+
+Safety behaviors:
+- Hard budget stop when `max_requests` is reached.
+- Hard budget stop when remaining credits drop to `min_requests_remaining`.
+- Idempotent DB-side dedupe on exact snapshot key `(event, book, market, outcome, line, price, fetched_at)`.
+- Logs and prints summary with requests used, snapshots inserted, duplicates skipped, and timestamp coverage.
+
+Warning:
+- This is intentionally credit-sensitive. Start with small windows and low `--max_events` / `--max_requests`.
+
+## Recommended First Real Dataset Backfill (NBA)
+
+Run this larger first pass to seed enough history for CLV close diagnostics and backtests:
+
+```bash
+docker compose run --rm --no-deps backend python -m app.tools.backfill_history \
+  --start 2026-02-20T00:00:00Z \
+  --end   2026-02-23T00:00:00Z \
+  --sport_key basketball_nba \
+  --markets spreads,totals,h2h \
+  --max_events 50 \
+  --max_requests 1200 \
+  --min_requests_remaining 150 \
+  --history_step_minutes 120
+```
+
+After the run:
+
+```bash
+docker compose run --rm --no-deps backend python -m app.tools.dataset_sanity
+```
+
+Expected outcomes:
+- Multiple events covered in `odds_snapshots`
+- Multi-book distribution across major books
+- At least some events flagged as `close_covered` in close coverage diagnostics
+
+Dataset build runner (backfill + sanity in one command):
+
+```bash
+python -m app.tools.run_dataset_build
+```
+
+Example with overrides:
+
+```bash
+python -m app.tools.run_dataset_build --history_step_minutes 60
+```
+
+## Research Backfill (Completed Games)
+
+Use this runner for Path B research windows that are fully in the past (completed games), then review close coverage quality before CLV evaluation.
+
+```bash
+python -m app.tools.run_research_backfill
+```
+
+Do not use future windows for CLV evaluation; close-line diagnostics and signal grading require completed games.
+
+## Fix Close Capture (One Command)
+
+```bash
+docker compose run --rm --no-deps backend python -m app.tools.fix_close_capture
+```
+
+## Consensus Snapshot Controls
+
+Consensus snapshots are computed from stored `odds_snapshots` after each ingestion commit. This does not create extra external API calls.
+
+- `CONSENSUS_ENABLED` (default `true`)
+- `CONSENSUS_LOOKBACK_MINUTES` (default `10`)
+- `CONSENSUS_MIN_BOOKS` (default `5`)
+- `CONSENSUS_MARKETS` (default `spreads,totals,h2h`)
+- `CONSENSUS_RETENTION_DAYS` (default `14`)
+
+## Dislocation Signal Controls
+
+Dislocation detection runs in the existing signal pipeline and compares latest per-book odds snapshots to persisted consensus snapshots (no extra external API calls).
+
+- `DISLOCATION_ENABLED` (default `true`)
+- `DISLOCATION_LOOKBACK_MINUTES` (default `10`)
+- `DISLOCATION_MIN_BOOKS` (default `5`)
+- `DISLOCATION_SPREAD_LINE_DELTA` (default `1.0`)
+- `DISLOCATION_TOTAL_LINE_DELTA` (default `2.0`)
+- `DISLOCATION_ML_IMPLIED_PROB_DELTA` (default `0.03`)
+- `DISLOCATION_COOLDOWN_SECONDS` (default `900`)
+- `DISLOCATION_MAX_SIGNALS_PER_EVENT` (default `6`)
+
+## Steam v2 Signal Controls
+
+Steam v2 detects fast, same-direction line movement across multiple books using only `odds_snapshots`. No extra external API calls are made.
+
+- `STEAM_ENABLED` (default `true`)
+- `STEAM_WINDOW_MINUTES` (default `3`)
+- `STEAM_MIN_BOOKS` (default `4`)
+- `STEAM_MIN_MOVE_SPREAD` (default `0.5`)
+- `STEAM_MIN_MOVE_TOTAL` (default `1.0`)
+- `STEAM_COOLDOWN_SECONDS` (default `900`)
+- `STEAM_MAX_SIGNALS_PER_EVENT` (default `4`)
+- `STEAM_DISCORD_ENABLED` (default `false`, shadow mode)
+
+## CLV Tracking Controls
+
+CLV tracking is computed from existing `games.commence_time`, persisted `market_consensus_snapshots`, and persisted `signals`. No additional external API calls are made.
+
+- `CLV_ENABLED` (default `true`)
+- `CLV_MINUTES_AFTER_COMMENCE` (default `10`)
+- `CLV_LOOKBACK_DAYS` (default `7`)
+- `CLV_RETENTION_DAYS` (default `60`)
+- `CLV_JOB_INTERVAL_MINUTES` (default `60`)
+
+## Cycle KPI Controls
+
+Cycle KPIs persist one operational summary row per poller cycle for internal observability (burn, throughput, signals, alerts, latency) using existing in-process data only.
+
+- `KPI_ENABLED` (default `true`)
+- `KPI_RETENTION_DAYS` (default `30`)
+- `KPI_WRITE_FAILURES_SOFT` (default `true`)
+- `OPS_INTERNAL_TOKEN` (required in production; sent via `X-Stratum-Ops-Token` for `/api/v1/ops/*`)
+
+## Ops Digest Controls
+
+Internal weekly digest posts the operator report to an internal Discord webhook. It is deduped per ISO week and skipped when webhook is not configured.
+
+- `OPS_DIGEST_ENABLED` (default `false`)
+- `OPS_DIGEST_WEBHOOK_URL` (default empty)
+- `OPS_DIGEST_WEEKDAY` (default `1`, Monday)
+- `OPS_DIGEST_HOUR_UTC` (default `13`)
+- `OPS_DIGEST_MINUTE_UTC` (default `0`)
+- `OPS_DIGEST_LOOKBACK_DAYS` (default `7`)
+
 ## Core API Routes
 
 - Auth: `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/me`
 - Dashboard: `/api/v1/dashboard/cards`
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
+- Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
+- Intel CLV (Pro): `/api/v1/intel/clv?event_id=...`, `/api/v1/intel/clv/summary?days=7`
+- Ops KPIs (Internal token): `/api/v1/ops/cycles?days=7&limit=200`, `/api/v1/ops/cycles/summary?days=7`, `/api/v1/ops/report?days=7`
 - Pro CSV export: `/api/v1/games/{event_id}/export.csv?market=spreads|totals|h2h`
 - Watchlist: `/api/v1/watchlist`
 - Discord (Pro): `/api/v1/discord/connection`
