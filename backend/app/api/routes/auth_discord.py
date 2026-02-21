@@ -29,7 +29,9 @@ async def discord_login():
         "response_type": "code",
         "scope": "identify email",
     }
-    auth_url = f"{DISCORD_AUTH_URL}?{'&'.join([f'{k}={v}' for k, v in params.items()])}"
+    from urllib.parse import urlencode
+    query_string = urlencode(params)
+    auth_url = f"{DISCORD_AUTH_URL}?{query_string}"
     return {"url": auth_url}
 
 @router.post("/callback")

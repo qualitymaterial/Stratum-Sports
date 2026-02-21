@@ -83,8 +83,17 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 
 - `ODDS_API_KEY` (The Odds API)
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`
+- `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 
-Without these, the app runs but external ingestion/billing flows are limited.
+## Discord OAuth Setup
+
+1. Create an application at [Discord Developer Portal](https://discord.com/developers/applications).
+2. Copy the **Client ID** and **Client Secret** to your `.env` file.
+3. Go to the **OAuth2** -> **General** tab in the Discord Portal.
+4. Add a **Redirect URI**: `http://localhost:3000/auth/discord/callback`.
+5. Click **Save Changes**.
+
+Without these, the app runs but external ingestion/billing/social login flows are limited.
 
 ## Core API Routes
 
