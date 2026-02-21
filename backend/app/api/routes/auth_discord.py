@@ -110,7 +110,7 @@ async def discord_callback(
             await db.commit()
 
     # 4. Generate JWT
-    jwt_token = create_access_token(data={"sub": str(db_user.id)})
+    jwt_token = create_access_token(subject=str(db_user.id))
     return {
         "access_token": jwt_token,
         "token_type": "bearer",
