@@ -59,6 +59,26 @@ docker-compose up --build
 - API: http://localhost:8000/api/v1
 - Health: http://localhost:8000/api/v1/health/live
 
+## Production Quick Start
+
+1. Create production env file from template:
+
+```bash
+cp .env.production.example .env.production
+```
+
+2. Fill all required secrets and production URLs in `.env.production`.
+
+3. Start production compose stack:
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+```
+
+4. Full deployment runbook:
+
+- `docs/deployment-aws-ec2.md`
+
 ## Required Environment Variables for Full Functionality
 
 - `ODDS_API_KEY` (The Odds API)
@@ -96,4 +116,4 @@ docker-compose --env-file .env.example run --rm --no-deps backend pytest -q
 
 - Polling worker runs as separate container (`worker`) and executes every 60 seconds.
 - Free-tier delayed enforcement happens in backend query layer; UI hiding is not the only control.
-- If port `5432` is already occupied locally, adjust DB host port mapping in `docker-compose.yml`.
+- Local Postgres is mapped to host port `5433` by default (`POSTGRES_HOST_PORT`) to avoid common `5432` conflicts.

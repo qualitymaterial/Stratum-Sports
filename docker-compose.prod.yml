@@ -2,79 +2,77 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-stratum}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stratum}
-      POSTGRES_DB: ${POSTGRES_DB:-stratum_sports}
-    ports:
-      - "${POSTGRES_HOST_PORT:-5433}:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stratum} -d ${POSTGRES_DB:-stratum_sports}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+    restart: unless-stopped
 
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    env_file: .env
+    env_file: .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://stratum:stratum@db:5432/stratum_sports}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+      CORS_ORIGINS: ${CORS_ORIGINS}
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
-    command: ["sh", "/app/start.sh"]
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
 
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: ["sh", "/app/worker-start.sh"]
-    env_file: .env
+    command: ["/app/worker-start.sh"]
+    env_file: .env.production
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://stratum:stratum@db:5432/stratum_sports}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-    volumes:
-      - ./backend:/app
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    env_file: .env.production
     environment:
-      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000/api/v1}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
       NEXT_PUBLIC_STRIPE_PRO_PRICE_USD: ${NEXT_PUBLIC_STRIPE_PRO_PRICE_USD:-29}
+    command: ["/bin/sh", "-lc", "npm run build && npm run start -- -H 0.0.0.0 -p 3000"]
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    restart: unless-stopped
 
 volumes:
   db_data:

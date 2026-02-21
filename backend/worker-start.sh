@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
 set -e
 
-alembic upgrade head
 exec python -m app.tasks.poller
