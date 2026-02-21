@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     id: UUID
     email: EmailStr
     tier: str
+    is_admin: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}

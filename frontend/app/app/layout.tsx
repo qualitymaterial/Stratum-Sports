@@ -57,17 +57,17 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <nav className="flex gap-2 text-sm text-textMute">
               {links.map((link) => {
                 const active = pathname.startsWith(link.href);
-                const locked = link.proOnly && user.tier !== "pro";
+                const locked = link.proOnly && user.tier !== "pro" && !user.is_admin;
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
                     title={locked ? "Pro feature" : undefined}
                     className={`rounded px-3 py-1.5 transition ${active
-                        ? "bg-accent/15 text-accent"
-                        : locked
-                          ? "opacity-40 hover:bg-panel hover:text-textMain"
-                          : "hover:bg-panel hover:text-textMain"
+                      ? "bg-accent/15 text-accent"
+                      : locked
+                        ? "opacity-40 hover:bg-panel hover:text-textMain"
+                        : "hover:bg-panel hover:text-textMain"
                       }`}
                   >
                     {link.label}
@@ -78,10 +78,15 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-2 text-xs">
+            {user.is_admin && (
+              <span className="rounded border border-primary px-2 py-1 font-bold uppercase tracking-widest text-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.3)]">
+                Admin
+              </span>
+            )}
             <span
               className={`rounded border px-2 py-1 uppercase tracking-wider ${user.tier === "pro"
-                  ? "border-accent/50 text-accent"
-                  : "border-borderTone text-textMute"
+                ? "border-accent/50 text-accent"
+                : "border-borderTone text-textMute"
                 }`}
             >
               {user.tier}

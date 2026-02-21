@@ -2,6 +2,7 @@ export type User = {
   id: string;
   email: string;
   tier: "free" | "pro";
+  is_admin: boolean;
   created_at: string;
 };
 
