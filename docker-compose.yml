@@ -56,6 +56,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://stratum:stratum@db:5432/stratum_sports}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      ODDS_API_KEY: ${ODDS_API_KEY:-}
     volumes:
       - ./backend:/app
     depends_on:
@@ -63,6 +64,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+
+  ops:
+    image: alpine:3.19
+    working_dir: /work
+    volumes:
+      - ./:/work
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: ["sh", "-lc", "apk add --no-cache docker-cli python3 && sleep infinity"]
 
   frontend:
     build:

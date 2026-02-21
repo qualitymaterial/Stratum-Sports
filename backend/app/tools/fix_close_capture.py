@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -18,31 +17,37 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def _run_stream(
-    cmd: list[str],
-    *,
-    cwd: Path | None = None,
-    extra_env: dict[str, str] | None = None,
-) -> tuple[int, str]:
+def _run_stream(cmd: list[str], *, cwd: Path, extra_env: dict[str, str] | None = None) -> int:
     print(f"$ {' '.join(cmd)}", flush=True)
     env = os.environ.copy()
     if extra_env:
         env.update(extra_env)
-    process = subprocess.Popen(
+    completed = subprocess.run(
         cmd,
-        cwd=str(cwd) if cwd else None,
+        cwd=str(cwd),
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
+        check=False,
     )
-    captured: list[str] = []
-    assert process.stdout is not None
-    for line in process.stdout:
-        print(line, end="")
-        captured.append(line)
-    return process.wait(), "".join(captured)
+    return int(completed.returncode)
+
+
+def _run_capture(cmd: list[str], *, cwd: Path, extra_env: dict[str, str] | None = None) -> tuple[int, str]:
+    print(f"$ {' '.join(cmd)}", flush=True)
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    completed = subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    if output:
+        print(output, end="", flush=True)
+    return int(completed.returncode), output
 
 
 def _close_capture_present(output: str) -> bool:
@@ -53,26 +58,20 @@ def _close_capture_present(output: str) -> bool:
     return False
 
 
-def _print_env_check() -> None:
-    print("=== ENV CHECK ===", flush=True)
-    enabled = os.getenv("STRATUM_CLOSE_CAPTURE_ENABLED")
-    max_events = os.getenv("STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE")
+def _warn_missing_envs(env_output: str) -> None:
+    enabled_ok = False
+    max_events_ok = False
+    for line in env_output.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("STRATUM_CLOSE_CAPTURE_ENABLED="):
+            enabled_ok = stripped.split("=", 1)[1].strip() != ""
+        if stripped.startswith("STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE="):
+            max_events_ok = stripped.split("=", 1)[1].strip() != ""
 
-    if enabled:
-        print(f"STRATUM_CLOSE_CAPTURE_ENABLED={enabled}", flush=True)
-    else:
-        print(
-            "[WARN] STRATUM_CLOSE_CAPTURE_ENABLED missing; recommended value: true",
-            flush=True,
-        )
-
-    if max_events:
-        print(f"STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE={max_events}", flush=True)
-    else:
-        print(
-            "[WARN] STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE missing; recommended value: 10",
-            flush=True,
-        )
+    if not enabled_ok:
+        print("[WARN] STRATUM_CLOSE_CAPTURE_ENABLED missing; recommended value: true", flush=True)
+    if not max_events_ok:
+        print("[WARN] STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE missing; recommended value: 10", flush=True)
 
 
 def main() -> int:
@@ -82,29 +81,39 @@ def main() -> int:
         print("docker CLI is required for this tool.", flush=True)
         return 127
 
-    print("=== FIX CLOSE CAPTURE ===", flush=True)
-    pre_verify_cmd = [
+    compose_version_cmd = ["docker", "compose", "version"]
+    compose_rc, _compose_out = _run_capture(compose_version_cmd, cwd=root)
+    if compose_rc != 0:
+        print("docker compose plugin is required for this tool.", flush=True)
+        return compose_rc
+
+    print("=== FIX CLOSE CAPTURE (OPS) ===", flush=True)
+    print("=== REBUILD + RECREATE WORKER ===", flush=True)
+
+    build_cmd = ["docker", "build", "-t", "stratumsports-worker", "-f", "backend/Dockerfile", "backend"]
+    build_rc = _run_stream(build_cmd, cwd=root)
+    if build_rc != 0:
+        return build_rc
+
+    image_probe_cmd = [
         "docker",
-        "compose",
         "run",
         "--rm",
-        "--no-deps",
-        "backend",
+        "stratumsports-worker",
         "python",
         "-c",
         PROBE_CODE,
     ]
-    pre_rc, pre_out = _run_stream(pre_verify_cmd, cwd=root)
-    if pre_rc != 0:
-        print("Pre-fix backend probe failed.", flush=True)
-        return pre_rc
+    image_probe_rc, image_probe_out = _run_capture(image_probe_cmd, cwd=root)
+    if image_probe_rc != 0:
+        return image_probe_rc
+    if not _close_capture_present(image_probe_out):
+        print("CloseCaptureState not present in rebuilt worker image.", flush=True)
+        return 1
 
-    _print_env_check()
-
-    print("=== REBUILD + RECREATE WORKER ===", flush=True)
-    print("[VERIFY MODE] Setting ODDS_API_KEY to empty for worker recreate to avoid external API calls.", flush=True)
+    print("[VERIFY MODE] Setting ODDS_API_KEY empty during recreate to avoid Odds API calls.", flush=True)
     rebuild_cmd = ["docker", "compose", "up", "-d", "--build", "--force-recreate", "worker"]
-    rebuild_rc, _rebuild_out = _run_stream(
+    rebuild_rc = _run_stream(
         rebuild_cmd,
         cwd=root,
         extra_env={"ODDS_API_KEY": ""},
@@ -123,7 +132,7 @@ def main() -> int:
         "-c",
         PROBE_CODE,
     ]
-    verify_rc, verify_out = _run_stream(verify_cmd, cwd=root)
+    verify_rc, verify_out = _run_capture(verify_cmd, cwd=root)
     if verify_rc != 0:
         return verify_rc
 
@@ -132,19 +141,33 @@ def main() -> int:
         print("CloseCaptureState verification failed after rebuild.", flush=True)
         return 1
 
+    env_verify_cmd = [
+        "docker",
+        "compose",
+        "exec",
+        "-T",
+        "worker",
+        "sh",
+        "-lc",
+        (
+            "echo STRATUM_CLOSE_CAPTURE_ENABLED=$STRATUM_CLOSE_CAPTURE_ENABLED; "
+            "echo STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE=$STRATUM_CLOSE_CAPTURE_MAX_EVENTS_PER_CYCLE"
+        ),
+    ]
+    env_rc, env_out = _run_capture(env_verify_cmd, cwd=root)
+    if env_rc != 0:
+        return env_rc
+    _warn_missing_envs(env_out)
+
     logs_cmd = ["docker", "compose", "logs", "--tail=200", "worker"]
-    logs_rc, logs_out = _run_stream(logs_cmd, cwd=root)
+    logs_rc, logs_out = _run_capture(logs_cmd, cwd=root)
     if logs_rc != 0:
         return logs_rc
 
-    close_capture_lines = [line for line in logs_out.splitlines() if "CLOSE-CAPTURE" in line]
-    if close_capture_lines:
-        print("=== CLOSE-CAPTURE LOG MATCHES ===", flush=True)
-        for line in close_capture_lines:
-            print(line, flush=True)
-    else:
+    if "CLOSE-CAPTURE" not in logs_out:
         print(
-            "Close-capture code is present but not emitting logs; worker may not be running the poller loop.",
+            'If no "CLOSE-CAPTURE" appears, the worker is still running an old codepath OR '
+            "close-capture planning logs aren’t executing.",
             flush=True,
         )
 

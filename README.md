@@ -235,7 +235,7 @@ Do not use future windows for CLV evaluation; close-line diagnostics and signal 
 ## Fix Close Capture (One Command)
 
 ```bash
-docker compose run --rm --no-deps backend python -m app.tools.fix_close_capture
+docker compose run --rm ops sh -lc "apk add --no-cache docker-cli docker-cli-compose python3 && PYTHONPATH=/work/backend python3 -m app.tools.fix_close_capture"
 ```
 
 ## Consensus Snapshot Controls
