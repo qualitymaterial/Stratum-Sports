@@ -16,11 +16,16 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         if redis is None:
             return await call_next(request)
 
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            client_ip = forwarded_for.split(",")[0].strip()
+        from app.core.config import get_settings
+        settings = get_settings()
+
+        source_ip = request.client.host if request.client else "unknown"
+        if source_ip in settings.trusted_proxies_list:
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            client_ip = forwarded_for.split(",")[0].strip() if forwarded_for else source_ip
         else:
-            client_ip = request.client.host if request.client else "unknown"
+            client_ip = source_ip
+
         minute_bucket = datetime.now(UTC).strftime("%Y%m%d%H%M")
         key = f"ratelimit:{client_ip}:{minute_bucket}"
 

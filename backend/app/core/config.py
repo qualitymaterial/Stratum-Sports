@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     cors_origins: str = "http://localhost:3000"
+    trusted_proxies: str = "127.0.0.1"
 
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
@@ -58,6 +59,10 @@ class Settings(BaseSettings):
     @property
     def nba_key_numbers_list(self) -> list[float]:
         return [float(v.strip()) for v in self.nba_key_numbers.split(",") if v.strip()]
+
+    @property
+    def trusted_proxies_list(self) -> list[str]:
+        return [v.strip() for v in self.trusted_proxies.split(",") if v.strip()]
 
 
 @lru_cache

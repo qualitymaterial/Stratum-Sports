@@ -43,7 +43,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const links = [
     { href: "/app/dashboard", label: "Dashboard", proOnly: false },
     { href: "/app/watchlist", label: "Watchlist", proOnly: false },
-    { href: "/app/discord", label: "Discord", proOnly: true },
+    { href: "/app/discord", label: "Alerts", proOnly: true },
   ];
 
   return (
@@ -63,13 +63,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                     key={link.href}
                     href={link.href}
                     title={locked ? "Pro feature" : undefined}
-                    className={`rounded px-3 py-1.5 transition ${
-                      active
+                    className={`rounded px-3 py-1.5 transition ${active
                         ? "bg-accent/15 text-accent"
                         : locked
                           ? "opacity-40 hover:bg-panel hover:text-textMain"
                           : "hover:bg-panel hover:text-textMain"
-                    }`}
+                      }`}
                   >
                     {link.label}
                   </Link>
@@ -80,11 +79,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-2 text-xs">
             <span
-              className={`rounded border px-2 py-1 uppercase tracking-wider ${
-                user.tier === "pro"
+              className={`rounded border px-2 py-1 uppercase tracking-wider ${user.tier === "pro"
                   ? "border-accent/50 text-accent"
                   : "border-borderTone text-textMute"
-              }`}
+                }`}
             >
               {user.tier}
             </span>
