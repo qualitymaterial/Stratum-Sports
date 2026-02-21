@@ -19,7 +19,7 @@ DISCORD_USER_URL = "https://discord.com/api/users/@me"
 async def discord_login():
     if not settings.discord_client_id:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_MODEL,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Discord Client ID not configured"
         )
     
