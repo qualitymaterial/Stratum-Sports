@@ -20,3 +20,8 @@ def setup_logging() -> None:
 
     root_logger.setLevel(settings.log_level.upper())
     root_logger.addHandler(handler)
+
+    # Avoid leaking external API query strings (which may contain credentials)
+    # and reduce log noise from client transport internals.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)

@@ -16,8 +16,23 @@ from app.services.signals import detect_market_movements
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-# Track polling cycles to run periodic cleanup
-cycle_count = 0
+def determine_poll_interval(cycle_result: dict | None) -> int:
+    active_interval = max(1, settings.odds_poll_interval_seconds)
+    idle_interval = max(1, settings.odds_poll_interval_idle_seconds)
+    low_credit_interval = max(1, settings.odds_poll_interval_low_credit_seconds)
+
+    if not cycle_result:
+        return active_interval
+
+    remaining = cycle_result.get("api_requests_remaining")
+    if isinstance(remaining, int) and remaining <= settings.odds_api_low_credit_threshold:
+        return low_credit_interval
+
+    events_seen = cycle_result.get("events_seen", 0)
+    if isinstance(events_seen, int) and events_seen == 0:
+        return idle_interval
+
+    return active_interval
 
 
 @asynccontextmanager
@@ -49,22 +64,32 @@ async def redis_cycle_lock(redis: Redis | None, lock_key: str, ttl_seconds: int 
             logger.exception("Failed to release redis lock")
 
 
-async def run_polling_cycle(redis: Redis | None) -> None:
+async def run_polling_cycle(redis: Redis | None) -> dict:
     async with AsyncSessionLocal() as db:
         ingest_result = await ingest_odds_cycle(db, redis)
         event_ids = ingest_result.get("event_ids", [])
         if not event_ids:
             logger.info("No updated events this cycle")
-            return
+            return ingest_result
 
         signals = await detect_market_movements(db, redis, event_ids)
-        await dispatch_discord_alerts_for_signals(db, signals)
+        alerts_sent = await dispatch_discord_alerts_for_signals(db, signals)
+        ingest_result["signals_created"] = len(signals)
+        ingest_result["alerts_sent"] = alerts_sent
+        return ingest_result
 
 
 async def main() -> None:
-    global cycle_count
     setup_logging()
-    logger.info("Starting odds poller", extra={"interval_seconds": settings.odds_poll_interval_seconds})
+    logger.info(
+        "Starting odds poller",
+        extra={
+            "active_interval_seconds": settings.odds_poll_interval_seconds,
+            "idle_interval_seconds": settings.odds_poll_interval_idle_seconds,
+            "low_credit_interval_seconds": settings.odds_poll_interval_low_credit_seconds,
+            "low_credit_threshold": settings.odds_api_low_credit_threshold,
+        },
+    )
 
     redis: Redis | None = None
     try:
@@ -74,17 +99,18 @@ async def main() -> None:
         logger.exception("Redis unavailable, poller running without lock/dedupe cache")
         redis = None
 
+    last_cleanup_monotonic = 0.0
+
     while True:
         cycle_start = time.monotonic()
+        cycle_result: dict | None = None
         try:
             async with redis_cycle_lock(redis, "poller:odds-ingest-lock") as acquired:
                 if acquired:
-                    await run_polling_cycle(redis)
-                    
-                    # Run cleanup every ~60 cycles (approx 1 hour at 60s intervals)
-                    cycle_count += 1
-                    if cycle_count >= 60:
-                        cycle_count = 0
+                    cycle_result = await run_polling_cycle(redis)
+                    now_monotonic = time.monotonic()
+                    if now_monotonic - last_cleanup_monotonic >= 3600:
+                        last_cleanup_monotonic = now_monotonic
                         async with AsyncSessionLocal() as db:
                             deleted_snaps = await cleanup_old_snapshots(db)
                             deleted_signals = await cleanup_old_signals(db)
@@ -101,8 +127,21 @@ async def main() -> None:
         except Exception:
             logger.exception("Polling cycle failed")
 
+        target_interval = determine_poll_interval(cycle_result)
         elapsed = time.monotonic() - cycle_start
-        sleep_seconds = max(1, settings.odds_poll_interval_seconds - elapsed)
+        sleep_seconds = max(1, target_interval - elapsed)
+
+        if target_interval != settings.odds_poll_interval_seconds:
+            logger.info(
+                "Adaptive polling interval applied",
+                extra={
+                    "target_interval_seconds": target_interval,
+                    "sleep_seconds": round(sleep_seconds, 2),
+                    "events_seen": (cycle_result or {}).get("events_seen"),
+                    "api_requests_remaining": (cycle_result or {}).get("api_requests_remaining"),
+                },
+            )
+
         await asyncio.sleep(sleep_seconds)
 
 

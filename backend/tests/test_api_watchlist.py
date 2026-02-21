@@ -1,5 +1,4 @@
 """Integration tests for watchlist endpoints."""
-import pytest
 from datetime import UTC, datetime
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession

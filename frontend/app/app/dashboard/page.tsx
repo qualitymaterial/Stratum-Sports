@@ -1,20 +1,52 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { MarketSparkline } from "@/components/MarketSparkline";
 import { SignalBadge } from "@/components/SignalBadge";
 import { getDashboardCards } from "@/lib/api";
 import { useCurrentUser } from "@/lib/auth";
+import { useOddsSocket } from "@/lib/useOddsSocket";
 import { DashboardCard } from "@/lib/types";
 
 export default function DashboardPage() {
+  const [flashing, setFlashing] = useState<Record<string, "up" | "down" | null>>({});
   const { user, loading, token } = useCurrentUser(true);
   const [cards, setCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Handle real-time updates
+  const handleUpdate = useCallback((msg: any) => {
+    setCards((prev) =>
+      prev.map((card) => {
+        if (card.event_id !== msg.event_id) return card;
+
+        // Update the specific consensus value based on market
+        const newConsensus = { ...card.consensus };
+        const marketKey = msg.market as keyof typeof card.consensus;
+
+        // Determine flash direction
+        const prevValue = card.consensus[marketKey];
+        if (msg.line !== null && prevValue !== null) {
+          const key = `${card.event_id}-${marketKey}`;
+          setFlashing((f) => ({ ...f, [key]: msg.line > prevValue ? "up" : "down" }));
+          // Clear flash after 2 seconds
+          setTimeout(() => setFlashing((f) => ({ ...f, [key]: null })), 2000);
+        }
+
+        if (marketKey in newConsensus) {
+          (newConsensus as any)[marketKey] = msg.line;
+        }
+
+        return { ...card, consensus: newConsensus };
+      })
+    );
+  }, []);
+
+  const { connected } = useOddsSocket(handleUpdate);
 
   const load = async () => {
     if (!token) {
@@ -58,11 +90,20 @@ export default function DashboardPage() {
     <section className="space-y-5">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Market Dashboard</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold">Market Dashboard</h1>
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${connected
+                ? "bg-positive/10 text-positive border border-positive/20"
+                : "bg-textMute/10 text-textMute border border-textMute/20"
+              }`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-positive animate-pulse" : "bg-textMute"}`} />
+              {connected ? "Live Update Active" : "Stream Offline"}
+            </span>
+          </div>
           <p className="text-sm text-textMute">
             {user.tier === "free"
               ? "Free tier data is delayed by 10 minutes."
-              : "Pro tier real-time stream active."}
+              : "Pro tier access granted."}
           </p>
         </div>
         <button
@@ -76,6 +117,7 @@ export default function DashboardPage() {
       </header>
 
       <div className="grid gap-3 md:grid-cols-3">
+        {/* ... (Summary stats same as before) */}
         <div className="rounded-lg border border-borderTone bg-panel p-3">
           <p className="text-xs uppercase tracking-wider text-textMute">Tracked Games</p>
           <p className="mt-2 text-2xl font-semibold">{summary.games}</p>
@@ -132,16 +174,24 @@ export default function DashboardPage() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-textMute">
-              <div className="rounded border border-borderTone bg-panelSoft p-2">
+              <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-spreads`] === "up" ? "animate-flash-green" :
+                  flashing[`${card.event_id}-spreads`] === "down" ? "animate-flash-red" : ""
+                }`}>
                 Spread: <span className="text-textMain">{card.consensus.spreads ?? "-"}</span>
               </div>
-              <div className="rounded border border-borderTone bg-panelSoft p-2">
+              <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-totals`] === "up" ? "animate-flash-green" :
+                  flashing[`${card.event_id}-totals`] === "down" ? "animate-flash-red" : ""
+                }`}>
                 Total: <span className="text-textMain">{card.consensus.totals ?? "-"}</span>
               </div>
-              <div className="rounded border border-borderTone bg-panelSoft p-2">
+              <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_home`] === "up" ? "animate-flash-green" :
+                  flashing[`${card.event_id}-h2h_home`] === "down" ? "animate-flash-red" : ""
+                }`}>
                 ML Home: <span className="text-textMain">{card.consensus.h2h_home ?? "-"}</span>
               </div>
-              <div className="rounded border border-borderTone bg-panelSoft p-2">
+              <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_away`] === "up" ? "animate-flash-green" :
+                  flashing[`${card.event_id}-h2h_away`] === "down" ? "animate-flash-red" : ""
+                }`}>
                 ML Away: <span className="text-textMain">{card.consensus.h2h_away ?? "-"}</span>
               </div>
             </div>

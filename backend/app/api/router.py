@@ -9,6 +9,7 @@ from app.api.routes import (
     games,
     health,
     watchlist,
+    ws,
 )
 
 api_router = APIRouter()
@@ -20,3 +21,4 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboar
 api_router.include_router(games.router, prefix="/games", tags=["games"])
 api_router.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
 api_router.include_router(discord.router, prefix="/discord", tags=["discord"])
+api_router.include_router(ws.router, prefix="/realtime", tags=["realtime"])

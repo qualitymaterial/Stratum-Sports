@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     odds_api_key: str = ""
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
     odds_poll_interval_seconds: int = 60
+    odds_poll_interval_idle_seconds: int = 300
+    odds_poll_interval_low_credit_seconds: int = 900
+    odds_api_low_credit_threshold: int = 200
+    odds_api_regions: str = "us"
+    odds_api_markets: str = "spreads,totals,h2h"
+    odds_api_bookmakers: str = ""
     nba_key_numbers: str = "2,3,4,5,6,7,8,10"
 
     free_delay_minutes: int = 10

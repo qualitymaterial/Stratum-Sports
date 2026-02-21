@@ -95,6 +95,18 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 
 Without these, the app runs but external ingestion/billing/social login flows are limited.
 
+## API Pull Budget Controls
+
+If you are running low on The Odds API credits, tune these:
+
+- `ODDS_POLL_INTERVAL_SECONDS` (default `60`): active cadence when events are available
+- `ODDS_POLL_INTERVAL_IDLE_SECONDS` (default `300`): cadence when no events are returned
+- `ODDS_POLL_INTERVAL_LOW_CREDIT_SECONDS` (default `900`): cadence when credits are low
+- `ODDS_API_LOW_CREDIT_THRESHOLD` (default `200`): triggers low-credit cadence at or below this value
+- `ODDS_API_BOOKMAKERS` (optional): comma-separated bookmaker keys to reduce request cost
+
+The poller reads response headers (`x-requests-remaining`, `x-requests-used`, `x-requests-last`) and automatically slows down in low-credit mode.
+
 ## Core API Routes
 
 - Auth: `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/me`

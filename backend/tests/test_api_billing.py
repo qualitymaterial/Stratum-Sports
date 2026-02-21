@@ -3,13 +3,9 @@
 Stripe API calls are patched with unittest.mock so these tests run without
 real credentials and without network access.
 """
-import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from app.models.user import User
-from app.core.security import get_password_hash
+from unittest.mock import patch
 
 
 # ---------------------------------------------------------------------------

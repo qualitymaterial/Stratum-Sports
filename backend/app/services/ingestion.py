@@ -76,9 +76,17 @@ async def _upsert_game(db: AsyncSession, event: dict) -> Game:
 
 async def ingest_odds_cycle(db: AsyncSession, redis: Redis | None) -> dict:
     client = OddsApiClient()
-    events = await client.fetch_nba_odds()
+    fetch_result = await client.fetch_nba_odds()
+    events = fetch_result.events
     if not events:
-        return {"inserted": 0, "events_seen": 0, "event_ids": []}
+        return {
+            "inserted": 0,
+            "events_seen": 0,
+            "event_ids": [],
+            "api_requests_remaining": fetch_result.requests_remaining,
+            "api_requests_used": fetch_result.requests_used,
+            "api_requests_last": fetch_result.requests_last,
+        }
 
     fetched_at = datetime.now(UTC)
     inserted = 0
@@ -141,10 +149,38 @@ async def ingest_odds_cycle(db: AsyncSession, redis: Redis | None) -> dict:
                     db.add(snapshot)
                     inserted += 1
 
+                    # Broadcast update via Redis Pub/Sub
+                    if redis is not None:
+                        import json
+                        update_payload = {
+                            "type": "odds_update",
+                            "event_id": event_id,
+                            "sportsbook": sportsbook_key,
+                            "market": market,
+                            "outcome": outcome_name,
+                            "line": line,
+                            "price": int(price),
+                            "timestamp": fetched_at.isoformat(),
+                        }
+                        await redis.publish("odds_updates", json.dumps(update_payload))
+
     await db.commit()
 
     logger.info(
         "Odds ingestion cycle completed",
-        extra={"inserted": inserted, "events_seen": len(events)},
+        extra={
+            "inserted": inserted,
+            "events_seen": len(events),
+            "api_requests_remaining": fetch_result.requests_remaining,
+            "api_requests_used": fetch_result.requests_used,
+            "api_requests_last": fetch_result.requests_last,
+        },
     )
-    return {"inserted": inserted, "events_seen": len(events), "event_ids": list(event_ids)}
+    return {
+        "inserted": inserted,
+        "events_seen": len(events),
+        "event_ids": list(event_ids),
+        "api_requests_remaining": fetch_result.requests_remaining,
+        "api_requests_used": fetch_result.requests_used,
+        "api_requests_last": fetch_result.requests_last,
+    }
