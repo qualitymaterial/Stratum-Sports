@@ -67,6 +67,17 @@ export async function getMe(token: string) {
   return apiRequest<User>("/auth/me", { token });
 }
 
+export async function getDiscordAuthUrl() {
+  return apiRequest<{ url: string }>("/auth/discord/login");
+}
+
+export async function discordCallback(code: string) {
+  return apiRequest<{ access_token: string; user: User }>(
+    `/auth/discord/callback?code=${code}`,
+    { method: "POST" },
+  );
+}
+
 export async function getDashboardCards(token: string) {
   return apiRequest<DashboardCard[]>("/dashboard/cards", { token });
 }

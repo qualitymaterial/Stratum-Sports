@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://stratum:stratum@db:5432/stratum_sports"
     redis_url: str = "redis://redis:6379/0"
 
+    discord_client_id: str = ""
+    discord_client_secret: str = ""
+    discord_redirect_uri: str = "http://localhost:3000/auth/discord/callback"
+
     odds_api_key: str = ""
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
     odds_poll_interval_seconds: int = 60
