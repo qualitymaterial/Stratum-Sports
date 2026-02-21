@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"/Users/briananderson/Documents/Prototypes/Stratum Sports/backend/tests\" -type d -exec sh -c 'test -f \"\"$1/__init__.py\"\" && echo \"\"OK: $1\"\" || echo \"\"MISSING: $1\"\"' _ {} ;)"
+    ]
+  }
+}
