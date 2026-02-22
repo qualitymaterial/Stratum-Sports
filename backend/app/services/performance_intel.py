@@ -578,10 +578,22 @@ async def get_signal_quality_rows(
 
     stmt = stmt.limit(normalized_limit).offset(normalized_offset)
     rows = (await db.execute(stmt)).scalars().all()
+    event_ids = sorted({signal.event_id for signal in rows if signal.event_id})
+    game_map: dict[str, Game] = {}
+    if event_ids:
+        games_stmt = select(Game).where(Game.event_id.in_(event_ids))
+        games = (await db.execute(games_stmt)).scalars().all()
+        game_map = {game.event_id: game for game in games}
 
     payload: list[dict[str, Any]] = []
     for signal in rows:
         metadata = signal.metadata_json or {}
+        game = game_map.get(signal.event_id)
+        game_label = None
+        game_commence_time = None
+        if game is not None:
+            game_label = f"{game.away_team} @ {game.home_team}"
+            game_commence_time = game.commence_time
         alert_decision, alert_reason = _resolve_signal_alert_decision(
             signal,
             connection=connection,
@@ -593,6 +605,8 @@ async def get_signal_quality_rows(
             {
                 "id": signal.id,
                 "event_id": signal.event_id,
+                "game_label": game_label,
+                "game_commence_time": game_commence_time,
                 "market": signal.market,
                 "signal_type": signal.signal_type,
                 "direction": signal.direction,

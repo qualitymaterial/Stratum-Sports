@@ -868,6 +868,7 @@ export default function PerformancePage() {
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wider text-textMute">
                     <th className="border-b border-borderTone py-2">Signal</th>
+                    <th className="border-b border-borderTone py-2">Game</th>
                     <th className="border-b border-borderTone py-2">Market</th>
                     <th className="border-b border-borderTone py-2">Outcome</th>
                     <th className="border-b border-borderTone py-2">Strength</th>
@@ -881,6 +882,19 @@ export default function PerformancePage() {
                   {qualityRows.map((row) => (
                     <tr key={row.id}>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <p>{row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}</p>
+                        {row.game_commence_time && (
+                          <p className="text-[11px] text-textMute">
+                            {new Date(row.game_commence_time).toLocaleString([], {
+                              month: "short",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        )}
+                      </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.outcome_name ?? "-"}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.strength_score}</td>
@@ -910,7 +924,7 @@ export default function PerformancePage() {
                   ))}
                   {qualityRows.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-3 text-xs text-textMute">
+                      <td colSpan={9} className="py-3 text-xs text-textMute">
                         No signals matched the selected quality filters.
                       </td>
                     </tr>

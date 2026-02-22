@@ -173,6 +173,8 @@ export type ClvTrustScorecard = {
 export type SignalQualityRow = {
   id: string;
   event_id: string;
+  game_label: string | null;
+  game_commence_time: string | null;
   market: string;
   signal_type: string;
   direction: string;

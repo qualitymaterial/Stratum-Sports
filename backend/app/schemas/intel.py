@@ -82,6 +82,8 @@ class ClvTeaserResponse(BaseModel):
 class SignalQualityPoint(BaseModel):
     id: UUID
     event_id: str
+    game_label: str | None
+    game_commence_time: datetime | None
     market: str
     signal_type: str
     direction: str
