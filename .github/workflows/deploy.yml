@@ -62,7 +62,21 @@ jobs:
           p.chmod(0o600)
           PY
 
-          ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" "echo SSH_OK"
+          if ! ssh-keygen -y -f ~/.ssh/id_deploy >/dev/null 2>&1; then
+            echo "ERROR: DROPLET_SSH_KEY could not be parsed as a valid private key."
+            exit 1
+          fi
+          echo "Deploy key fingerprint: $(ssh-keygen -lf ~/.ssh/id_deploy | awk '{print $2}')"
+
+          if ! nc -z -w 5 "$DROPLET_HOST" "$DROPLET_PORT"; then
+            echo "ERROR: Cannot reach $DROPLET_HOST:$DROPLET_PORT from GitHub runner. Check cloud firewall/UFW/port."
+            exit 1
+          fi
+
+          if ! ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" "echo SSH_OK"; then
+            echo "ERROR: SSH authentication/connection failed. Verify DROPLET_USER, key pair, and SSH port."
+            exit 1
+          fi
 
           ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" 'bash -se' <<'REMOTE'
             set -eu
