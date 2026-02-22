@@ -9,6 +9,7 @@ import { SignalBadge } from "@/components/SignalBadge";
 import { getDashboardCards } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
+import { getDashboardConsensusUpdate } from "@/lib/dashboardRealtime";
 import { useOddsSocket } from "@/lib/useOddsSocket";
 import { DashboardCard } from "@/lib/types";
 
@@ -25,21 +26,25 @@ export default function DashboardPage() {
       prev.map((card) => {
         if (card.event_id !== msg.event_id) return card;
 
-        // Update the specific consensus value based on market
+        const update = getDashboardConsensusUpdate(card, msg);
+        if (!update) {
+          return card;
+        }
+
         const newConsensus = { ...card.consensus };
-        const marketKey = msg.market as keyof typeof card.consensus;
+        const marketKey = update.key as keyof typeof card.consensus;
 
         // Determine flash direction
         const prevValue = card.consensus[marketKey];
-        if (msg.line !== null && prevValue !== null) {
+        if (prevValue !== null) {
           const key = `${card.event_id}-${marketKey}`;
-          setFlashing((f) => ({ ...f, [key]: msg.line > prevValue ? "up" : "down" }));
+          setFlashing((f) => ({ ...f, [key]: update.value > prevValue ? "up" : "down" }));
           // Clear flash after 2 seconds
           setTimeout(() => setFlashing((f) => ({ ...f, [key]: null })), 2000);
         }
 
         if (marketKey in newConsensus) {
-          (newConsensus as any)[marketKey] = msg.line;
+          (newConsensus as any)[marketKey] = update.value;
         }
 
         return { ...card, consensus: newConsensus };

@@ -64,6 +64,7 @@ Use this as your command center:
 
 - Game cards with matchup + start time
 - Consensus spread, total, and moneyline
+  - Spread is displayed as the home-team consensus spread (same convention as game detail chart).
 - Mini movement sparkline
 - Recent signal badges
 - Live stream status indicator for Pro users

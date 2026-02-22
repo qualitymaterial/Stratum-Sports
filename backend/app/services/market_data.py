@@ -76,13 +76,21 @@ async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20
 
         for snap in event_snaps:
             latest_keyed[(snap.sportsbook_key, snap.market, snap.outcome_name)] = snap
-            if snap.market == "spreads" and snap.line is not None:
+            if (
+                snap.market == "spreads"
+                and snap.line is not None
+                and snap.outcome_name == game.home_team
+            ):
                 sparkline_map[snap.fetched_at].append(snap.line)
 
         spreads = [
             snap.line
             for snap in latest_keyed.values()
-            if snap.market == "spreads" and snap.line is not None
+            if (
+                snap.market == "spreads"
+                and snap.line is not None
+                and snap.outcome_name == game.home_team
+            )
         ]
         totals = [
             snap.line
@@ -155,7 +163,11 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
     for snap in snapshots:
         latest_keyed[(snap.sportsbook_key, snap.market, snap.outcome_name)] = snap
         point = chart_bucket[snap.fetched_at]
-        if snap.market == "spreads" and snap.line is not None:
+        if (
+            snap.market == "spreads"
+            and snap.line is not None
+            and snap.outcome_name == game.home_team
+        ):
             point["spreads"].append(snap.line)
         if snap.market == "totals" and snap.line is not None:
             point["totals"].append(snap.line)
