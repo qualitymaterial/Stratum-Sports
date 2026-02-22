@@ -53,7 +53,7 @@ async def upsert_connection(
             alert_totals=payload.alert_totals,
             alert_multibook=payload.alert_multibook,
             min_strength=payload.min_strength,
-            thresholds_json=payload.thresholds,
+            thresholds_json=payload.thresholds.model_dump(),
         )
         db.add(connection)
     else:
@@ -63,7 +63,7 @@ async def upsert_connection(
         connection.alert_totals = payload.alert_totals
         connection.alert_multibook = payload.alert_multibook
         connection.min_strength = payload.min_strength
-        connection.thresholds_json = payload.thresholds
+        connection.thresholds_json = payload.thresholds.model_dump()
 
     await db.commit()
     await db.refresh(connection)

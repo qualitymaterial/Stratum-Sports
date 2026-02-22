@@ -1,4 +1,5 @@
 import logging
+from collections import Counter
 from datetime import UTC, datetime, timedelta
 from statistics import median, pstdev
 from typing import Any
@@ -9,10 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.clv_record import ClvRecord
+from app.models.discord_connection import DiscordConnection
 from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
+from app.services.alert_rules import evaluate_signal_for_connection
 from app.services.signals import american_to_implied_prob
 
 logger = logging.getLogger(__name__)
@@ -33,6 +36,25 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _resolve_signal_alert_decision(
+    signal: Signal,
+    *,
+    connection: DiscordConnection | None,
+    apply_alert_rules: bool,
+) -> tuple[str, str]:
+    if not apply_alert_rules:
+        return "sent", "Sent: alert rule evaluation disabled."
+    if connection is None:
+        return "sent", "Sent: no Discord alert rules configured."
+
+    allowed, reason, _thresholds = evaluate_signal_for_connection(
+        connection,
+        signal,
+        steam_discord_enabled=settings.steam_discord_enabled,
+    )
+    return ("sent", reason) if allowed else ("hidden", reason)
 
 
 def _as_utc_datetime(value: Any) -> datetime:
@@ -514,6 +536,9 @@ async def get_signal_quality_rows(
     days: int = 30,
     limit: int = 100,
     offset: int = 0,
+    apply_alert_rules: bool = False,
+    include_hidden: bool = True,
+    connection: DiscordConnection | None = None,
 ) -> list[dict[str, Any]]:
     cutoff = created_after or (datetime.now(UTC) - timedelta(days=days))
     effective_min_strength = (
@@ -557,6 +582,13 @@ async def get_signal_quality_rows(
     payload: list[dict[str, Any]] = []
     for signal in rows:
         metadata = signal.metadata_json or {}
+        alert_decision, alert_reason = _resolve_signal_alert_decision(
+            signal,
+            connection=connection,
+            apply_alert_rules=apply_alert_rules,
+        )
+        if not include_hidden and alert_decision == "hidden":
+            continue
         payload.append(
             {
                 "id": signal.id,
@@ -572,10 +604,106 @@ async def get_signal_quality_rows(
                 "book_key": metadata.get("book_key"),
                 "delta": _safe_float(metadata.get("delta")),
                 "dispersion": _safe_float(metadata.get("dispersion")),
+                "alert_decision": alert_decision,
+                "alert_reason": alert_reason,
                 "metadata": metadata,
             }
         )
     return payload
+
+
+async def get_signal_quality_weekly_summary(
+    db: AsyncSession,
+    *,
+    days: int = 7,
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_strength: int | None = None,
+    apply_alert_rules: bool = True,
+    connection: DiscordConnection | None = None,
+) -> dict[str, Any]:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    effective_min_strength = (
+        int(min_strength)
+        if min_strength is not None
+        else max(1, int(settings.signal_filter_default_min_strength))
+    )
+    stmt = (
+        select(Signal)
+        .where(
+            Signal.created_at >= cutoff,
+            Signal.strength_score >= effective_min_strength,
+        )
+        .order_by(Signal.created_at.desc())
+    )
+    if signal_type:
+        stmt = stmt.where(Signal.signal_type == signal_type)
+    if market:
+        stmt = stmt.where(Signal.market == market)
+
+    signals = (await db.execute(stmt)).scalars().all()
+    total_signals = len(signals)
+    if total_signals == 0:
+        return {
+            "days": int(days),
+            "total_signals": 0,
+            "eligible_signals": 0,
+            "hidden_signals": 0,
+            "sent_rate_pct": 0.0,
+            "avg_strength": None,
+            "clv_samples": 0,
+            "clv_pct_positive": 0.0,
+            "top_hidden_reason": None,
+        }
+
+    eligible_signal_ids: set[UUID] = set()
+    hidden_reasons: Counter[str] = Counter()
+    strengths_total = 0
+    eligible_signals = 0
+
+    for signal in signals:
+        strengths_total += int(signal.strength_score)
+        decision, reason = _resolve_signal_alert_decision(
+            signal,
+            connection=connection,
+            apply_alert_rules=apply_alert_rules,
+        )
+        if decision == "sent":
+            eligible_signals += 1
+            eligible_signal_ids.add(signal.id)
+        else:
+            hidden_reasons[reason] += 1
+
+    hidden_signals = total_signals - eligible_signals
+    sent_rate_pct = (eligible_signals / total_signals) * 100.0 if total_signals > 0 else 0.0
+    avg_strength = strengths_total / total_signals if total_signals > 0 else None
+    top_hidden_reason = hidden_reasons.most_common(1)[0][0] if hidden_reasons else None
+
+    clv_positive = 0
+    clv_samples = 0
+    if eligible_signal_ids:
+        clv_stmt = select(ClvRecord.signal_id, ClvRecord.clv_line, ClvRecord.clv_prob).where(
+            ClvRecord.signal_id.in_(eligible_signal_ids),
+            ClvRecord.computed_at >= cutoff,
+        )
+        clv_rows = (await db.execute(clv_stmt)).all()
+        clv_samples = len(clv_rows)
+        for _signal_id, clv_line, clv_prob in clv_rows:
+            if (clv_line is not None and float(clv_line) > 0) or (clv_prob is not None and float(clv_prob) > 0):
+                clv_positive += 1
+
+    clv_pct_positive = (clv_positive / clv_samples) * 100.0 if clv_samples > 0 else 0.0
+    return {
+        "days": int(days),
+        "total_signals": total_signals,
+        "eligible_signals": eligible_signals,
+        "hidden_signals": hidden_signals,
+        "sent_rate_pct": round(float(sent_rate_pct), 2),
+        "avg_strength": round(float(avg_strength), 2) if avg_strength is not None else None,
+        "clv_samples": clv_samples,
+        "clv_pct_positive": round(float(clv_pct_positive), 2),
+        "top_hidden_reason": top_hidden_reason,
+    }
 
 
 async def get_clv_teaser(

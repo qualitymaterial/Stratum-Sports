@@ -15,6 +15,9 @@ const DEFAULT_FORM = {
   alert_totals: true,
   alert_multibook: true,
   min_strength: 60,
+  min_books_affected: 1,
+  max_dispersion: "",
+  cooldown_minutes: 15,
 };
 
 export default function DiscordPage() {
@@ -37,6 +40,10 @@ export default function DiscordPage() {
           alert_totals: conn.alert_totals,
           alert_multibook: conn.alert_multibook,
           min_strength: conn.min_strength,
+          min_books_affected: Math.max(1, Number(conn.thresholds?.min_books_affected ?? 1)),
+          max_dispersion:
+            conn.thresholds?.max_dispersion == null ? "" : String(conn.thresholds.max_dispersion),
+          cooldown_minutes: Math.max(0, Number(conn.thresholds?.cooldown_minutes ?? 15)),
         });
       })
       .catch(() => {
@@ -50,7 +57,20 @@ export default function DiscordPage() {
     setError(null);
     setSaved(false);
     try {
-      const conn = await upsertDiscordConnection(token, form);
+      const conn = await upsertDiscordConnection(token, {
+        webhook_url: form.webhook_url,
+        is_enabled: form.is_enabled,
+        alert_spreads: form.alert_spreads,
+        alert_totals: form.alert_totals,
+        alert_multibook: form.alert_multibook,
+        min_strength: form.min_strength,
+        thresholds: {
+          min_books_affected: Math.max(1, Number(form.min_books_affected) || 1),
+          max_dispersion:
+            form.max_dispersion === "" ? null : Math.max(0, Number(form.max_dispersion) || 0),
+          cooldown_minutes: Math.max(0, Number(form.cooldown_minutes) || 0),
+        },
+      });
       setConnection(conn);
       setSaved(true);
     } catch (err) {
@@ -156,6 +176,54 @@ export default function DiscordPage() {
         </div>
         <p className="mt-2 text-xs text-textMute">
           Only signals with strength ≥ {form.min_strength} will trigger an alert.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
+        <p className="mb-4 text-xs uppercase tracking-wider text-textMute">Noise Controls</p>
+        <div className="grid gap-4 md:grid-cols-3">
+          <label className="text-xs text-textMute">
+            Min Books Affected
+            <input
+              type="number"
+              min={1}
+              max={50}
+              value={form.min_books_affected}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, min_books_affected: Math.max(1, Number(e.target.value) || 1) }))
+              }
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Max Dispersion
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={form.max_dispersion}
+              onChange={(e) => setForm((f) => ({ ...f, max_dispersion: e.target.value }))}
+              placeholder="off"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Cooldown Minutes
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              value={form.cooldown_minutes}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, cooldown_minutes: Math.max(0, Number(e.target.value) || 0) }))
+              }
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+        </div>
+        <p className="mt-2 text-xs text-textMute">
+          Reduce alert noise by requiring broader book confirmation, limiting high-dispersion signals, and
+          suppressing repeated alerts during cooldown.
         </p>
       </div>
 

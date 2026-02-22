@@ -93,7 +93,11 @@ export type DiscordConnection = {
   alert_totals: boolean;
   alert_multibook: boolean;
   min_strength: number;
-  thresholds: Record<string, unknown>;
+  thresholds: {
+    min_books_affected?: number;
+    max_dispersion?: number | null;
+    cooldown_minutes?: number;
+  };
   created_at: string;
   updated_at: string;
 };
@@ -180,7 +184,21 @@ export type SignalQualityRow = {
   book_key: string | null;
   delta: number | null;
   dispersion: number | null;
+  alert_decision: "sent" | "hidden" | string;
+  alert_reason: string;
   metadata: Record<string, unknown>;
+};
+
+export type SignalQualityWeeklySummary = {
+  days: number;
+  total_signals: number;
+  eligible_signals: number;
+  hidden_signals: number;
+  sent_rate_pct: number;
+  avg_strength: number | null;
+  clv_samples: number;
+  clv_pct_positive: number;
+  top_hidden_reason: string | null;
 };
 
 export type ActionableBookQuote = {

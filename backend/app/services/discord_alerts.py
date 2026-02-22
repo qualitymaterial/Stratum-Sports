@@ -10,40 +10,28 @@ from app.models.game import Game
 from app.models.signal import Signal
 from app.models.user import User
 from app.models.watchlist import Watchlist
+from app.services.alert_rules import evaluate_signal_for_connection
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
 def _connection_allows_signal(connection: DiscordConnection, signal: Signal) -> bool:
-    if not connection.is_enabled:
-        return False
-    if signal.strength_score < connection.min_strength:
-        return False
+    allowed, _reason, _thresholds = evaluate_signal_for_connection(
+        connection,
+        signal,
+        steam_discord_enabled=settings.steam_discord_enabled,
+    )
+    return allowed
 
-    if signal.signal_type == "STEAM":
-        if not settings.steam_discord_enabled:
-            return False
-        if signal.market == "spreads":
-            return connection.alert_spreads
-        if signal.market == "totals":
-            return connection.alert_totals
-        return False
 
-    if signal.signal_type == "DISLOCATION":
-        if signal.market == "spreads":
-            return connection.alert_spreads
-        if signal.market == "totals":
-            return connection.alert_totals
-        return connection.alert_multibook
-
-    if signal.signal_type == "MULTIBOOK_SYNC":
-        return connection.alert_multibook
-    if signal.market == "spreads":
-        return connection.alert_spreads
-    if signal.market == "totals":
-        return connection.alert_totals
-    return False
+def _alert_cooldown_key(user_id: str, signal: Signal) -> str:
+    metadata = signal.metadata_json or {}
+    outcome = str(metadata.get("outcome_name") or "unknown")
+    return (
+        f"discord:cooldown:{user_id}:{signal.event_id}:{signal.signal_type}:"
+        f"{signal.market}:{outcome.lower()}"
+    )
 
 
 def _format_alert(signal: Signal, game: Game | None) -> str:
@@ -99,7 +87,11 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
     )
 
 
-async def dispatch_discord_alerts_for_signals(db: AsyncSession, signals: list[Signal]) -> dict[str, int]:
+async def dispatch_discord_alerts_for_signals(
+    db: AsyncSession,
+    signals: list[Signal],
+    redis=None,
+) -> dict[str, int]:
     if not signals:
         return {"sent": 0, "failed": 0}
 
@@ -128,10 +120,43 @@ async def dispatch_discord_alerts_for_signals(db: AsyncSession, signals: list[Si
     failed = 0
     async with httpx.AsyncClient(timeout=10.0) as client:
         for watchlist_item, _user, connection in watcher_rows:
+            user_id = str(watchlist_item.user_id)
             for signal in signals:
                 if signal.event_id != watchlist_item.event_id:
                     continue
-                if not _connection_allows_signal(connection, signal):
+
+                cooldown_active = False
+                thresholds_cooldown_seconds = 0
+                if redis is not None:
+                    _allowed, _reason, thresholds = evaluate_signal_for_connection(
+                        connection,
+                        signal,
+                        steam_discord_enabled=settings.steam_discord_enabled,
+                    )
+                    thresholds_cooldown_seconds = max(0, thresholds.cooldown_minutes) * 60
+                    if thresholds_cooldown_seconds > 0:
+                        key = _alert_cooldown_key(user_id, signal)
+                        try:
+                            cooldown_active = bool(await redis.get(key))
+                        except Exception:
+                            logger.exception("Discord cooldown redis read failed")
+
+                allowed, reason, thresholds = evaluate_signal_for_connection(
+                    connection,
+                    signal,
+                    steam_discord_enabled=settings.steam_discord_enabled,
+                    cooldown_active=cooldown_active,
+                )
+                if not allowed:
+                    logger.debug(
+                        "Skipping Discord alert",
+                        extra={
+                            "user_id": user_id,
+                            "event_id": signal.event_id,
+                            "signal_type": signal.signal_type,
+                            "reason": reason,
+                        },
+                    )
                     continue
 
                 payload = {"content": _format_alert(signal, games.get(signal.event_id))}
@@ -139,6 +164,12 @@ async def dispatch_discord_alerts_for_signals(db: AsyncSession, signals: list[Si
                     response = await client.post(connection.webhook_url, json=payload)
                     response.raise_for_status()
                     sent += 1
+                    cooldown_seconds = thresholds_cooldown_seconds or (max(0, thresholds.cooldown_minutes) * 60)
+                    if redis is not None and cooldown_seconds > 0:
+                        try:
+                            await redis.set(_alert_cooldown_key(user_id, signal), "1", ex=cooldown_seconds)
+                        except Exception:
+                            logger.exception("Discord cooldown redis write failed")
                 except Exception:
                     failed += 1
                     logger.exception(

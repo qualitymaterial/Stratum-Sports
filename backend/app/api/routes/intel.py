@@ -11,6 +11,7 @@ from app.api.deps import get_current_user, require_pro_user
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tier import is_pro
+from app.models.discord_connection import DiscordConnection
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.user import User
 from app.schemas.intel import (
@@ -22,6 +23,7 @@ from app.schemas.intel import (
     ClvTeaserResponse,
     ConsensusPoint,
     SignalQualityPoint,
+    SignalQualityWeeklySummary,
 )
 from app.services.performance_intel import (
     get_actionable_book_card,
@@ -32,6 +34,7 @@ from app.services.performance_intel import (
     get_clv_trust_scorecards,
     get_clv_teaser,
     get_signal_quality_rows,
+    get_signal_quality_weekly_summary,
 )
 
 router = APIRouter()
@@ -153,6 +156,11 @@ async def _latest_consensus_rows(
     )
 
     return (await db.execute(stmt)).scalars().all()
+
+
+async def _load_discord_connection(db: AsyncSession, user_id) -> DiscordConnection | None:
+    stmt = select(DiscordConnection).where(DiscordConnection.user_id == user_id)
+    return (await db.execute(stmt)).scalar_one_or_none()
 
 
 @router.get("/consensus", response_model=list[ConsensusPoint])
@@ -367,13 +375,16 @@ async def get_signal_quality(
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    apply_alert_rules: bool = Query(True),
+    include_hidden: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    user: User = Depends(require_pro_user),
 ) -> list[SignalQualityPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
+    connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
     rows = await get_signal_quality_rows(
         db,
         signal_type=resolved_signal_type,
@@ -386,6 +397,9 @@ async def get_signal_quality(
         days=days,
         limit=limit,
         offset=offset,
+        apply_alert_rules=apply_alert_rules,
+        include_hidden=include_hidden,
+        connection=connection,
     )
     logger.info(
         "Intel signal quality query served",
@@ -394,11 +408,50 @@ async def get_signal_quality(
             "market": resolved_market,
             "days": days,
             "min_strength": min_strength,
+            "apply_alert_rules": apply_alert_rules,
+            "include_hidden": include_hidden,
             "rows": len(rows),
             "duration_ms": round((perf_counter() - start) * 1000.0, 2),
         },
     )
     return [SignalQualityPoint(**row) for row in rows]
+
+
+@router.get("/signals/weekly-summary", response_model=SignalQualityWeeklySummary)
+async def get_signal_quality_weekly(
+    days: int = Query(7, ge=1, le=30),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    apply_alert_rules: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_pro_user),
+) -> SignalQualityWeeklySummary:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
+    payload = await get_signal_quality_weekly_summary(
+        db,
+        days=days,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        apply_alert_rules=apply_alert_rules,
+        connection=connection,
+    )
+    logger.info(
+        "Intel signal quality weekly summary served",
+        extra={
+            "days": days,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "apply_alert_rules": apply_alert_rules,
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return SignalQualityWeeklySummary(**payload)
 
 
 @router.get("/books/actionable", response_model=ActionableBookCard)

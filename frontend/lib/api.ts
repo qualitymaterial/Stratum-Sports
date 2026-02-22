@@ -9,6 +9,7 @@ import {
   DiscordConnection,
   GameDetail,
   GameListItem,
+  SignalQualityWeeklySummary,
   SignalQualityRow,
   User,
   WatchlistItem,
@@ -102,6 +103,11 @@ export async function upsertDiscordConnection(
     alert_totals: boolean;
     alert_multibook: boolean;
     min_strength: number;
+    thresholds: {
+      min_books_affected: number;
+      max_dispersion: number | null;
+      cooldown_minutes: number;
+    };
   },
 ) {
   return apiRequest<DiscordConnection>("/discord/connection", {
@@ -111,7 +117,11 @@ export async function upsertDiscordConnection(
   });
 }
 
-function appendOptionalParam(params: URLSearchParams, key: string, value: string | number | null | undefined) {
+function appendOptionalParam(
+  params: URLSearchParams,
+  key: string,
+  value: string | number | boolean | null | undefined,
+) {
   if (value === undefined || value === null || value === "") {
     return;
   }
@@ -214,6 +224,8 @@ export async function getSignalQuality(
     min_books_affected?: number;
     max_dispersion?: number;
     window_minutes_max?: number;
+    apply_alert_rules?: boolean;
+    include_hidden?: boolean;
     limit?: number;
     offset?: number;
   } = {},
@@ -226,10 +238,32 @@ export async function getSignalQuality(
   appendOptionalParam(params, "min_books_affected", options.min_books_affected);
   appendOptionalParam(params, "max_dispersion", options.max_dispersion);
   appendOptionalParam(params, "window_minutes_max", options.window_minutes_max);
+  appendOptionalParam(params, "apply_alert_rules", options.apply_alert_rules);
+  appendOptionalParam(params, "include_hidden", options.include_hidden);
   appendOptionalParam(params, "limit", options.limit);
   appendOptionalParam(params, "offset", options.offset);
 
   return apiRequest<SignalQualityRow[]>(`/intel/signals/quality?${params.toString()}`, { token });
+}
+
+export async function getSignalQualityWeeklySummary(
+  token: string,
+  options: {
+    days?: number;
+    signal_type?: string;
+    market?: string;
+    min_strength?: number;
+    apply_alert_rules?: boolean;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "apply_alert_rules", options.apply_alert_rules);
+
+  return apiRequest<SignalQualityWeeklySummary>(`/intel/signals/weekly-summary?${params.toString()}`, { token });
 }
 
 export async function getActionableBookCard(token: string, eventId: string, signalId: string) {

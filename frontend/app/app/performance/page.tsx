@@ -3,11 +3,25 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
-import { getClvRecap, getClvSummary, getClvTeaser, getClvTrustScorecards, getSignalQuality } from "@/lib/api";
+import {
+  getClvRecap,
+  getClvSummary,
+  getClvTeaser,
+  getClvTrustScorecards,
+  getSignalQuality,
+  getSignalQualityWeeklySummary,
+} from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { applyPresetFilters } from "@/lib/performancePresets";
-import { ClvPerformanceRow, ClvRecapRow, ClvTeaserResponse, ClvTrustScorecard, SignalQualityRow } from "@/lib/types";
+import {
+  ClvPerformanceRow,
+  ClvRecapRow,
+  ClvTeaserResponse,
+  ClvTrustScorecard,
+  SignalQualityRow,
+  SignalQualityWeeklySummary,
+} from "@/lib/types";
 
 const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"] as const;
 const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
@@ -98,6 +112,7 @@ export default function PerformancePage() {
   const [recapRows, setRecapRows] = useState<ClvRecapRow[]>([]);
   const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
+  const [weeklySummary, setWeeklySummary] = useState<SignalQualityWeeklySummary | null>(null);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -238,7 +253,7 @@ export default function PerformancePage() {
     setError(null);
     try {
       if (proAccess) {
-        const [scorecardsData, summaryData, recapData, qualityData] = await Promise.all([
+        const [scorecardsData, summaryData, recapData, weeklySummaryData, qualityData] = await Promise.all([
           getClvTrustScorecards(token, {
             days,
             signal_type: resolvedSignalType,
@@ -261,6 +276,13 @@ export default function PerformancePage() {
             min_samples: minSamples,
             min_strength: minStrength,
           }),
+          getSignalQualityWeeklySummary(token, {
+            days: Math.min(30, Math.max(7, days)),
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_strength: minStrength,
+            apply_alert_rules: true,
+          }),
           getSignalQuality(token, {
             days,
             signal_type: resolvedSignalType,
@@ -269,6 +291,8 @@ export default function PerformancePage() {
             min_books_affected: minBooksAffected,
             max_dispersion: maxDispersion ?? undefined,
             window_minutes_max: windowMinutesMax ?? undefined,
+            apply_alert_rules: true,
+            include_hidden: true,
             limit: 40,
             offset: 0,
           }),
@@ -276,6 +300,7 @@ export default function PerformancePage() {
         setScorecards(scorecardsData);
         setSummaryRows(summaryData);
         setRecapRows(recapData.rows);
+        setWeeklySummary(weeklySummaryData);
         setQualityRows(qualityData);
         setTeaser(null);
       } else {
@@ -283,6 +308,7 @@ export default function PerformancePage() {
         setTeaser(teaserData);
         setSummaryRows([]);
         setRecapRows([]);
+        setWeeklySummary(null);
         setScorecards([]);
         setQualityRows([]);
       }
@@ -731,6 +757,42 @@ export default function PerformancePage() {
             </div>
           </div>
 
+          <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+            <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Your Weekly Signal Quality</h2>
+            {!weeklySummary && <p className="text-xs text-textMute">No weekly summary available yet.</p>}
+            {weeklySummary && (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded border border-borderTone bg-panelSoft p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-textMute">Signals</p>
+                  <p className="mt-1 text-lg font-semibold text-textMain">{weeklySummary.total_signals}</p>
+                  <p className="mt-1 text-xs text-textMute">
+                    Eligible {weeklySummary.eligible_signals} / Hidden {weeklySummary.hidden_signals}
+                  </p>
+                </div>
+                <div className="rounded border border-borderTone bg-panelSoft p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-textMute">Sent Rate</p>
+                  <p className="mt-1 text-lg font-semibold text-textMain">{weeklySummary.sent_rate_pct.toFixed(1)}%</p>
+                  <p className="mt-1 text-xs text-textMute">
+                    Avg strength {weeklySummary.avg_strength != null ? weeklySummary.avg_strength.toFixed(1) : "-"}
+                  </p>
+                </div>
+                <div className="rounded border border-borderTone bg-panelSoft p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-textMute">CLV Samples</p>
+                  <p className="mt-1 text-lg font-semibold text-textMain">{weeklySummary.clv_samples}</p>
+                  <p className="mt-1 text-xs text-textMute">
+                    Positive {weeklySummary.clv_pct_positive.toFixed(1)}%
+                  </p>
+                </div>
+                <div className="rounded border border-borderTone bg-panelSoft p-3">
+                  <p className="text-[11px] uppercase tracking-wider text-textMute">Top Hidden Reason</p>
+                  <p className="mt-1 text-xs text-textMain">
+                    {weeklySummary.top_hidden_reason ?? "No hidden signals in window."}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
               <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">CLV by Signal Type</h2>
@@ -811,6 +873,7 @@ export default function PerformancePage() {
                     <th className="border-b border-borderTone py-2">Strength</th>
                     <th className="border-b border-borderTone py-2">Books</th>
                     <th className="border-b border-borderTone py-2">Dispersion</th>
+                    <th className="border-b border-borderTone py-2">Alert Decision</th>
                     <th className="border-b border-borderTone py-2">Created</th>
                   </tr>
                 </thead>
@@ -825,6 +888,16 @@ export default function PerformancePage() {
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         {row.dispersion != null ? row.dispersion.toFixed(3) : "-"}
                       </td>
+                      <td className="border-b border-borderTone/50 py-2">
+                        <p
+                          className={`text-xs font-semibold uppercase tracking-wider ${
+                            row.alert_decision === "sent" ? "text-positive" : "text-negative"
+                          }`}
+                        >
+                          {row.alert_decision}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-textMute">{row.alert_reason}</p>
+                      </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMute">
                         {new Date(row.created_at).toLocaleString([], {
                           month: "short",
@@ -837,7 +910,7 @@ export default function PerformancePage() {
                   ))}
                   {qualityRows.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-3 text-xs text-textMute">
+                      <td colSpan={8} className="py-3 text-xs text-textMute">
                         No signals matched the selected quality filters.
                       </td>
                     </tr>

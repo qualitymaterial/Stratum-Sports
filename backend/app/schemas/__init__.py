@@ -13,6 +13,7 @@ from app.schemas.intel import (
     ClvTeaserResponse,
     ConsensusPoint,
     SignalQualityPoint,
+    SignalQualityWeeklySummary,
 )
 from app.schemas.ops import (
     ClvByMarketItem,
@@ -46,6 +47,7 @@ __all__ = [
     "ClvTrustScorecard",
     "ClvTeaserResponse",
     "SignalQualityPoint",
+    "SignalQualityWeeklySummary",
     "ActionableBookQuote",
     "ActionableBookCard",
     "CycleKpiOut",

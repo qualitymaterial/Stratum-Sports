@@ -290,7 +290,7 @@ async def run_polling_cycle(
 
         signals = await detect_market_movements(db, redis, event_ids)
         signal_counts = summarize_signals_by_type(signals)
-        alert_stats = await dispatch_discord_alerts_for_signals(db, signals)
+        alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
         ingest_result["signals_created_by_type"] = signal_counts

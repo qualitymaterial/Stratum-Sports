@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.clv_record import ClvRecord
+from app.models.discord_connection import DiscordConnection
 from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
@@ -420,6 +421,141 @@ async def test_signal_quality_endpoint_filters_by_dispersion(
     assert payload[0]["book_key"] == "draftkings"
 
 
+async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_decision"
+    email = "perf-quality-rules@example.com"
+    token = await _register_pro_user(async_client, db_session, email)
+    user = (await db_session.execute(select(User).where(User.email == email))).scalar_one()
+    db_session.add(
+        DiscordConnection(
+            user_id=user.id,
+            webhook_url="https://discord.example/webhook",
+            is_enabled=True,
+            alert_spreads=True,
+            alert_totals=True,
+            alert_multibook=True,
+            min_strength=60,
+            thresholds_json={"min_books_affected": 4, "max_dispersion": 0.5, "cooldown_minutes": 10},
+        )
+    )
+    db_session.add_all(
+        [
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="DISLOCATION",
+                strength=78,
+                created_at=now - timedelta(minutes=20),
+                metadata={"outcome_name": "BOS", "dispersion": 0.4},
+            ),
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="DISLOCATION",
+                strength=80,
+                created_at=now - timedelta(minutes=10),
+                metadata={"outcome_name": "BOS", "dispersion": 0.8},
+            ),
+        ]
+    )
+    await db_session.flush()
+    signals = (await db_session.execute(select(Signal).where(Signal.event_id == event_id))).scalars().all()
+    signals[0].books_affected = 5
+    signals[1].books_affected = 2
+    await db_session.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/quality?days=7&signal_type=DISLOCATION&market=spreads&apply_alert_rules=true&include_hidden=true",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    decisions = {row["alert_decision"] for row in payload}
+    assert "sent" in decisions
+    assert "hidden" in decisions
+    hidden_row = next(row for row in payload if row["alert_decision"] == "hidden")
+    assert "below min" in hidden_row["alert_reason"] or "above max" in hidden_row["alert_reason"]
+
+
+async def test_signal_quality_weekly_summary_endpoint(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    email = "perf-weekly-summary@example.com"
+    token = await _register_pro_user(async_client, db_session, email)
+    user = (await db_session.execute(select(User).where(User.email == email))).scalar_one()
+    db_session.add(
+        DiscordConnection(
+            user_id=user.id,
+            webhook_url="https://discord.example/webhook",
+            is_enabled=True,
+            alert_spreads=True,
+            alert_totals=True,
+            alert_multibook=True,
+            min_strength=60,
+            thresholds_json={"min_books_affected": 3, "cooldown_minutes": 10},
+        )
+    )
+
+    eligible_signal = _signal(
+        event_id="event_perf_weekly_1",
+        market="spreads",
+        signal_type="MOVE",
+        strength=82,
+        created_at=now - timedelta(days=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    hidden_signal = _signal(
+        event_id="event_perf_weekly_2",
+        market="spreads",
+        signal_type="MOVE",
+        strength=75,
+        created_at=now - timedelta(days=1),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all([eligible_signal, hidden_signal])
+    await db_session.flush()
+    eligible_signal.books_affected = 4
+    hidden_signal.books_affected = 1
+    db_session.add(
+        ClvRecord(
+            signal_id=eligible_signal.id,
+            event_id=eligible_signal.event_id,
+            signal_type=eligible_signal.signal_type,
+            market=eligible_signal.market,
+            outcome_name="BOS",
+            entry_line=-3.5,
+            entry_price=None,
+            close_line=-4.0,
+            close_price=None,
+            clv_line=-0.5,
+            clv_prob=None,
+            computed_at=now - timedelta(hours=6),
+        )
+    )
+    await db_session.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/weekly-summary?days=7&signal_type=MOVE&market=spreads&apply_alert_rules=true",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_signals"] >= 2
+    assert payload["eligible_signals"] >= 1
+    assert payload["hidden_signals"] >= 1
+    assert payload["clv_samples"] >= 1
+    assert 0.0 <= payload["sent_rate_pct"] <= 100.0
+
+
 async def test_actionable_book_card_uses_latest_per_book(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -607,6 +743,12 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
 
     pro_quality = await async_client.get("/api/v1/intel/signals/quality?days=7", headers=pro_headers)
     assert pro_quality.status_code == 200
+
+    free_weekly = await async_client.get("/api/v1/intel/signals/weekly-summary?days=7", headers=free_headers)
+    assert free_weekly.status_code == 403
+
+    pro_weekly = await async_client.get("/api/v1/intel/signals/weekly-summary?days=7", headers=pro_headers)
+    assert pro_weekly.status_code == 200
 
     teaser = await async_client.get("/api/v1/intel/clv/teaser?days=30", headers=free_headers)
     assert teaser.status_code == 200

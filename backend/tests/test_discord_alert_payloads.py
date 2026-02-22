@@ -4,6 +4,7 @@ from app.services import discord_alerts as discord_alerts_service
 from app.models.discord_connection import DiscordConnection
 from app.models.game import Game
 from app.models.signal import Signal
+from app.services.alert_rules import evaluate_signal_for_connection
 from app.services.discord_alerts import _connection_allows_signal, _format_alert
 
 
@@ -128,3 +129,48 @@ def test_steam_alerts_off_by_default_and_enabled_by_flag(monkeypatch) -> None:
 
     connection.alert_spreads = False
     assert _connection_allows_signal(connection, signal) is False
+
+
+def test_alert_rules_apply_books_and_dispersion_thresholds() -> None:
+    connection = _connection()
+    connection.thresholds_json = {
+        "min_books_affected": 4,
+        "max_dispersion": 0.5,
+        "cooldown_minutes": 10,
+    }
+    signal = _dislocation_signal("spreads")
+    signal.books_affected = 3
+    signal.metadata_json["dispersion"] = 0.4
+
+    allowed, reason, _thresholds = evaluate_signal_for_connection(
+        connection,
+        signal,
+        steam_discord_enabled=True,
+    )
+    assert allowed is False
+    assert "books 3 below min 4" in reason
+
+    signal.books_affected = 5
+    signal.metadata_json["dispersion"] = 0.8
+    allowed, reason, _thresholds = evaluate_signal_for_connection(
+        connection,
+        signal,
+        steam_discord_enabled=True,
+    )
+    assert allowed is False
+    assert "dispersion 0.800 above max 0.500" in reason
+
+
+def test_alert_rules_respect_cooldown_flag() -> None:
+    connection = _connection()
+    connection.thresholds_json = {"cooldown_minutes": 15}
+    signal = _dislocation_signal("totals")
+
+    allowed, reason, _thresholds = evaluate_signal_for_connection(
+        connection,
+        signal,
+        steam_discord_enabled=True,
+        cooldown_active=True,
+    )
+    assert allowed is False
+    assert "cooldown active" in reason.lower()

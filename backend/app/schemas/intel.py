@@ -93,7 +93,21 @@ class SignalQualityPoint(BaseModel):
     book_key: str | None
     delta: float | None
     dispersion: float | None
+    alert_decision: str
+    alert_reason: str
     metadata: dict
+
+
+class SignalQualityWeeklySummary(BaseModel):
+    days: int
+    total_signals: int
+    eligible_signals: int
+    hidden_signals: int
+    sent_rate_pct: float
+    avg_strength: float | None
+    clv_samples: int
+    clv_pct_positive: float
+    top_hidden_reason: str | None
 
 
 class ActionableBookQuote(BaseModel):
