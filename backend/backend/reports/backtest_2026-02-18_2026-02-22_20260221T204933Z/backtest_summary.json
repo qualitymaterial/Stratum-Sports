@@ -1,0 +1,91 @@
+{
+  "bottom_clv_line": [],
+  "bottom_clv_prob": [],
+  "clv_by_type": {
+    "KEY_CROSS": {
+      "avg_clv_line": null,
+      "avg_clv_prob": null,
+      "count": 0,
+      "median_clv_line": null,
+      "median_clv_prob": null,
+      "pct_positive": 0.0
+    },
+    "MOVE": {
+      "avg_clv_line": null,
+      "avg_clv_prob": null,
+      "count": 0,
+      "median_clv_line": null,
+      "median_clv_prob": null,
+      "pct_positive": 0.0
+    }
+  },
+  "games_processed": 1,
+  "overlap_directional_5m": [
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 0,
+      "source_type": "STEAM",
+      "target_type": "MULTIBOOK_SYNC"
+    },
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 0,
+      "source_type": "STEAM",
+      "target_type": "MOVE_FAMILY"
+    },
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 0,
+      "source_type": "MULTIBOOK_SYNC",
+      "target_type": "STEAM"
+    },
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 0,
+      "source_type": "MULTIBOOK_SYNC",
+      "target_type": "MOVE_FAMILY"
+    },
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 15,
+      "source_type": "MOVE_FAMILY",
+      "target_type": "STEAM"
+    },
+    {
+      "matched_count": 0,
+      "overlap_rate": 0.0,
+      "source_count": 15,
+      "source_type": "MOVE_FAMILY",
+      "target_type": "MULTIBOOK_SYNC"
+    }
+  ],
+  "run_args": {
+    "end": "2026-02-22T00:00:00+00:00",
+    "lookback_minutes": 60,
+    "markets": [
+      "spreads",
+      "totals",
+      "h2h"
+    ],
+    "min_books": 5,
+    "sport_key": "basketball_nba",
+    "start": "2026-02-18T00:00:00+00:00",
+    "step_seconds": 60
+  },
+  "signals_by_type": {
+    "KEY_CROSS": 4,
+    "MOVE": 11
+  },
+  "signals_total": 15,
+  "timestamp_field_used_counts": {
+    "fetched_at": 228
+  },
+  "timestamp_ordering_warning": "All snapshots were ordered using fetched_at.",
+  "top_clv_line": [],
+  "top_clv_prob": []
+}
