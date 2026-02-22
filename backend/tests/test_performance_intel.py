@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.clv_record import ClvRecord
+from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
@@ -60,6 +61,16 @@ def _snapshot(
         line=line,
         price=price,
         fetched_at=fetched_at,
+    )
+
+
+def _game(*, event_id: str, commence_time: datetime) -> Game:
+    return Game(
+        event_id=event_id,
+        sport_key="basketball_nba",
+        commence_time=commence_time,
+        home_team="BOS",
+        away_team="NYK",
     )
 
 
@@ -153,6 +164,200 @@ async def test_clv_summary_endpoint_supports_filters(
     assert payload[0]["signal_type"] == "MOVE"
     assert payload[0]["market"] == "spreads"
     assert payload[0]["count"] == 1
+
+
+async def test_clv_recap_buckets_by_game_commence_time_not_computed_at(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_recap_commence_bucket"
+    commence_time = now - timedelta(days=3, hours=2)
+    signal = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=commence_time - timedelta(hours=4),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all([_game(event_id=event_id, commence_time=commence_time), signal])
+    await db_session.flush()
+
+    db_session.add(
+        ClvRecord(
+            signal_id=signal.id,
+            event_id=event_id,
+            signal_type="MOVE",
+            market="spreads",
+            outcome_name="BOS",
+            entry_line=-3.5,
+            entry_price=None,
+            close_line=-4.0,
+            close_price=None,
+            clv_line=-0.5,
+            clv_prob=None,
+            computed_at=commence_time + timedelta(days=1),
+        )
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-recap-commence@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/clv/recap?days=30&grain=day&signal_type=MOVE&market=spreads",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["grain"] == "day"
+    assert len(payload["rows"]) == 1
+    row = payload["rows"][0]
+    actual_period_start = datetime.fromisoformat(row["period_start"].replace("Z", "+00:00"))
+    expected_period_start = commence_time.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    assert actual_period_start == expected_period_start
+
+
+async def test_clv_recap_weekly_utc_grouping(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    this_week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    latest_week_start = this_week_start - timedelta(days=7)
+    prior_week_start = this_week_start - timedelta(days=14)
+
+    seed_events = [
+        ("event_perf_recap_week_a", latest_week_start + timedelta(days=1, hours=2)),
+        ("event_perf_recap_week_b", latest_week_start + timedelta(days=3, hours=1)),
+        ("event_perf_recap_week_c", prior_week_start + timedelta(days=2, hours=3)),
+    ]
+    for idx, (event_id, commence_time) in enumerate(seed_events):
+        signal = _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="MOVE",
+            strength=78,
+            created_at=commence_time - timedelta(hours=4),
+            metadata={"outcome_name": "BOS"},
+        )
+        db_session.add_all([_game(event_id=event_id, commence_time=commence_time), signal])
+        await db_session.flush()
+        db_session.add(
+            ClvRecord(
+                signal_id=signal.id,
+                event_id=event_id,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-2.0,
+                entry_price=None,
+                close_line=-2.0 + (0.25 if idx < 2 else -0.1),
+                close_price=None,
+                clv_line=0.25 if idx < 2 else -0.1,
+                clv_prob=None,
+                computed_at=now - timedelta(days=1),
+            )
+        )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-recap-weekly@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/clv/recap?days=60&grain=week&signal_type=MOVE&market=spreads&min_samples=1",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    rows = payload["rows"]
+    assert len(rows) >= 2
+
+    by_period = {
+        datetime.fromisoformat(row["period_start"].replace("Z", "+00:00")): row
+        for row in rows
+    }
+    assert by_period[latest_week_start]["count"] == 2
+    assert by_period[prior_week_start]["count"] == 1
+
+
+async def test_clv_recap_respects_filters_and_min_samples(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    commence_time = now - timedelta(days=4)
+
+    move_events = ["event_perf_recap_filter_1", "event_perf_recap_filter_2"]
+    for event_id in move_events:
+        signal = _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="MOVE",
+            strength=82,
+            created_at=commence_time - timedelta(hours=2),
+            metadata={"outcome_name": "BOS"},
+        )
+        db_session.add_all([_game(event_id=event_id, commence_time=commence_time), signal])
+        await db_session.flush()
+        db_session.add(
+            ClvRecord(
+                signal_id=signal.id,
+                event_id=event_id,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=None,
+                close_line=-3.2,
+                close_price=None,
+                clv_line=-0.2,
+                clv_prob=None,
+                computed_at=now - timedelta(days=3),
+            )
+        )
+
+    totals_event = "event_perf_recap_filter_totals"
+    totals_signal = _signal(
+        event_id=totals_event,
+        market="totals",
+        signal_type="DISLOCATION",
+        strength=88,
+        created_at=commence_time - timedelta(hours=1),
+        metadata={"outcome_name": "Over"},
+    )
+    db_session.add_all([_game(event_id=totals_event, commence_time=commence_time), totals_signal])
+    await db_session.flush()
+    db_session.add(
+        ClvRecord(
+            signal_id=totals_signal.id,
+            event_id=totals_event,
+            signal_type="DISLOCATION",
+            market="totals",
+            outcome_name="Over",
+            entry_line=220.0,
+            entry_price=None,
+            close_line=221.0,
+            close_price=None,
+            clv_line=1.0,
+            clv_prob=None,
+            computed_at=now - timedelta(days=3),
+        )
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-recap-filter@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/clv/recap?days=30&grain=day&min_samples=2&signal_type=MOVE&market=spreads",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["rows"]) == 1
+    row = payload["rows"][0]
+    assert row["signal_type"] == "MOVE"
+    assert row["market"] == "spreads"
+    assert row["count"] == 2
 
 
 async def test_signal_quality_endpoint_filters_by_dispersion(
@@ -413,6 +618,12 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
 
     pro_scorecards = await async_client.get("/api/v1/intel/clv/scorecards?days=30", headers=pro_headers)
     assert pro_scorecards.status_code == 200
+
+    free_recap = await async_client.get("/api/v1/intel/clv/recap?days=30&grain=day", headers=free_headers)
+    assert free_recap.status_code == 403
+
+    pro_recap = await async_client.get("/api/v1/intel/clv/recap?days=30&grain=day", headers=pro_headers)
+    assert pro_recap.status_code == 200
 
     free_actionable_batch = await async_client.get(
         "/api/v1/intel/books/actionable/batch?event_id=event_any&signal_ids=00000000-0000-0000-0000-000000000001",

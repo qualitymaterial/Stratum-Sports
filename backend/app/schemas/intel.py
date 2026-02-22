@@ -40,6 +40,22 @@ class ClvSummaryPoint(BaseModel):
     avg_clv_prob: float | None
 
 
+class ClvRecapRow(BaseModel):
+    period_start: datetime
+    signal_type: str
+    market: str
+    count: int
+    pct_positive_clv: float
+    avg_clv_line: float | None
+    avg_clv_prob: float | None
+
+
+class ClvRecapResponse(BaseModel):
+    days: int
+    grain: str
+    rows: list[ClvRecapRow]
+
+
 class ClvTrustScorecard(BaseModel):
     signal_type: str
     market: str

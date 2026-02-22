@@ -3,16 +3,17 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
-import { getClvSummary, getClvTeaser, getClvTrustScorecards, getSignalQuality } from "@/lib/api";
+import { getClvRecap, getClvSummary, getClvTeaser, getClvTrustScorecards, getSignalQuality } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { applyPresetFilters } from "@/lib/performancePresets";
-import { ClvPerformanceRow, ClvTeaserResponse, ClvTrustScorecard, SignalQualityRow } from "@/lib/types";
+import { ClvPerformanceRow, ClvRecapRow, ClvTeaserResponse, ClvTrustScorecard, SignalQualityRow } from "@/lib/types";
 
 const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"] as const;
 const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
 const PRESET_OPTIONS = ["CUSTOM", "HIGH_CONFIDENCE", "LOW_NOISE", "EARLY_MOVE", "STEAM_ONLY"] as const;
 type PresetOption = (typeof PRESET_OPTIONS)[number];
+type RecapGrain = "day" | "week";
 
 type PresetDefinition = {
   label: string;
@@ -69,6 +70,18 @@ const PRESET_DEFINITIONS: Record<Exclude<PresetOption, "CUSTOM">, PresetDefiniti
 
 const FILTERS_STORAGE_KEY = "stratum_performance_filters_v1";
 
+function formatRecapPeriod(periodStart: string, grain: RecapGrain): string {
+  const parsed = new Date(periodStart);
+  if (Number.isNaN(parsed.getTime())) {
+    return periodStart;
+  }
+  const iso = parsed.toISOString().replace(".000Z", "Z");
+  if (grain === "week") {
+    return `Week of ${iso.slice(0, 10)}`;
+  }
+  return iso.slice(0, 10);
+}
+
 export default function PerformancePage() {
   const { user, loading, token } = useCurrentUser(true);
   const [days, setDays] = useState(30);
@@ -80,7 +93,9 @@ export default function PerformancePage() {
   const [minBooksAffected, setMinBooksAffected] = useState(1);
   const [maxDispersion, setMaxDispersion] = useState<number | null>(null);
   const [windowMinutesMax, setWindowMinutesMax] = useState<number | null>(null);
+  const [recapGrain, setRecapGrain] = useState<RecapGrain>("day");
   const [summaryRows, setSummaryRows] = useState<ClvPerformanceRow[]>([]);
+  const [recapRows, setRecapRows] = useState<ClvRecapRow[]>([]);
   const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
@@ -136,6 +151,7 @@ export default function PerformancePage() {
           minBooksAffected?: number;
           maxDispersion?: number | null;
           windowMinutesMax?: number | null;
+          recapGrain?: RecapGrain;
         };
         if (typeof parsed.days === "number") {
           setDays(Math.max(1, Math.min(90, parsed.days)));
@@ -168,6 +184,9 @@ export default function PerformancePage() {
         } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
           setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
         }
+        if (parsed.recapGrain === "day" || parsed.recapGrain === "week") {
+          setRecapGrain(parsed.recapGrain);
+        }
       } else {
         applyPreset("HIGH_CONFIDENCE");
       }
@@ -194,6 +213,7 @@ export default function PerformancePage() {
         minBooksAffected,
         maxDispersion,
         windowMinutesMax,
+        recapGrain,
       }),
     );
   }, [
@@ -206,6 +226,7 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    recapGrain,
     filtersHydrated,
   ]);
 
@@ -217,7 +238,7 @@ export default function PerformancePage() {
     setError(null);
     try {
       if (proAccess) {
-        const [scorecardsData, summaryData, qualityData] = await Promise.all([
+        const [scorecardsData, summaryData, recapData, qualityData] = await Promise.all([
           getClvTrustScorecards(token, {
             days,
             signal_type: resolvedSignalType,
@@ -227,6 +248,14 @@ export default function PerformancePage() {
           }),
           getClvSummary(token, {
             days,
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_samples: minSamples,
+            min_strength: minStrength,
+          }),
+          getClvRecap(token, {
+            days,
+            grain: recapGrain,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_samples: minSamples,
@@ -246,12 +275,14 @@ export default function PerformancePage() {
         ]);
         setScorecards(scorecardsData);
         setSummaryRows(summaryData);
+        setRecapRows(recapData.rows);
         setQualityRows(qualityData);
         setTeaser(null);
       } else {
         const teaserData = await getClvTeaser(token, days);
         setTeaser(teaserData);
         setSummaryRows([]);
+        setRecapRows([]);
         setScorecards([]);
         setQualityRows([]);
       }
@@ -282,6 +313,7 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    recapGrain,
     filtersHydrated,
   ]);
 
@@ -336,6 +368,17 @@ export default function PerformancePage() {
     }
     return Array.from(grouped.values()).sort((a, b) => b.count - a.count);
   }, [summaryRows]);
+
+  const recapGroups = useMemo(() => {
+    const grouped = new Map<string, ClvRecapRow[]>();
+    for (const row of recapRows) {
+      if (!grouped.has(row.period_start)) {
+        grouped.set(row.period_start, []);
+      }
+      grouped.get(row.period_start)!.push(row);
+    }
+    return Array.from(grouped.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [recapRows]);
 
   if (loading || !user) {
     return <LoadingState label="Loading performance..." />;
@@ -556,6 +599,14 @@ export default function PerformancePage() {
           </p>
         </div>
       )}
+      {!proAccess && (
+        <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+          <h2 className="mb-2 text-sm uppercase tracking-wider text-textMute">Post-Game Recap</h2>
+          <p className="text-sm text-textMute">
+            Post-game daily/weekly recap is available on Pro. Free tier includes teaser-level CLV aggregates only.
+          </p>
+        </div>
+      )}
 
       {proAccess && (
         <>
@@ -606,6 +657,72 @@ export default function PerformancePage() {
                     <tr>
                       <td colSpan={7} className="py-3 text-xs text-textMute">
                         No scorecards available for the selected filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-sm uppercase tracking-wider text-textMute">Post-Game Recap</h2>
+              <div className="flex gap-2">
+                {(["day", "week"] as const).map((grain) => (
+                  <button
+                    key={grain}
+                    onClick={() => setRecapGrain(grain)}
+                    className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
+                      recapGrain === grain
+                        ? "border-accent bg-accent/10 text-accent"
+                        : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                    }`}
+                  >
+                    {grain}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="overflow-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                    <th className="border-b border-borderTone py-2">Period (UTC)</th>
+                    <th className="border-b border-borderTone py-2">Signal</th>
+                    <th className="border-b border-borderTone py-2">Market</th>
+                    <th className="border-b border-borderTone py-2">Samples</th>
+                    <th className="border-b border-borderTone py-2">% Positive</th>
+                    <th className="border-b border-borderTone py-2">Avg CLV Line</th>
+                    <th className="border-b border-borderTone py-2">Avg CLV Prob</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recapGroups.flatMap(([periodStart, rows]) =>
+                    rows.map((row, idx) => (
+                      <tr key={`${periodStart}-${row.signal_type}-${row.market}`}>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {idx === 0 ? formatRecapPeriod(periodStart, recapGrain) : ""}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {row.pct_positive_clv.toFixed(1)}%
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {row.avg_clv_line != null ? row.avg_clv_line.toFixed(3) : "-"}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {row.avg_clv_prob != null ? row.avg_clv_prob.toFixed(4) : "-"}
+                        </td>
+                      </tr>
+                    )),
+                  )}
+                  {recapRows.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-3 text-xs text-textMute">
+                        No post-game recap rows available for the selected filters.
                       </td>
                     </tr>
                   )}

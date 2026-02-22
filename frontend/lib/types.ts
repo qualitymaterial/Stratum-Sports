@@ -107,6 +107,22 @@ export type ClvPerformanceRow = {
   avg_clv_prob: number | null;
 };
 
+export type ClvRecapRow = {
+  period_start: string;
+  signal_type: string;
+  market: string;
+  count: number;
+  pct_positive_clv: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+};
+
+export type ClvRecapResponse = {
+  days: number;
+  grain: "day" | "week";
+  rows: ClvRecapRow[];
+};
+
 export type ClvRecordPoint = {
   signal_id: string;
   event_id: string;

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.clv_record import ClvRecord
+from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
@@ -32,6 +33,14 @@ def _safe_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _as_utc_datetime(value: Any) -> datetime:
+    if not isinstance(value, datetime):
+        raise TypeError("Expected datetime value")
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _derive_consensus_from_quotes(
@@ -193,6 +202,77 @@ async def get_clv_performance_summary(
         }
         for row in rows
     ]
+
+
+async def get_clv_postgame_recap(
+    db: AsyncSession,
+    *,
+    days: int,
+    grain: str = "day",
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_samples: int = 1,
+    min_strength: int | None = None,
+) -> dict[str, Any]:
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(days=days)
+    ready_cutoff = now - timedelta(minutes=settings.clv_minutes_after_commence)
+    positive_expr = case((or_(ClvRecord.clv_line > 0, ClvRecord.clv_prob > 0), 1.0), else_=0.0)
+    bucket_expr = func.date_trunc(grain, func.timezone("UTC", Game.commence_time))
+
+    stmt = (
+        select(
+            bucket_expr.label("period_start"),
+            ClvRecord.signal_type.label("signal_type"),
+            ClvRecord.market.label("market"),
+            func.count(ClvRecord.id).label("count"),
+            (func.avg(positive_expr) * 100.0).label("pct_positive_clv"),
+            func.avg(ClvRecord.clv_line).label("avg_clv_line"),
+            func.avg(ClvRecord.clv_prob).label("avg_clv_prob"),
+        )
+        .join(Game, Game.event_id == ClvRecord.event_id)
+        .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
+        .where(
+            Game.commence_time >= cutoff,
+            Game.commence_time <= ready_cutoff,
+        )
+    )
+
+    if signal_type:
+        stmt = stmt.where(ClvRecord.signal_type == signal_type)
+    if market:
+        stmt = stmt.where(ClvRecord.market == market)
+    if min_strength is not None:
+        stmt = stmt.where(func.coalesce(Signal.strength_score, 0) >= int(min_strength))
+
+    stmt = (
+        stmt.group_by(bucket_expr, ClvRecord.signal_type, ClvRecord.market)
+        .having(func.count(ClvRecord.id) >= max(1, int(min_samples)))
+        .order_by(
+            bucket_expr.desc(),
+            func.count(ClvRecord.id).desc(),
+            ClvRecord.signal_type.asc(),
+            ClvRecord.market.asc(),
+        )
+    )
+    rows = (await db.execute(stmt)).mappings().all()
+
+    return {
+        "days": int(days),
+        "grain": grain,
+        "rows": [
+            {
+                "period_start": _as_utc_datetime(row["period_start"]),
+                "signal_type": str(row["signal_type"]),
+                "market": str(row["market"]),
+                "count": int(row["count"] or 0),
+                "pct_positive_clv": float(row["pct_positive_clv"] or 0.0),
+                "avg_clv_line": float(row["avg_clv_line"]) if row["avg_clv_line"] is not None else None,
+                "avg_clv_prob": float(row["avg_clv_prob"]) if row["avg_clv_prob"] is not None else None,
+            }
+            for row in rows
+        ],
+    }
 
 
 def _stability_ratio(avg_value: float | None, stddev_value: float | None) -> float | None:

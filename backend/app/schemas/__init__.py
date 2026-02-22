@@ -5,6 +5,8 @@ from app.schemas.game import DashboardCard, GameDetailOut
 from app.schemas.intel import (
     ActionableBookCard,
     ActionableBookQuote,
+    ClvRecapResponse,
+    ClvRecapRow,
     ClvRecordPoint,
     ClvSummaryPoint,
     ClvTrustScorecard,
@@ -37,6 +39,8 @@ __all__ = [
     "DashboardCard",
     "GameDetailOut",
     "ConsensusPoint",
+    "ClvRecapRow",
+    "ClvRecapResponse",
     "ClvRecordPoint",
     "ClvSummaryPoint",
     "ClvTrustScorecard",

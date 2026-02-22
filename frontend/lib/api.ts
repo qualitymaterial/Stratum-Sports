@@ -1,5 +1,6 @@
 import {
   ActionableBookCard,
+  ClvRecapResponse,
   ClvPerformanceRow,
   ClvRecordPoint,
   ClvTrustScorecard,
@@ -135,6 +136,28 @@ export async function getClvSummary(
   appendOptionalParam(params, "min_strength", options.min_strength);
 
   return apiRequest<ClvPerformanceRow[]>(`/intel/clv/summary?${params.toString()}`, { token });
+}
+
+export async function getClvRecap(
+  token: string,
+  options: {
+    days?: number;
+    grain?: "day" | "week";
+    signal_type?: string;
+    market?: string;
+    min_samples?: number;
+    min_strength?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "grain", options.grain);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_samples", options.min_samples);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+
+  return apiRequest<ClvRecapResponse>(`/intel/clv/recap?${params.toString()}`, { token });
 }
 
 export async function getClvTrustScorecards(

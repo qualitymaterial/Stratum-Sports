@@ -15,6 +15,7 @@ from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.user import User
 from app.schemas.intel import (
     ActionableBookCard,
+    ClvRecapResponse,
     ClvRecordPoint,
     ClvSummaryPoint,
     ClvTrustScorecard,
@@ -25,6 +26,7 @@ from app.schemas.intel import (
 from app.services.performance_intel import (
     get_actionable_book_card,
     get_actionable_book_cards_batch,
+    get_clv_postgame_recap,
     get_clv_performance_summary,
     get_clv_records_filtered,
     get_clv_trust_scorecards,
@@ -37,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 CANONICAL_MARKETS = {"spreads", "totals", "h2h"}
 CANONICAL_SIGNAL_TYPES = {"MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"}
+CANONICAL_RECAP_GRAINS = {"day", "week"}
 
 
 def _resolve_markets(market: str | None) -> list[str]:
@@ -73,6 +76,16 @@ def _resolve_single_market(market: str | None) -> str | None:
         return None
     resolved = _resolve_markets(market)
     return resolved[0] if resolved else None
+
+
+def _resolve_recap_grain(grain: str) -> str:
+    normalized = grain.strip().lower()
+    if normalized not in CANONICAL_RECAP_GRAINS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported grain '{grain}'. Allowed: day,week",
+        )
+    return normalized
 
 
 def _parse_signal_ids_csv(signal_ids: str) -> list[UUID]:
@@ -239,6 +252,47 @@ async def get_clv_summary(
         },
     )
     return [ClvSummaryPoint(**row) for row in rows]
+
+
+@router.get("/clv/recap", response_model=ClvRecapResponse)
+async def get_clv_recap(
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    grain: str = Query("day"),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_samples: int = Query(1, ge=1, le=10000),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> ClvRecapResponse:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    resolved_grain = _resolve_recap_grain(grain)
+
+    payload = await get_clv_postgame_recap(
+        db,
+        days=days,
+        grain=resolved_grain,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_samples=min_samples,
+        min_strength=min_strength,
+    )
+    logger.info(
+        "Intel CLV recap query served",
+        extra={
+            "days": days,
+            "grain": resolved_grain,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "min_samples": min_samples,
+            "rows": len(payload["rows"]),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return ClvRecapResponse(**payload)
 
 
 @router.get("/clv/scorecards", response_model=list[ClvTrustScorecard])
