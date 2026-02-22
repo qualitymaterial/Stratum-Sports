@@ -8,6 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Validate deploy secrets
@@ -24,17 +25,39 @@ jobs:
           echo "Deploy secrets look present. DROPLET_PORT=${{ secrets.DROPLET_PORT != '' && secrets.DROPLET_PORT || '22' }}"
 
       - name: SSH into droplet and deploy
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          port: ${{ secrets.DROPLET_PORT != '' && secrets.DROPLET_PORT || '22' }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          passphrase: ${{ secrets.DROPLET_SSH_PASSPHRASE }}
-          debug: true
-          script_stop: true
-          command_timeout: 30m
-          script: |
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_PORT: ${{ secrets.DROPLET_PORT != '' && secrets.DROPLET_PORT || '22' }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          DROPLET_SSH_PASSPHRASE: ${{ secrets.DROPLET_SSH_PASSPHRASE }}
+        run: |
+          set -eu
+
+          if [ -n "${DROPLET_SSH_PASSPHRASE:-}" ]; then
+            echo "ERROR: passphrase-protected keys are not supported by this deploy step."
+            echo "Use an unencrypted deploy key in DROPLET_SSH_KEY."
+            exit 1
+          fi
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          key = os.environ["DROPLET_SSH_KEY"].strip()
+          if "\\n" in key and "\n" not in key:
+              key = key.replace("\\n", "\n")
+          if not key.endswith("\n"):
+              key += "\n"
+          p = Path.home() / ".ssh" / "id_deploy"
+          p.write_text(key, encoding="utf-8")
+          p.chmod(0o600)
+          PY
+
+          ssh -vvv -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" "echo SSH_OK"
+
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" 'bash -se' <<'REMOTE'
             set -eu
 
             if [ -d /opt/stratum-sports ]; then
@@ -99,3 +122,4 @@ jobs:
             fi
 
             compose -f docker-compose.prod.yml --env-file "$ENV_FILE" ps
+          REMOTE
