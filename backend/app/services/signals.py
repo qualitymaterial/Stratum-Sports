@@ -2,6 +2,7 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from math import log1p
 from statistics import mean, median as stats_median
 from typing import Iterable
 
@@ -84,7 +85,9 @@ def compute_strength_score(
     window_minutes: int,
     books_affected: int,
 ) -> tuple[int, dict]:
-    magnitude_component = min(50.0, abs(magnitude) * 20.0)
+    # Logarithmic curve prevents hard ceiling at magnitude 2.5.
+    # Continues differentiating up to ~4.7 before capping at 50.
+    magnitude_component = min(50.0, log1p(abs(magnitude) * 2.0) * 22.0)
 
     capped_velocity = min(max(velocity_minutes, 0.01), float(window_minutes))
     speed_component = min(
@@ -557,7 +560,9 @@ async def detect_dislocations(
     if not latest_snapshots:
         return []
 
-    candidate_by_event: dict[str, list[DislocationCandidate]] = defaultdict(list)
+    # Group by (event_id, market) so each market gets fair representation.
+    # Previously per-event grouping could let one market consume the entire cap.
+    candidate_by_event_market: dict[tuple[str, str], list[DislocationCandidate]] = defaultdict(list)
     for consensus in consensus_rows:
         key = (consensus.event_id, consensus.market, consensus.outcome_name)
         for snapshot in latest_snapshots.get(key, []):
@@ -640,7 +645,7 @@ async def detect_dislocations(
                     "lookback_minutes": lookback_minutes,
                 },
             )
-            candidate_by_event[consensus.event_id].append(
+            candidate_by_event_market[(consensus.event_id, consensus.market)].append(
                 DislocationCandidate(
                     event_id=consensus.event_id,
                     strength_score=strength,
@@ -649,12 +654,12 @@ async def detect_dislocations(
                 )
             )
 
-    if not candidate_by_event:
+    if not candidate_by_event_market:
         return []
 
     created: list[Signal] = []
-    max_per_event = max(1, settings.dislocation_max_signals_per_event)
-    for event_id, candidates in candidate_by_event.items():
+    max_per_market = max(1, settings.dislocation_max_signals_per_event)
+    for (_event_id, _market), candidates in candidate_by_event_market.items():
         ranked = sorted(
             candidates,
             key=lambda c: (
@@ -663,7 +668,7 @@ async def detect_dislocations(
             ),
             reverse=True,
         )
-        for candidate in ranked[:max_per_event]:
+        for candidate in ranked[:max_per_market]:
             if await _dedupe_signal(redis, candidate.dedupe_key, settings.dislocation_cooldown_seconds):
                 continue
             db.add(candidate.signal)
@@ -674,7 +679,7 @@ async def detect_dislocations(
             "Dislocation detection completed",
             extra={
                 "dislocation_signals_created": len(created),
-                "dislocation_events_scanned": len(candidate_by_event),
+                "dislocation_events_scanned": len({k[0] for k in candidate_by_event_market}),
             },
         )
 
@@ -810,6 +815,8 @@ async def detect_steam_v2(
                 "start_line": round(start_line, 6),
                 "end_line": round(end_line, 6),
                 "speed": round(speed, 6),
+                "confidence": "high" if len(books_involved) >= settings.steam_min_books + 2 else "medium",
+                "books_above_minimum": len(books_involved) - settings.steam_min_books,
             },
         )
         candidates_by_event[event_id].append(

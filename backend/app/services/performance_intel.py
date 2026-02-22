@@ -110,6 +110,24 @@ def _compute_quote_delta(
     return float(book_prob) - float(consensus_prob), "implied_prob"
 
 
+def _compute_h2h_ev_edge(
+    book_price: int | float,
+    consensus_price: float,
+) -> float | None:
+    """EV edge for moneyline: (consensus_prob / book_prob) - 1.
+
+    Accounts for payout asymmetry that raw probability delta misses.
+    A 5% prob edge at +200 is worth far more than 5% at -300.
+    """
+    consensus_prob = american_to_implied_prob(consensus_price)
+    book_prob = american_to_implied_prob(book_price)
+    if consensus_prob is None or book_prob is None:
+        return None
+    if book_prob <= 0:
+        return None
+    return float(consensus_prob) / float(book_prob) - 1.0
+
+
 def _delta_baseline_for_market(market: str) -> float:
     if market == "totals":
         return max(0.1, float(settings.dislocation_total_line_delta))
@@ -872,6 +890,7 @@ async def get_actionable_book_card(
             "best_line": None,
             "best_price": None,
             "best_delta": None,
+            "best_ev_edge": None,
             "delta_type": delta_type,
             "fetched_at": None,
             "freshness_seconds": None,
@@ -887,6 +906,9 @@ async def get_actionable_book_card(
     quotes_payload: list[dict[str, Any]] = []
     for quote in quotes:
         delta, _delta_type = _compute_quote_delta(signal.market, quote, consensus_line, consensus_price)
+        ev_edge: float | None = None
+        if signal.market == "h2h" and consensus_price is not None:
+            ev_edge = _compute_h2h_ev_edge(quote.price, consensus_price)
         quotes_payload.append(
             {
                 "sportsbook_key": quote.sportsbook_key,
@@ -894,6 +916,7 @@ async def get_actionable_book_card(
                 "price": int(quote.price),
                 "fetched_at": quote.fetched_at,
                 "delta": delta,
+                "ev_edge": round(ev_edge, 6) if ev_edge is not None else None,
             }
         )
 
@@ -952,6 +975,7 @@ async def get_actionable_book_card(
         "best_line": best_quote.get("line") if best_quote else None,
         "best_price": best_quote.get("price") if best_quote else None,
         "best_delta": best_quote.get("delta") if best_quote else None,
+        "best_ev_edge": best_quote.get("ev_edge") if best_quote else None,
         "delta_type": delta_type,
         "fetched_at": best_quote.get("fetched_at") if best_quote else None,
         "freshness_seconds": freshness_seconds,
@@ -1239,6 +1263,7 @@ async def get_best_opportunities(
             "consensus_line": _safe_float(card.get("consensus_line")),
             "consensus_price": _safe_float(card.get("consensus_price")),
             "best_delta": _safe_float(card.get("best_delta")),
+            "best_ev_edge": _safe_float(card.get("best_ev_edge")),
             "delta_type": str(card.get("delta_type") or "line"),
             "books_considered": int(card.get("books_considered") or 0),
             "freshness_seconds": (
