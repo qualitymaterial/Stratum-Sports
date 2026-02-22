@@ -21,8 +21,23 @@ jobs:
           script: |
             set -eu
             cd /opt/stratum-sports
+            pwd
+            ls -la
             test -f docker-compose.prod.yml
             test -f .env.production
+
+            git config --global --add safe.directory /opt/stratum-sports || true
+            git --version
+            docker --version
+
+            if docker compose version >/dev/null 2>&1; then
+              compose() { docker compose "$@"; }
+            elif command -v docker-compose >/dev/null 2>&1; then
+              compose() { docker-compose "$@"; }
+            else
+              echo "ERROR: docker compose plugin (or docker-compose) not found on droplet."
+              exit 1
+            fi
 
             git fetch origin main
             git checkout -B main origin/main
@@ -30,10 +45,10 @@ jobs:
 
             docker system prune -f || true
 
-            if ! docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans; then
-              docker compose -f docker-compose.prod.yml --env-file .env.production ps || true
-              docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
+            if ! compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans; then
+              compose -f docker-compose.prod.yml --env-file .env.production ps || true
+              compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
               exit 1
             fi
 
-            docker compose -f docker-compose.prod.yml --env-file .env.production ps
+            compose -f docker-compose.prod.yml --env-file .env.production ps
