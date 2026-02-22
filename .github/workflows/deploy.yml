@@ -16,8 +16,10 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 30m
           script: |
+            set -e
             cd /opt/stratum-sports
             git pull origin main
-            docker compose -f docker-compose.prod.yml --env-file .env.production down
+            docker system prune -f
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
