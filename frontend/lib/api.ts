@@ -6,48 +6,7 @@ import {
   User,
   WatchlistItem,
 } from "@/lib/types";
-
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
-
-async function apiRequest<T>(
-  path: string,
-  options: {
-    method?: "GET" | "POST" | "PUT" | "DELETE";
-    token?: string;
-    body?: unknown;
-    headers?: Record<string, string>;
-  } = {},
-): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? "GET",
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      ...(options.headers ?? {}),
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`;
-    try {
-      const payload = await response.json();
-      if (payload?.detail) {
-        message = payload.detail;
-      }
-    } catch {
-      // ignore parse failures
-    }
-    throw new Error(message);
-  }
-
-  const text = await response.text();
-  if (!text) {
-    return {} as T;
-  }
-  return JSON.parse(text) as T;
-}
+import { apiRequest } from "@/lib/apiClient";
 
 export async function register(email: string, password: string) {
   return apiRequest<{ access_token: string; user: User }>("/auth/register", {

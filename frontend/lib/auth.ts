@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { getMe } from "@/lib/api";
+import { clearAuthToken, initializeAuthToken, setAuthToken } from "@/lib/apiClient";
 import { User } from "@/lib/types";
 
 const TOKEN_KEY = "stratum_token";
@@ -11,6 +12,7 @@ const USER_KEY = "stratum_user";
 const isBrowser = () => typeof window !== "undefined";
 
 export function setSession(token: string, user: User) {
+  setAuthToken(token);
   if (!isBrowser()) {
     return;
   }
@@ -19,6 +21,7 @@ export function setSession(token: string, user: User) {
 }
 
 export function clearSession() {
+  clearAuthToken();
   if (!isBrowser()) {
     return;
   }
@@ -27,6 +30,10 @@ export function clearSession() {
 }
 
 export function getToken(): string {
+  const initialized = initializeAuthToken();
+  if (initialized) {
+    return initialized;
+  }
   if (!isBrowser()) {
     return "";
   }
@@ -84,6 +91,7 @@ export function useCurrentUser(redirectToLogin = true) {
   }, [redirectToLogin, router]);
 
   useEffect(() => {
+    initializeAuthToken();
     void refreshUser();
   }, [refreshUser]);
 

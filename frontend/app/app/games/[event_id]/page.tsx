@@ -7,11 +7,11 @@ import { LoadingState } from "@/components/LoadingState";
 import { MovementChart } from "@/components/MovementChart";
 import { SignalBadge } from "@/components/SignalBadge";
 import { getGameDetail } from "@/lib/api";
+import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
 import { GameDetail } from "@/lib/types";
 
-const API_BASE =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE = getApiBaseUrl();
 
 export default function GameDetailPage() {
   const params = useParams<{ event_id: string }>();

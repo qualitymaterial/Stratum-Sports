@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { getToken } from "@/lib/auth";
+import { getApiBaseUrl } from "@/lib/apiClient";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const API_BASE = getApiBaseUrl();
 
 export type WebSocketMessage = {
     type: "odds_update";
@@ -18,10 +19,17 @@ export type WebSocketMessage = {
 
 function buildWebSocketUrl(): string {
     try {
-        const apiUrl = new URL(API_BASE);
+        const apiUrl =
+            API_BASE.startsWith("/") && typeof window !== "undefined"
+                ? new URL(API_BASE, window.location.origin)
+                : new URL(API_BASE);
         const protocol = apiUrl.protocol === "https:" ? "wss:" : "ws:";
         return `${protocol}//${apiUrl.host}/api/v1/realtime/odds`;
     } catch {
+        if (typeof window !== "undefined") {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            return `${protocol}//${window.location.host}/api/v1/realtime/odds`;
+        }
         return "ws://localhost:8000/api/v1/realtime/odds";
     }
 }
