@@ -20,13 +20,29 @@ jobs:
           command_timeout: 30m
           script: |
             set -eu
-            cd /opt/stratum-sports
+
+            if [ -d /opt/stratum-sports ]; then
+              REPO_DIR=/opt/stratum-sports
+            elif [ -d /opt/Stratum-Sports ]; then
+              REPO_DIR=/opt/Stratum-Sports
+            elif [ -d "$HOME/stratum-sports" ]; then
+              REPO_DIR="$HOME/stratum-sports"
+            elif [ -d "$HOME/Stratum-Sports" ]; then
+              REPO_DIR="$HOME/Stratum-Sports"
+            else
+              echo "ERROR: repo directory not found (checked /opt and \$HOME variants)."
+              ls -la /opt || true
+              ls -la "$HOME" || true
+              exit 1
+            fi
+
+            cd "$REPO_DIR"
+            echo "Using REPO_DIR=$REPO_DIR"
             pwd
             ls -la
-            test -f docker-compose.prod.yml
-            test -f .env.production
 
             git config --global --add safe.directory /opt/stratum-sports || true
+            git config --global --add safe.directory "$REPO_DIR" || true
             git --version
             docker --version
 
@@ -39,16 +55,31 @@ jobs:
               exit 1
             fi
 
+            if [ -f .env.production ]; then
+              ENV_FILE=.env.production
+            elif [ -f /root/.env.production ]; then
+              ENV_FILE=/root/.env.production
+            else
+              echo "ERROR: .env.production not found in repo or /root/.env.production"
+              ls -la "$REPO_DIR" || true
+              ls -la /root || true
+              exit 1
+            fi
+
+            test -f docker-compose.prod.yml
+
+            git remote set-url origin https://github.com/qualitymaterial/Stratum-Sports.git || true
+            git remote -v
             git fetch origin main
             git checkout -B main origin/main
             git reset --hard origin/main
 
             docker system prune -f || true
 
-            if ! compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans; then
-              compose -f docker-compose.prod.yml --env-file .env.production ps || true
-              compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
+            if ! compose -f docker-compose.prod.yml --env-file "$ENV_FILE" up -d --build --remove-orphans; then
+              compose -f docker-compose.prod.yml --env-file "$ENV_FILE" ps || true
+              compose -f docker-compose.prod.yml --env-file "$ENV_FILE" logs --tail=200 backend worker frontend db redis || true
               exit 1
             fi
 
-            compose -f docker-compose.prod.yml --env-file .env.production ps
+            compose -f docker-compose.prod.yml --env-file "$ENV_FILE" ps
