@@ -11,8 +11,9 @@ FROM node:20-alpine AS runner
 WORKDIR /srv
 ENV NODE_ENV=production
 
-RUN addgroup --system --gid 1001 nodejs \
- && adduser --system --uid 1001 nextjs
+# Alpine busybox uses short flags; make creation idempotent across rebuilds.
+RUN addgroup -S -g 1001 nodejs 2>/dev/null || true \
+ && adduser -S -D -H -u 1001 -G nodejs nextjs 2>/dev/null || true
 
 # Standalone bundle includes only the node_modules actually needed at runtime
 COPY --from=builder /build/public ./public
