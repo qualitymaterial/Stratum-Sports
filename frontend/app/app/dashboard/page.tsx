@@ -10,6 +10,7 @@ import { getDashboardCards } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { getDashboardConsensusUpdate } from "@/lib/dashboardRealtime";
+import { formatLine, formatMoneyline } from "@/lib/oddsFormat";
 import { useOddsSocket } from "@/lib/useOddsSocket";
 import { DashboardCard } from "@/lib/types";
 
@@ -184,22 +185,22 @@ export default function DashboardPage() {
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-spreads`] === "up" ? "animate-flash-green" :
                   flashing[`${card.event_id}-spreads`] === "down" ? "animate-flash-red" : ""
                 }`}>
-                Spread: <span className="text-textMain">{card.consensus.spreads ?? "-"}</span>
+                Spread: <span className="text-textMain">{formatLine(card.consensus.spreads)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-totals`] === "up" ? "animate-flash-green" :
                   flashing[`${card.event_id}-totals`] === "down" ? "animate-flash-red" : ""
                 }`}>
-                Total: <span className="text-textMain">{card.consensus.totals ?? "-"}</span>
+                Total: <span className="text-textMain">{formatLine(card.consensus.totals)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_home`] === "up" ? "animate-flash-green" :
                   flashing[`${card.event_id}-h2h_home`] === "down" ? "animate-flash-red" : ""
                 }`}>
-                ML Home: <span className="text-textMain">{card.consensus.h2h_home ?? "-"}</span>
+                ML Home: <span className="text-textMain">{formatMoneyline(card.consensus.h2h_home)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_away`] === "up" ? "animate-flash-green" :
                   flashing[`${card.event_id}-h2h_away`] === "down" ? "animate-flash-red" : ""
                 }`}>
-                ML Away: <span className="text-textMain">{card.consensus.h2h_away ?? "-"}</span>
+                ML Away: <span className="text-textMain">{formatMoneyline(card.consensus.h2h_away)}</span>
               </div>
             </div>
 

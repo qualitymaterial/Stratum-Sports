@@ -10,6 +10,7 @@ import { getActionableBookCardsBatch, getGameDetail } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
+import { formatLine, formatMoneyline, formatSigned } from "@/lib/oddsFormat";
 import { ActionableBookCard, GameDetail } from "@/lib/types";
 
 const API_BASE = getApiBaseUrl();
@@ -208,8 +209,8 @@ export default function GameDetailPage() {
                   <td className="border-b border-borderTone/50 py-2 text-textMain">{row.sportsbook_key}</td>
                   <td className="border-b border-borderTone/50 py-2 text-textMute">{row.market}</td>
                   <td className="border-b border-borderTone/50 py-2 text-textMain">{row.outcome_name}</td>
-                  <td className="border-b border-borderTone/50 py-2 text-textMain">{row.line ?? "-"}</td>
-                  <td className="border-b border-borderTone/50 py-2 text-textMain">{row.price}</td>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">{formatLine(row.line, 1)}</td>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">{formatMoneyline(row.price)}</td>
                   <td className="border-b border-borderTone/50 py-2 text-textMute">
                     {new Date(row.fetched_at).toLocaleTimeString([], {
                       hour: "2-digit",
@@ -277,12 +278,12 @@ export default function GameDetailPage() {
                             Book vs Consensus:{" "}
                             <span className="font-semibold">{actionable.best_book_key ?? "-"}</span>{" "}
                             {actionable.best_line != null
-                              ? `${actionable.best_line} (${actionable.best_price ?? "-"})`
-                              : actionable.best_price ?? "-"}
+                              ? `${formatLine(actionable.best_line, 1)} (${formatMoneyline(actionable.best_price)})`
+                              : formatMoneyline(actionable.best_price)}
                             {" "}vs{" "}
                             {actionable.consensus_line != null
-                              ? `${actionable.consensus_line} (${actionable.consensus_price ?? "-"})`
-                              : actionable.consensus_price ?? "-"}
+                              ? `${formatLine(actionable.consensus_line, 1)} (${formatMoneyline(actionable.consensus_price)})`
+                              : formatMoneyline(actionable.consensus_price)}
                           </span>
                         </p>
                         <p>
@@ -291,7 +292,7 @@ export default function GameDetailPage() {
                         <p>
                           Delta:{" "}
                           <span className="text-textMain">
-                            {actionable.best_delta != null ? actionable.best_delta.toFixed(3) : "-"}
+                            {formatSigned(actionable.best_delta, 3)}
                           </span>{" "}
                           • Books: <span className="text-textMain">{actionable.books_considered}</span>{" "}
                           • Freshness:{" "}
@@ -307,7 +308,9 @@ export default function GameDetailPage() {
                             {actionable.top_books.map((book) => (
                               <span key={`${signal.id}-${book.sportsbook_key}`} className="mr-2 inline-block">
                                 {book.sportsbook_key}:{" "}
-                                {book.line != null ? `${book.line} (${book.price})` : `${book.price}`}
+                                {book.line != null
+                                  ? `${formatLine(book.line, 1)} (${formatMoneyline(book.price)})`
+                                  : `${formatMoneyline(book.price)}`}
                               </span>
                             ))}
                           </p>
