@@ -67,7 +67,6 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
       NEXT_PUBLIC_STRIPE_PRO_PRICE_USD: ${NEXT_PUBLIC_STRIPE_PRO_PRICE_USD:-29}
-    command: ["/bin/sh", "-lc", "npm run build && npm run start -- -H 0.0.0.0 -p 3000"]
     ports:
       - "3000:3000"
     depends_on:
