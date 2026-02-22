@@ -321,3 +321,104 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
     assert teaser.status_code == 200
     teaser_payload = teaser.json()
     assert teaser_payload["days"] == 30
+
+    free_scorecards = await async_client.get("/api/v1/intel/clv/scorecards?days=30", headers=free_headers)
+    assert free_scorecards.status_code == 403
+
+    pro_scorecards = await async_client.get("/api/v1/intel/clv/scorecards?days=30", headers=pro_headers)
+    assert pro_scorecards.status_code == 200
+
+
+async def test_clv_scorecards_rank_and_tier_by_quality(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_scorecards"
+
+    # Stronger profile: higher samples and higher positive rate.
+    for idx in range(30):
+        signal = _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="MOVE",
+            strength=82,
+            created_at=now - timedelta(days=5, minutes=idx),
+            metadata={"outcome_name": "BOS"},
+        )
+        db_session.add(signal)
+        await db_session.flush()
+
+        is_positive = idx < 22
+        db_session.add(
+            ClvRecord(
+                signal_id=signal.id,
+                event_id=event_id,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=None,
+                close_line=-3.0 + (0.4 if is_positive else -0.15),
+                close_price=None,
+                clv_line=0.4 if is_positive else -0.15,
+                clv_prob=None,
+                computed_at=now - timedelta(days=4, minutes=idx),
+            )
+        )
+
+    # Weaker profile: lower samples and flat/noisy edge.
+    for idx in range(12):
+        signal = _signal(
+            event_id=event_id,
+            market="totals",
+            signal_type="DISLOCATION",
+            strength=70,
+            created_at=now - timedelta(days=4, minutes=idx),
+            metadata={"outcome_name": "Over", "dispersion": 1.1},
+        )
+        db_session.add(signal)
+        await db_session.flush()
+
+        is_positive = idx % 2 == 0
+        db_session.add(
+            ClvRecord(
+                signal_id=signal.id,
+                event_id=event_id,
+                signal_type="DISLOCATION",
+                market="totals",
+                outcome_name="Over",
+                entry_line=220.0,
+                entry_price=None,
+                close_line=220.0 + (0.08 if is_positive else -0.08),
+                close_price=None,
+                clv_line=0.08 if is_positive else -0.08,
+                clv_prob=None,
+                computed_at=now - timedelta(days=3, minutes=idx),
+            )
+        )
+
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-scorecards@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await async_client.get(
+        "/api/v1/intel/clv/scorecards?days=30&min_samples=10",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+
+    move_scorecard = next(
+        row for row in payload if row["signal_type"] == "MOVE" and row["market"] == "spreads"
+    )
+    dislocation_scorecard = next(
+        row for row in payload if row["signal_type"] == "DISLOCATION" and row["market"] == "totals"
+    )
+
+    assert move_scorecard["count"] == 30
+    assert dislocation_scorecard["count"] == 12
+    assert move_scorecard["confidence_score"] > dislocation_scorecard["confidence_score"]
+    assert move_scorecard["confidence_tier"] in {"A", "B"}
+    assert dislocation_scorecard["confidence_tier"] == "C"

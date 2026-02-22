@@ -129,6 +129,27 @@ export type ClvTeaserResponse = {
   rows: ClvPerformanceRow[];
 };
 
+export type ClvTrustScorecard = {
+  signal_type: string;
+  market: string;
+  count: number;
+  pct_positive_clv: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+  stddev_clv_line: number | null;
+  stddev_clv_prob: number | null;
+  confidence_score: number;
+  confidence_tier: "A" | "B" | "C";
+  stability_ratio_line: number | null;
+  stability_ratio_prob: number | null;
+  stability_label: "stable" | "moderate" | "noisy" | "unknown";
+  score_components: {
+    sample_points: number;
+    edge_points: number;
+    stability_points: number;
+  };
+};
+
 export type SignalQualityRow = {
   id: string;
   event_id: string;

@@ -40,6 +40,23 @@ class ClvSummaryPoint(BaseModel):
     avg_clv_prob: float | None
 
 
+class ClvTrustScorecard(BaseModel):
+    signal_type: str
+    market: str
+    count: int
+    pct_positive_clv: float
+    avg_clv_line: float | None
+    avg_clv_prob: float | None
+    stddev_clv_line: float | None
+    stddev_clv_prob: float | None
+    confidence_score: int
+    confidence_tier: str
+    stability_ratio_line: float | None
+    stability_ratio_prob: float | None
+    stability_label: str
+    score_components: dict[str, int]
+
+
 class ClvTeaserResponse(BaseModel):
     days: int
     total_records: int

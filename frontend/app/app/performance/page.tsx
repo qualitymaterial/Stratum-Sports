@@ -3,10 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
-import { getClvSummary, getClvTeaser, getSignalQuality } from "@/lib/api";
+import { getClvSummary, getClvTeaser, getClvTrustScorecards, getSignalQuality } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
-import { ClvPerformanceRow, ClvTeaserResponse, SignalQualityRow } from "@/lib/types";
+import { ClvPerformanceRow, ClvTeaserResponse, ClvTrustScorecard, SignalQualityRow } from "@/lib/types";
 
 const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"] as const;
 const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
@@ -19,6 +19,7 @@ export default function PerformancePage() {
   const [minStrength, setMinStrength] = useState(60);
   const [minSamples, setMinSamples] = useState(10);
   const [summaryRows, setSummaryRows] = useState<ClvPerformanceRow[]>([]);
+  const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,14 @@ export default function PerformancePage() {
     setError(null);
     try {
       if (proAccess) {
-        const [summary, quality] = await Promise.all([
+        const [scorecardsData, summaryData, qualityData] = await Promise.all([
+          getClvTrustScorecards(token, {
+            days,
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_samples: minSamples,
+            min_strength: minStrength,
+          }),
           getClvSummary(token, {
             days,
             signal_type: resolvedSignalType,
@@ -54,13 +62,15 @@ export default function PerformancePage() {
             offset: 0,
           }),
         ]);
-        setSummaryRows(summary);
-        setQualityRows(quality);
+        setScorecards(scorecardsData);
+        setSummaryRows(summaryData);
+        setQualityRows(qualityData);
         setTeaser(null);
       } else {
         const teaserData = await getClvTeaser(token, days);
         setTeaser(teaserData);
         setSummaryRows([]);
+        setScorecards([]);
         setQualityRows([]);
       }
     } catch (err) {
@@ -256,6 +266,61 @@ export default function PerformancePage() {
 
       {proAccess && (
         <>
+          <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+            <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">CLV Trust Scorecards</h2>
+            <div className="overflow-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                    <th className="border-b border-borderTone py-2">Signal</th>
+                    <th className="border-b border-borderTone py-2">Market</th>
+                    <th className="border-b border-borderTone py-2">Samples</th>
+                    <th className="border-b border-borderTone py-2">% Positive</th>
+                    <th className="border-b border-borderTone py-2">Tier</th>
+                    <th className="border-b border-borderTone py-2">Score</th>
+                    <th className="border-b border-borderTone py-2">Stability</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scorecards.map((row) => (
+                    <tr key={`scorecard-${row.signal_type}-${row.market}`}>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        {row.pct_positive_clv.toFixed(1)}%
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2">
+                        <span
+                          className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                            row.confidence_tier === "A"
+                              ? "bg-positive/10 text-positive"
+                              : row.confidence_tier === "B"
+                                ? "bg-accent/15 text-accent"
+                                : "bg-textMute/20 text-textMute"
+                          }`}
+                        >
+                          {row.confidence_tier}
+                        </span>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.confidence_score}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain capitalize">
+                        {row.stability_label}
+                      </td>
+                    </tr>
+                  ))}
+                  {scorecards.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="py-3 text-xs text-textMute">
+                        No scorecards available for the selected filters.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <div className="grid gap-4 xl:grid-cols-2">
             <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
               <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">CLV by Signal Type</h2>

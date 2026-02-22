@@ -131,6 +131,182 @@ async def get_clv_performance_summary(
     ]
 
 
+def _stability_ratio(avg_value: float | None, stddev_value: float | None) -> float | None:
+    if avg_value is None or stddev_value is None:
+        return None
+    denominator = abs(float(avg_value))
+    if denominator < 1e-9:
+        return None
+    return float(stddev_value) / denominator
+
+
+def _stability_points(ratio: float | None) -> int:
+    if ratio is None:
+        return 4
+    if ratio <= 1.0:
+        return 20
+    if ratio <= 1.5:
+        return 14
+    if ratio <= 2.0:
+        return 9
+    if ratio <= 3.0:
+        return 5
+    return 2
+
+
+def _sample_points(count: int) -> int:
+    if count >= 200:
+        return 45
+    if count >= 100:
+        return 35
+    if count >= 60:
+        return 28
+    if count >= 30:
+        return 20
+    if count >= 15:
+        return 12
+    return 6
+
+
+def _edge_points(pct_positive: float) -> int:
+    edge = abs(float(pct_positive) - 50.0)
+    if edge >= 20.0:
+        return 25
+    if edge >= 15.0:
+        return 20
+    if edge >= 10.0:
+        return 14
+    if edge >= 5.0:
+        return 8
+    return 3
+
+
+def _confidence_tier(
+    *,
+    count: int,
+    pct_positive: float,
+    confidence_score: int,
+) -> str:
+    if count >= 100 and confidence_score >= 70 and pct_positive >= 54.0:
+        return "A"
+    if count >= 30 and confidence_score >= 50 and pct_positive >= 52.0:
+        return "B"
+    return "C"
+
+
+def _stability_label(ratio: float | None) -> str:
+    if ratio is None:
+        return "unknown"
+    if ratio <= 1.2:
+        return "stable"
+    if ratio <= 2.0:
+        return "moderate"
+    return "noisy"
+
+
+async def get_clv_trust_scorecards(
+    db: AsyncSession,
+    *,
+    days: int,
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_samples: int = 10,
+    min_strength: int | None = None,
+) -> list[dict[str, Any]]:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    positive_expr = case((or_(ClvRecord.clv_line > 0, ClvRecord.clv_prob > 0), 1.0), else_=0.0)
+
+    stmt = (
+        select(
+            ClvRecord.signal_type.label("signal_type"),
+            ClvRecord.market.label("market"),
+            func.count(ClvRecord.id).label("count"),
+            (func.avg(positive_expr) * 100.0).label("pct_positive_clv"),
+            func.avg(ClvRecord.clv_line).label("avg_clv_line"),
+            func.avg(ClvRecord.clv_prob).label("avg_clv_prob"),
+            func.stddev_pop(ClvRecord.clv_line).label("stddev_clv_line"),
+            func.stddev_pop(ClvRecord.clv_prob).label("stddev_clv_prob"),
+        )
+        .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
+        .where(ClvRecord.computed_at >= cutoff)
+    )
+
+    if signal_type:
+        stmt = stmt.where(ClvRecord.signal_type == signal_type)
+    if market:
+        stmt = stmt.where(ClvRecord.market == market)
+    if min_strength is not None:
+        stmt = stmt.where(func.coalesce(Signal.strength_score, 0) >= int(min_strength))
+
+    stmt = (
+        stmt.group_by(ClvRecord.signal_type, ClvRecord.market)
+        .having(func.count(ClvRecord.id) >= max(1, int(min_samples)))
+    )
+
+    rows = (await db.execute(stmt)).mappings().all()
+    scorecards: list[dict[str, Any]] = []
+    for row in rows:
+        count = int(row["count"] or 0)
+        pct_positive = float(row["pct_positive_clv"] or 0.0)
+        avg_clv_line = float(row["avg_clv_line"]) if row["avg_clv_line"] is not None else None
+        avg_clv_prob = float(row["avg_clv_prob"]) if row["avg_clv_prob"] is not None else None
+        stddev_clv_line = float(row["stddev_clv_line"]) if row["stddev_clv_line"] is not None else None
+        stddev_clv_prob = float(row["stddev_clv_prob"]) if row["stddev_clv_prob"] is not None else None
+
+        line_ratio = _stability_ratio(avg_clv_line, stddev_clv_line)
+        prob_ratio = _stability_ratio(avg_clv_prob, stddev_clv_prob)
+        effective_ratio = (
+            line_ratio
+            if line_ratio is not None
+            else prob_ratio
+        )
+        if line_ratio is not None and prob_ratio is not None:
+            effective_ratio = min(line_ratio, prob_ratio)
+
+        sample_component = _sample_points(count)
+        edge_component = _edge_points(pct_positive)
+        stability_component = _stability_points(effective_ratio)
+        confidence_score = max(1, min(100, int(round(sample_component + edge_component + stability_component))))
+
+        scorecards.append(
+            {
+                "signal_type": str(row["signal_type"]),
+                "market": str(row["market"]),
+                "count": count,
+                "pct_positive_clv": pct_positive,
+                "avg_clv_line": avg_clv_line,
+                "avg_clv_prob": avg_clv_prob,
+                "stddev_clv_line": stddev_clv_line,
+                "stddev_clv_prob": stddev_clv_prob,
+                "confidence_score": confidence_score,
+                "confidence_tier": _confidence_tier(
+                    count=count,
+                    pct_positive=pct_positive,
+                    confidence_score=confidence_score,
+                ),
+                "stability_ratio_line": line_ratio,
+                "stability_ratio_prob": prob_ratio,
+                "stability_label": _stability_label(effective_ratio),
+                "score_components": {
+                    "sample_points": sample_component,
+                    "edge_points": edge_component,
+                    "stability_points": stability_component,
+                },
+            }
+        )
+
+    scorecards.sort(
+        key=lambda item: (
+            int(item["confidence_score"]),
+            int(item["count"]),
+            str(item["signal_type"]),
+            str(item["market"]),
+        ),
+        reverse=True,
+    )
+    return scorecards
+
+
 async def get_clv_records_filtered(
     db: AsyncSession,
     *,

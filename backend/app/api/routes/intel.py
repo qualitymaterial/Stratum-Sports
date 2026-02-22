@@ -17,6 +17,7 @@ from app.schemas.intel import (
     ActionableBookCard,
     ClvRecordPoint,
     ClvSummaryPoint,
+    ClvTrustScorecard,
     ClvTeaserResponse,
     ConsensusPoint,
     SignalQualityPoint,
@@ -25,6 +26,7 @@ from app.services.performance_intel import (
     get_actionable_book_card,
     get_clv_performance_summary,
     get_clv_records_filtered,
+    get_clv_trust_scorecards,
     get_clv_teaser,
     get_signal_quality_rows,
 )
@@ -218,6 +220,42 @@ async def get_clv_summary(
         },
     )
     return [ClvSummaryPoint(**row) for row in rows]
+
+
+@router.get("/clv/scorecards", response_model=list[ClvTrustScorecard])
+async def get_clv_scorecards(
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_samples: int = Query(10, ge=1, le=10000),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> list[ClvTrustScorecard]:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    rows = await get_clv_trust_scorecards(
+        db,
+        days=days,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_samples=min_samples,
+        min_strength=min_strength,
+    )
+    logger.info(
+        "Intel CLV trust scorecards query served",
+        extra={
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "days": days,
+            "min_samples": min_samples,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [ClvTrustScorecard(**row) for row in rows]
 
 
 @router.get("/clv/teaser", response_model=ClvTeaserResponse)
