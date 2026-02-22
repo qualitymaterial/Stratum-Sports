@@ -1,4 +1,4 @@
-.PHONY: up down logs backend-test backend-lint migrate
+.PHONY: up down logs backend-test backend-lint migrate smoke-auth
 
 up:
 	docker compose up --build
@@ -26,3 +26,6 @@ prod-down:
 
 prod-logs:
 	docker compose -f docker-compose.prod.yml --env-file .env.production logs -f --tail=200
+
+smoke-auth:
+	./scripts/smoke_auth.sh
