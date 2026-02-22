@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { addWatchlist, getGames, getWatchlist, removeWatchlist } from "@/lib/api";
+import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { GameListItem, WatchlistItem } from "@/lib/types";
 
@@ -79,13 +80,14 @@ export default function WatchlistPage() {
   if (loading || !user) {
     return <LoadingState label="Loading watchlist..." />;
   }
+  const proAccess = hasProAccess(user);
 
   return (
     <section className="space-y-5">
       <header>
         <h1 className="text-xl font-semibold">Watchlist</h1>
         <p className="text-sm text-textMute">
-          {user.tier === "pro"
+          {proAccess
             ? "Unlimited tracking and Discord alerts enabled."
             : "Free tier max watchlist size: 3 games. Discord alerts are Pro only."}
         </p>
@@ -168,7 +170,7 @@ export default function WatchlistPage() {
         </div>
       </div>
 
-      {user.tier === "free" && (
+      {!proAccess && (
         <div className="rounded-xl border border-borderTone bg-panel p-4 text-sm text-textMute shadow-terminal">
           Discord webhooks, real-time stream, and detailed signal diagnostics are locked to Pro.
         </div>

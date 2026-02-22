@@ -7,6 +7,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { MovementChart } from "@/components/MovementChart";
 import { SignalBadge } from "@/components/SignalBadge";
 import { getGameDetail } from "@/lib/api";
+import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
 import { GameDetail } from "@/lib/types";
@@ -83,6 +84,7 @@ export default function GameDetailPage() {
   if (loading || !user) {
     return <LoadingState label="Loading game..." />;
   }
+  const proAccess = hasProAccess(user);
 
   if (!detail) {
     return <LoadingState label={error ?? "Loading game detail..."} />;
@@ -106,7 +108,7 @@ export default function GameDetailPage() {
         </div>
 
         <div className="flex gap-2">
-          {user.tier === "pro" ? (
+          {proAccess ? (
             <>
               <button
                 onClick={() => {
@@ -183,7 +185,7 @@ export default function GameDetailPage() {
           )}
         </div>
 
-        {user.tier === "free" && (
+        {!proAccess && (
           <p className="mt-3 text-xs text-textMute">
             Free tier hides velocity and book-level metadata. Upgrade to Pro for full signal diagnostics.
           </p>

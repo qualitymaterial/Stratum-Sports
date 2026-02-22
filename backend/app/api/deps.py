@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.tier import is_pro
 from app.core.security import decode_token
 from app.models.user import User
 
@@ -37,7 +38,7 @@ async def get_current_user(
 
 
 async def require_pro_user(user: User = Depends(get_current_user)) -> User:
-    if user.tier != "pro":
+    if not is_pro(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Pro subscription required",

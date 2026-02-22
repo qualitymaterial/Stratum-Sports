@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { createCheckoutSession, createPortalSession } from "@/lib/api";
 import { clearSession, useCurrentUser } from "@/lib/auth";
+import { hasProAccess } from "@/lib/access";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    if (user.tier === "pro") {
+    if (hasProAccess(user)) {
       const { url } = await createPortalSession(token);
       window.location.href = url;
       return;
@@ -45,6 +46,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { href: "/app/watchlist", label: "Watchlist", proOnly: false },
     { href: "/app/discord", label: "Alerts", proOnly: true },
   ];
+  const proAccess = hasProAccess(user);
 
   return (
     <div className="min-h-screen">
@@ -57,7 +59,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <nav className="flex gap-2 text-sm text-textMute">
               {links.map((link) => {
                 const active = pathname.startsWith(link.href);
-                const locked = link.proOnly && user.tier !== "pro" && !user.is_admin;
+                const locked = link.proOnly && !proAccess;
                 return (
                   <Link
                     key={link.href}
@@ -84,12 +86,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               </span>
             )}
             <span
-              className={`rounded border px-2 py-1 uppercase tracking-wider ${user.tier === "pro"
+              className={`rounded border px-2 py-1 uppercase tracking-wider ${proAccess
                 ? "border-accent/50 text-accent"
                 : "border-borderTone text-textMute"
                 }`}
             >
-              {user.tier}
+              {proAccess ? "pro" : user.tier}
             </span>
             <button
               onClick={() => {
@@ -97,7 +99,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               }}
               className="rounded border border-borderTone px-2.5 py-1 text-textMute transition hover:border-accent hover:text-accent"
             >
-              {user.tier === "pro" ? "Billing" : "Upgrade"}
+              {proAccess ? "Billing" : "Upgrade"}
             </button>
             <button
               onClick={logout}

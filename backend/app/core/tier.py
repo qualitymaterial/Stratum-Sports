@@ -8,10 +8,10 @@ settings = get_settings()
 
 
 def delayed_cutoff_for_user(user: User) -> datetime | None:
-    if user.tier == "pro":
+    if is_pro(user):
         return None
     return datetime.now(UTC) - timedelta(minutes=settings.free_delay_minutes)
 
 
 def is_pro(user: User) -> bool:
-    return user.tier == "pro"
+    return user.tier == "pro" or user.is_admin

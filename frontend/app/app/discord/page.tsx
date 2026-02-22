@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { getDiscordConnection, upsertDiscordConnection } from "@/lib/api";
+import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { DiscordConnection } from "@/lib/types";
 
@@ -62,8 +63,9 @@ export default function DiscordPage() {
   if (loading || !user) {
     return <LoadingState label="Loading Discord settings..." />;
   }
+  const proAccess = hasProAccess(user);
 
-  if (user.tier !== "pro") {
+  if (!proAccess) {
     return (
       <section className="space-y-4">
         <h1 className="text-xl font-semibold">Discord Alerts</h1>

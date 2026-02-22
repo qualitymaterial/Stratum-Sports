@@ -5,7 +5,7 @@ from statistics import mean
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.tier import delayed_cutoff_for_user
+from app.core.tier import delayed_cutoff_for_user, is_pro
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
@@ -31,6 +31,7 @@ async def list_upcoming_games(db: AsyncSession, *, limit: int = 25) -> list[Game
 
 
 async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20) -> list[dict]:
+    pro_user = is_pro(user)
     games = await list_upcoming_games(db, limit=limit)
     if not games:
         return []
@@ -118,7 +119,7 @@ async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20
                 },
                 "sparkline": sparkline,
                 "signals": [
-                    serialize_signal(signal, pro_user=user.tier == "pro")
+                    serialize_signal(signal, pro_user=pro_user)
                     for signal in signals_by_event.get(game.event_id, [])
                 ],
             }
@@ -128,6 +129,7 @@ async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20
 
 
 async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict | None:
+    pro_user = is_pro(user)
     game_stmt = select(Game).where(Game.event_id == event_id)
     game = (await db.execute(game_stmt)).scalar_one_or_none()
     if game is None:
@@ -192,7 +194,7 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         select(Signal)
         .where(Signal.event_id == event_id)
         .order_by(desc(Signal.created_at))
-        .limit(200 if user.tier == "pro" else 40)
+        .limit(200 if pro_user else 40)
     )
     signals = (await db.execute(signal_stmt)).scalars().all()
 
@@ -203,6 +205,6 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         "commence_time": game.commence_time,
         "odds": odds_rows,
         "chart_series": chart_series,
-        "signals": [serialize_signal(signal, pro_user=user.tier == "pro") for signal in signals],
+        "signals": [serialize_signal(signal, pro_user=pro_user) for signal in signals],
         "context_scaffold": await build_context_score(db, event_id),
     }

@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.core.tier import is_pro
 from app.models.game import Game
 from app.models.user import User
 from app.models.watchlist import Watchlist
@@ -61,7 +62,7 @@ async def add_watchlist_item(
     if existing:
         return {"status": "exists", "event_id": event_id}
 
-    if user.tier != "pro":
+    if not is_pro(user):
         count_stmt = select(func.count(Watchlist.id)).where(Watchlist.user_id == user.id)
         count = (await db.execute(count_stmt)).scalar_one()
         if count >= settings.free_watchlist_limit:

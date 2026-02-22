@@ -1,7 +1,7 @@
 import logging
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -111,7 +111,10 @@ async def dispatch_discord_alerts_for_signals(db: AsyncSession, signals: list[Si
         select(Watchlist, User, DiscordConnection)
         .join(User, User.id == Watchlist.user_id)
         .join(DiscordConnection, DiscordConnection.user_id == User.id)
-        .where(Watchlist.event_id.in_(event_ids), User.tier == "pro")
+        .where(
+            Watchlist.event_id.in_(event_ids),
+            or_(User.tier == "pro", User.is_admin.is_(True)),
+        )
     )
     watcher_rows = (await db.execute(watchers_stmt)).all()
 

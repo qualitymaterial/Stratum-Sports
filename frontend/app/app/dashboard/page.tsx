@@ -7,6 +7,7 @@ import { LoadingState } from "@/components/LoadingState";
 import { MarketSparkline } from "@/components/MarketSparkline";
 import { SignalBadge } from "@/components/SignalBadge";
 import { getDashboardCards } from "@/lib/api";
+import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { useOddsSocket } from "@/lib/useOddsSocket";
 import { DashboardCard } from "@/lib/types";
@@ -85,6 +86,7 @@ export default function DashboardPage() {
   if (loading || !user) {
     return <LoadingState label="Loading dashboard..." />;
   }
+  const proAccess = hasProAccess(user);
 
   return (
     <section className="space-y-5">
@@ -101,7 +103,7 @@ export default function DashboardPage() {
             </span>
           </div>
           <p className="text-sm text-textMute">
-            {user.tier === "free"
+            {!proAccess
               ? "Free tier data is delayed by 10 minutes."
               : "Pro tier access granted."}
           </p>
@@ -138,7 +140,7 @@ export default function DashboardPage() {
         <div className="rounded-xl border border-borderTone bg-panel p-8 text-center shadow-terminal">
           <p className="text-sm font-medium text-textMain">No upcoming games</p>
           <p className="mt-2 text-xs text-textMute">
-            {user.tier === "free"
+            {!proAccess
               ? "Odds data refreshes every 60 seconds once the poller is running and an Odds API key is configured."
               : "Odds data refreshes every 60 seconds. Check back once the polling worker is active."}
           </p>
