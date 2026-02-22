@@ -6,11 +6,11 @@ import { useEffect, useMemo, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import { MovementChart } from "@/components/MovementChart";
 import { SignalBadge } from "@/components/SignalBadge";
-import { getGameDetail } from "@/lib/api";
+import { getActionableBookCard, getGameDetail } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
-import { GameDetail } from "@/lib/types";
+import { ActionableBookCard, GameDetail } from "@/lib/types";
 
 const API_BASE = getApiBaseUrl();
 
@@ -22,6 +22,8 @@ export default function GameDetailPage() {
   const [detail, setDetail] = useState<GameDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [actionableCards, setActionableCards] = useState<Record<string, ActionableBookCard | null>>({});
+  const [actionableLoading, setActionableLoading] = useState(false);
 
   const load = async () => {
     if (!token || !eventId) {
@@ -81,10 +83,52 @@ export default function GameDetailPage() {
     });
   }, [detail]);
 
+  const proAccess = hasProAccess(user);
+  const actionableSignalIds = useMemo(
+    () => detail?.signals.slice(0, 6).map((signal) => signal.id) ?? [],
+    [detail],
+  );
+  const actionableSignalIdSet = useMemo(() => new Set(actionableSignalIds), [actionableSignalIds]);
+
+  useEffect(() => {
+    if (!proAccess || !token || !eventId || actionableSignalIds.length === 0) {
+      setActionableCards({});
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      setActionableLoading(true);
+      try {
+        const result = await Promise.all(
+          actionableSignalIds.map(async (signalId) => {
+            try {
+              const card = await getActionableBookCard(token, eventId, signalId);
+              return [signalId, card] as const;
+            } catch {
+              return [signalId, null] as const;
+            }
+          }),
+        );
+        if (!cancelled) {
+          setActionableCards(Object.fromEntries(result));
+        }
+      } finally {
+        if (!cancelled) {
+          setActionableLoading(false);
+        }
+      }
+    };
+
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [actionableSignalIds, eventId, proAccess, token]);
+
   if (loading || !user) {
     return <LoadingState label="Loading game..." />;
   }
-  const proAccess = hasProAccess(user);
 
   if (!detail) {
     return <LoadingState label={error ?? "Loading game detail..."} />;
@@ -176,18 +220,75 @@ export default function GameDetailPage() {
 
       <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
         <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Signals</h2>
-        <div className="flex flex-wrap gap-2">
-          {detail.signals.map((signal) => (
-            <SignalBadge key={signal.id} signal={signal} />
-          ))}
-          {detail.signals.length === 0 && (
-            <p className="text-sm text-textMute">No signals recorded yet.</p>
-          )}
+        <div className="space-y-2">
+          {detail.signals.length === 0 && <p className="text-sm text-textMute">No signals recorded yet.</p>}
+          {detail.signals.slice(0, 40).map((signal) => {
+            const outcome =
+              typeof signal.metadata?.outcome_name === "string" ? String(signal.metadata.outcome_name) : "-";
+            const actionable = actionableCards[signal.id];
+            const hasActionableSlot = actionableSignalIdSet.has(signal.id);
+            return (
+              <div
+                key={signal.id}
+                className="rounded border border-borderTone bg-panelSoft p-3"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <SignalBadge signal={signal} />
+                    <span className="text-xs text-textMute">
+                      {signal.market} • {outcome}
+                    </span>
+                  </div>
+                  <span className="text-xs text-textMute">
+                    {new Date(signal.created_at).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+
+                {proAccess && hasActionableSlot && (
+                  <div className="mt-2 rounded border border-borderTone/70 bg-panel p-2 text-xs text-textMute">
+                    {actionableLoading && !actionable && <p>Loading actionable book card...</p>}
+                    {!actionableLoading && !actionable && <p>No actionable book card available.</p>}
+                    {actionable && (
+                      <div className="space-y-1">
+                        <p className="text-textMain">
+                          Book vs Consensus:{" "}
+                          <span className="font-semibold">{actionable.best_book_key ?? "-"}</span>{" "}
+                          {actionable.best_line != null
+                            ? `${actionable.best_line} (${actionable.best_price ?? "-"})`
+                            : actionable.best_price ?? "-"}
+                          {" "}vs{" "}
+                          {actionable.consensus_line != null
+                            ? `${actionable.consensus_line} (${actionable.consensus_price ?? "-"})`
+                            : actionable.consensus_price ?? "-"}
+                        </p>
+                        <p>
+                          Delta:{" "}
+                          <span className="text-textMain">
+                            {actionable.best_delta != null ? actionable.best_delta.toFixed(3) : "-"}
+                          </span>{" "}
+                          • Books: <span className="text-textMain">{actionable.books_considered}</span>{" "}
+                          • Freshness:{" "}
+                          <span className={actionable.is_stale ? "text-negative" : "text-positive"}>
+                            {actionable.freshness_seconds != null
+                              ? `${Math.floor(actionable.freshness_seconds / 60)}m`
+                              : "-"}
+                          </span>
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {!proAccess && (
           <p className="mt-3 text-xs text-textMute">
-            Free tier hides velocity and book-level metadata. Upgrade to Pro for full signal diagnostics.
+            Free tier hides velocity and actionable book cards. Upgrade to Pro for full signal diagnostics.
           </p>
         )}
       </div>

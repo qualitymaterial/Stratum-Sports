@@ -2,7 +2,15 @@ from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserO
 from app.schemas.billing import CheckoutSessionResponse
 from app.schemas.discord import DiscordConnectionOut, DiscordConnectionUpsert
 from app.schemas.game import DashboardCard, GameDetailOut
-from app.schemas.intel import ClvRecordPoint, ClvSummaryPoint, ConsensusPoint
+from app.schemas.intel import (
+    ActionableBookCard,
+    ActionableBookQuote,
+    ClvRecordPoint,
+    ClvSummaryPoint,
+    ClvTeaserResponse,
+    ConsensusPoint,
+    SignalQualityPoint,
+)
 from app.schemas.ops import (
     ClvByMarketItem,
     ClvBySignalTypeItem,
@@ -30,6 +38,10 @@ __all__ = [
     "ConsensusPoint",
     "ClvRecordPoint",
     "ClvSummaryPoint",
+    "ClvTeaserResponse",
+    "SignalQualityPoint",
+    "ActionableBookQuote",
+    "ActionableBookCard",
     "CycleKpiOut",
     "CycleSummaryOut",
     "ClvBySignalTypeItem",

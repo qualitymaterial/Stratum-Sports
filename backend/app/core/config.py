@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     kpi_enabled: bool = True
     kpi_retention_days: int = 30
     kpi_write_failures_soft: bool = True
+    performance_ui_enabled: bool = True
+    actionable_book_card_enabled: bool = True
+    performance_default_days: int = 30
+    performance_max_limit: int = 200
+    signal_filter_default_min_strength: int = 60
+    actionable_book_max_books: int = 8
+    free_teaser_enabled: bool = True
     ops_internal_token: str = "dev-ops-token"
     ops_digest_enabled: bool = False
     ops_digest_webhook_url: str = ""

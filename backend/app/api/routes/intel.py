@@ -1,21 +1,39 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from datetime import UTC, datetime, timedelta
+import logging
+from datetime import datetime
+from time import perf_counter
+from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_pro_user
+from app.api.deps import get_current_user, require_pro_user
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.models.clv_record import ClvRecord
+from app.core.tier import is_pro
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
-from app.models.signal import Signal
 from app.models.user import User
-from app.schemas.intel import ClvRecordPoint, ClvSummaryPoint, ConsensusPoint
+from app.schemas.intel import (
+    ActionableBookCard,
+    ClvRecordPoint,
+    ClvSummaryPoint,
+    ClvTeaserResponse,
+    ConsensusPoint,
+    SignalQualityPoint,
+)
+from app.services.performance_intel import (
+    get_actionable_book_card,
+    get_clv_performance_summary,
+    get_clv_records_filtered,
+    get_clv_teaser,
+    get_signal_quality_rows,
+)
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 CANONICAL_MARKETS = {"spreads", "totals", "h2h"}
+CANONICAL_SIGNAL_TYPES = {"MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"}
 
 
 def _resolve_markets(market: str | None) -> list[str]:
@@ -33,6 +51,30 @@ def _resolve_markets(market: str | None) -> list[str]:
             detail=f"Unsupported market '{market}'. Allowed: {','.join(configured)}",
         )
     return [market]
+
+
+def _resolve_signal_type(signal_type: str | None) -> str | None:
+    if signal_type is None:
+        return None
+    normalized = signal_type.strip().upper()
+    if normalized not in CANONICAL_SIGNAL_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported signal_type '{signal_type}'. Allowed: {','.join(sorted(CANONICAL_SIGNAL_TYPES))}",
+        )
+    return normalized
+
+
+def _resolve_single_market(market: str | None) -> str | None:
+    if market is None:
+        return None
+    resolved = _resolve_markets(market)
+    return resolved[0] if resolved else None
+
+
+def _ensure_performance_enabled() -> None:
+    if not get_settings().performance_ui_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Performance intel is disabled")
 
 
 async def _latest_consensus_rows(
@@ -102,65 +144,180 @@ async def get_latest_consensus(
 
 @router.get("/clv", response_model=list[ClvRecordPoint])
 async def get_event_clv(
-    event_id: str = Query(..., min_length=1),
+    event_id: str | None = Query(None, min_length=1),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_pro_user),
 ) -> list[ClvRecordPoint]:
-    stmt = (
-        select(
-            ClvRecord.signal_id.label("signal_id"),
-            ClvRecord.event_id.label("event_id"),
-            ClvRecord.signal_type.label("signal_type"),
-            ClvRecord.market.label("market"),
-            ClvRecord.outcome_name.label("outcome_name"),
-            func.coalesce(Signal.strength_score, 0).label("strength_score"),
-            ClvRecord.entry_line.label("entry_line"),
-            ClvRecord.entry_price.label("entry_price"),
-            ClvRecord.close_line.label("close_line"),
-            ClvRecord.close_price.label("close_price"),
-            ClvRecord.clv_line.label("clv_line"),
-            ClvRecord.clv_prob.label("clv_prob"),
-            ClvRecord.computed_at.label("computed_at"),
-        )
-        .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
-        .where(ClvRecord.event_id == event_id)
-        .order_by(ClvRecord.computed_at.desc())
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    rows = await get_clv_records_filtered(
+        db,
+        days=days,
+        event_id=event_id,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        limit=limit,
+        offset=offset,
     )
-    rows = (await db.execute(stmt)).mappings().all()
+    logger.info(
+        "Intel CLV records query served",
+        extra={
+            "event_id": event_id,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "days": days,
+            "limit": limit,
+            "offset": offset,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
     return [ClvRecordPoint(**row) for row in rows]
 
 
 @router.get("/clv/summary", response_model=list[ClvSummaryPoint])
 async def get_clv_summary(
-    days: int = Query(7, ge=1, le=90),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_samples: int = Query(1, ge=1, le=10000),
+    min_strength: int | None = Query(None, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_pro_user),
 ) -> list[ClvSummaryPoint]:
-    cutoff = datetime.now(UTC) - timedelta(days=days)
-    positive_expr = case((or_(ClvRecord.clv_line > 0, ClvRecord.clv_prob > 0), 1.0), else_=0.0)
-
-    stmt = (
-        select(
-            ClvRecord.signal_type.label("signal_type"),
-            ClvRecord.market.label("market"),
-            func.count(ClvRecord.id).label("count"),
-            (func.avg(positive_expr) * 100.0).label("pct_positive_clv"),
-            func.avg(ClvRecord.clv_line).label("avg_clv_line"),
-            func.avg(ClvRecord.clv_prob).label("avg_clv_prob"),
-        )
-        .where(ClvRecord.computed_at >= cutoff)
-        .group_by(ClvRecord.signal_type, ClvRecord.market)
-        .order_by(ClvRecord.signal_type.asc(), ClvRecord.market.asc())
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    rows = await get_clv_performance_summary(
+        db,
+        days=days,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_samples=min_samples,
+        min_strength=min_strength,
     )
-    rows = (await db.execute(stmt)).mappings().all()
-    return [
-        ClvSummaryPoint(
-            signal_type=row["signal_type"],
-            market=row["market"],
-            count=int(row["count"] or 0),
-            pct_positive_clv=float(row["pct_positive_clv"] or 0.0),
-            avg_clv_line=float(row["avg_clv_line"]) if row["avg_clv_line"] is not None else None,
-            avg_clv_prob=float(row["avg_clv_prob"]) if row["avg_clv_prob"] is not None else None,
-        )
-        for row in rows
-    ]
+    logger.info(
+        "Intel CLV summary query served",
+        extra={
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "days": days,
+            "min_samples": min_samples,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [ClvSummaryPoint(**row) for row in rows]
+
+
+@router.get("/clv/teaser", response_model=ClvTeaserResponse)
+async def get_clv_teaser_view(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ClvTeaserResponse:
+    _ensure_performance_enabled()
+    settings = get_settings()
+    if not settings.free_teaser_enabled and not is_pro(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teaser endpoint disabled")
+
+    start = perf_counter()
+    payload = await get_clv_teaser(db, days=days)
+    logger.info(
+        "Intel CLV teaser query served",
+        extra={
+            "days": days,
+            "rows": len(payload["rows"]),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return ClvTeaserResponse(**payload)
+
+
+@router.get("/signals/quality", response_model=list[SignalQualityPoint])
+async def get_signal_quality(
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    min_books_affected: int | None = Query(None, ge=1, le=100),
+    max_dispersion: float | None = Query(None, ge=0),
+    window_minutes_max: int | None = Query(None, ge=1, le=240),
+    created_after: datetime | None = Query(None),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> list[SignalQualityPoint]:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    rows = await get_signal_quality_rows(
+        db,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        min_books_affected=min_books_affected,
+        max_dispersion=max_dispersion,
+        window_minutes_max=window_minutes_max,
+        created_after=created_after,
+        days=days,
+        limit=limit,
+        offset=offset,
+    )
+    logger.info(
+        "Intel signal quality query served",
+        extra={
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "days": days,
+            "min_strength": min_strength,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [SignalQualityPoint(**row) for row in rows]
+
+
+@router.get("/books/actionable", response_model=ActionableBookCard)
+async def get_actionable_books(
+    event_id: str = Query(..., min_length=1),
+    signal_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> ActionableBookCard:
+    settings = get_settings()
+    if not settings.actionable_book_card_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actionable book card is disabled")
+
+    start = perf_counter()
+    payload = await get_actionable_book_card(
+        db,
+        event_id=event_id,
+        signal_id=signal_id,
+        max_books=settings.actionable_book_max_books,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Signal not found for event")
+
+    logger.info(
+        "Intel actionable book card served",
+        extra={
+            "event_id": event_id,
+            "signal_id": str(signal_id),
+            "books_considered": payload["books_considered"],
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return ActionableBookCard(**payload)

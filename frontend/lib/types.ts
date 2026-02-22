@@ -10,7 +10,7 @@ export type Signal = {
   id: string;
   event_id: string;
   market: string;
-  signal_type: "MOVE" | "KEY_CROSS" | "MULTIBOOK_SYNC";
+  signal_type: "MOVE" | "KEY_CROSS" | "MULTIBOOK_SYNC" | "DISLOCATION" | "STEAM";
   direction: "UP" | "DOWN";
   from_value: number;
   to_value: number;
@@ -96,4 +96,84 @@ export type DiscordConnection = {
   thresholds: Record<string, unknown>;
   created_at: string;
   updated_at: string;
+};
+
+export type ClvPerformanceRow = {
+  signal_type: string;
+  market: string;
+  count: number;
+  pct_positive_clv: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+};
+
+export type ClvRecordPoint = {
+  signal_id: string;
+  event_id: string;
+  signal_type: string;
+  market: string;
+  outcome_name: string;
+  strength_score: number;
+  entry_line: number | null;
+  entry_price: number | null;
+  close_line: number | null;
+  close_price: number | null;
+  clv_line: number | null;
+  clv_prob: number | null;
+  computed_at: string;
+};
+
+export type ClvTeaserResponse = {
+  days: number;
+  total_records: number;
+  rows: ClvPerformanceRow[];
+};
+
+export type SignalQualityRow = {
+  id: string;
+  event_id: string;
+  market: string;
+  signal_type: string;
+  direction: string;
+  strength_score: number;
+  books_affected: number;
+  window_minutes: number;
+  created_at: string;
+  outcome_name: string | null;
+  book_key: string | null;
+  delta: number | null;
+  dispersion: number | null;
+  metadata: Record<string, unknown>;
+};
+
+export type ActionableBookQuote = {
+  sportsbook_key: string;
+  line: number | null;
+  price: number;
+  fetched_at: string;
+  delta: number | null;
+};
+
+export type ActionableBookCard = {
+  event_id: string;
+  signal_id: string;
+  signal_type: string;
+  market: string;
+  outcome_name: string | null;
+  direction: string;
+  strength_score: number;
+  consensus_line: number | null;
+  consensus_price: number | null;
+  dispersion: number | null;
+  consensus_source: string;
+  best_book_key: string | null;
+  best_line: number | null;
+  best_price: number | null;
+  best_delta: number | null;
+  delta_type: string;
+  fetched_at: string | null;
+  freshness_seconds: number | null;
+  is_stale: boolean;
+  books_considered: number;
+  quotes: ActionableBookQuote[];
 };

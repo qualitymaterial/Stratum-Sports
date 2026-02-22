@@ -38,3 +38,58 @@ class ClvSummaryPoint(BaseModel):
     pct_positive_clv: float
     avg_clv_line: float | None
     avg_clv_prob: float | None
+
+
+class ClvTeaserResponse(BaseModel):
+    days: int
+    total_records: int
+    rows: list[ClvSummaryPoint]
+
+
+class SignalQualityPoint(BaseModel):
+    id: UUID
+    event_id: str
+    market: str
+    signal_type: str
+    direction: str
+    strength_score: int
+    books_affected: int
+    window_minutes: int
+    created_at: datetime
+    outcome_name: str | None
+    book_key: str | None
+    delta: float | None
+    dispersion: float | None
+    metadata: dict
+
+
+class ActionableBookQuote(BaseModel):
+    sportsbook_key: str
+    line: float | None
+    price: int
+    fetched_at: datetime
+    delta: float | None
+
+
+class ActionableBookCard(BaseModel):
+    event_id: str
+    signal_id: UUID
+    signal_type: str
+    market: str
+    outcome_name: str | None
+    direction: str
+    strength_score: int
+    consensus_line: float | None
+    consensus_price: float | None
+    dispersion: float | None
+    consensus_source: str
+    best_book_key: str | None
+    best_line: float | None
+    best_price: int | None
+    best_delta: float | None
+    delta_type: str
+    fetched_at: datetime | None
+    freshness_seconds: int | None
+    is_stale: bool
+    books_considered: int
+    quotes: list[ActionableBookQuote]

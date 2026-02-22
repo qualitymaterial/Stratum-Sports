@@ -382,6 +382,18 @@ CLV tracking is computed from existing `games.commence_time`, persisted `market_
 - `CLV_RETENTION_DAYS` (default `60`)
 - `CLV_JOB_INTERVAL_MINUTES` (default `60`)
 
+## Performance Intel Controls
+
+Performance intel powers `/app/performance` and actionable signal cards in `/app/games/[event_id]`.
+
+- `PERFORMANCE_UI_ENABLED` (default `true`)
+- `ACTIONABLE_BOOK_CARD_ENABLED` (default `true`)
+- `PERFORMANCE_DEFAULT_DAYS` (default `30`)
+- `PERFORMANCE_MAX_LIMIT` (default `200`)
+- `SIGNAL_FILTER_DEFAULT_MIN_STRENGTH` (default `60`)
+- `ACTIONABLE_BOOK_MAX_BOOKS` (default `8`)
+- `FREE_TEASER_ENABLED` (default `true`)
+
 ## Cycle KPI Controls
 
 Cycle KPIs persist one operational summary row per poller cycle for internal observability (burn, throughput, signals, alerts, latency) using existing in-process data only.
@@ -408,7 +420,10 @@ Internal weekly digest posts the operator report to an internal Discord webhook.
 - Dashboard: `/api/v1/dashboard/cards`
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
 - Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
-- Intel CLV (Pro): `/api/v1/intel/clv?event_id=...`, `/api/v1/intel/clv/summary?days=7`
+- Intel CLV (Pro): `/api/v1/intel/clv?days=30&event_id=...&signal_type=...&market=...&min_strength=...&limit=...`, `/api/v1/intel/clv/summary?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`
+- Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&market=...&min_strength=...`
+- Intel Actionable Books (Pro): `/api/v1/intel/books/actionable?event_id=...&signal_id=...`
+- Intel CLV Teaser (Authenticated Free/Pro): `/api/v1/intel/clv/teaser?days=30`
 - Ops KPIs (Internal token): `/api/v1/ops/cycles?days=7&limit=200`, `/api/v1/ops/cycles/summary?days=7`, `/api/v1/ops/report?days=7`
 - Pro CSV export: `/api/v1/games/{event_id}/export.csv?market=spreads|totals|h2h`
 - Watchlist: `/api/v1/watchlist`

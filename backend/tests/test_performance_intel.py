@@ -1,0 +1,323 @@
+from datetime import UTC, datetime, timedelta
+
+from httpx import AsyncClient
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.clv_record import ClvRecord
+from app.models.market_consensus_snapshot import MarketConsensusSnapshot
+from app.models.odds_snapshot import OddsSnapshot
+from app.models.signal import Signal
+from app.models.user import User
+
+
+def _signal(
+    *,
+    event_id: str,
+    market: str,
+    signal_type: str,
+    strength: int,
+    created_at: datetime,
+    metadata: dict,
+) -> Signal:
+    return Signal(
+        event_id=event_id,
+        market=market,
+        signal_type=signal_type,
+        direction="UP",
+        from_value=-3.0,
+        to_value=-2.5,
+        from_price=-110,
+        to_price=-108,
+        window_minutes=10,
+        books_affected=3,
+        velocity_minutes=3.0,
+        strength_score=strength,
+        created_at=created_at,
+        metadata_json=metadata,
+    )
+
+
+def _snapshot(
+    *,
+    event_id: str,
+    market: str,
+    outcome_name: str,
+    sportsbook_key: str,
+    line: float | None,
+    price: int,
+    fetched_at: datetime,
+) -> OddsSnapshot:
+    return OddsSnapshot(
+        event_id=event_id,
+        sport_key="basketball_nba",
+        commence_time=fetched_at + timedelta(hours=1),
+        home_team="BOS",
+        away_team="NYK",
+        sportsbook_key=sportsbook_key,
+        market=market,
+        outcome_name=outcome_name,
+        line=line,
+        price=price,
+        fetched_at=fetched_at,
+    )
+
+
+async def _register(async_client: AsyncClient, email: str) -> str:
+    response = await async_client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "PerfPass123!"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+async def _register_pro_user(async_client: AsyncClient, db_session: AsyncSession, email: str) -> str:
+    token = await _register(async_client, email)
+    user = (await db_session.execute(select(User).where(User.email == email))).scalar_one()
+    user.tier = "pro"
+    await db_session.commit()
+    return token
+
+
+async def test_clv_summary_endpoint_supports_filters(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_clv_summary"
+
+    move_signal = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=85,
+        created_at=now - timedelta(days=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    dislocation_signal = _signal(
+        event_id=event_id,
+        market="totals",
+        signal_type="DISLOCATION",
+        strength=55,
+        created_at=now - timedelta(days=1),
+        metadata={"outcome_name": "Over", "dispersion": 1.2},
+    )
+    db_session.add_all([move_signal, dislocation_signal])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            ClvRecord(
+                signal_id=move_signal.id,
+                event_id=event_id,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=None,
+                close_line=-3.5,
+                close_price=None,
+                clv_line=-0.5,
+                clv_prob=None,
+                computed_at=now - timedelta(days=2),
+            ),
+            ClvRecord(
+                signal_id=dislocation_signal.id,
+                event_id=event_id,
+                signal_type="DISLOCATION",
+                market="totals",
+                outcome_name="Over",
+                entry_line=220.0,
+                entry_price=None,
+                close_line=221.5,
+                close_price=None,
+                clv_line=1.5,
+                clv_prob=None,
+                computed_at=now - timedelta(days=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-summary@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await async_client.get(
+        "/api/v1/intel/clv/summary?days=30&signal_type=MOVE&market=spreads&min_samples=1&min_strength=80",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["signal_type"] == "MOVE"
+    assert payload[0]["market"] == "spreads"
+    assert payload[0]["count"] == 1
+
+
+async def test_signal_quality_endpoint_filters_by_dispersion(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_quality"
+    db_session.add_all(
+        [
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="DISLOCATION",
+                strength=78,
+                created_at=now - timedelta(minutes=20),
+                metadata={
+                    "outcome_name": "BOS",
+                    "dispersion": 0.35,
+                    "delta": 1.2,
+                    "book_key": "draftkings",
+                },
+            ),
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="DISLOCATION",
+                strength=82,
+                created_at=now - timedelta(minutes=10),
+                metadata={
+                    "outcome_name": "BOS",
+                    "dispersion": 1.45,
+                    "delta": 1.8,
+                    "book_key": "fanduel",
+                },
+            ),
+            _signal(
+                event_id=event_id,
+                market="totals",
+                signal_type="MOVE",
+                strength=45,
+                created_at=now - timedelta(minutes=15),
+                metadata={"outcome_name": "Over"},
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/quality"
+        "?days=7&signal_type=DISLOCATION&market=spreads&min_strength=60&max_dispersion=0.5",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["signal_type"] == "DISLOCATION"
+    assert payload[0]["book_key"] == "draftkings"
+
+
+async def test_actionable_book_card_uses_latest_per_book(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_actionable"
+
+    signal = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=74,
+        created_at=now - timedelta(minutes=30),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add(signal)
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-3.0,
+                price=-112,
+                fetched_at=now - timedelta(minutes=9),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=8),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.5,
+                price=-108,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.4,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=3),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-actionable@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        f"/api/v1/intel/books/actionable?event_id={event_id}&signal_id={signal.id}",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["books_considered"] == 2
+    assert payload["consensus_source"] == "persisted_consensus"
+    assert payload["best_book_key"] == "draftkings"
+    quote_map = {quote["sportsbook_key"]: quote for quote in payload["quotes"]}
+    assert quote_map["draftkings"]["line"] == -2.0
+    assert quote_map["fanduel"]["line"] == -3.5
+
+
+async def test_new_intel_endpoints_gate_free_vs_pro(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    free_token = await _register(async_client, "perf-free@example.com")
+    pro_token = await _register_pro_user(async_client, db_session, "perf-pro@example.com")
+
+    free_headers = {"Authorization": f"Bearer {free_token}"}
+    pro_headers = {"Authorization": f"Bearer {pro_token}"}
+
+    free_quality = await async_client.get("/api/v1/intel/signals/quality?days=7", headers=free_headers)
+    assert free_quality.status_code == 403
+
+    pro_quality = await async_client.get("/api/v1/intel/signals/quality?days=7", headers=pro_headers)
+    assert pro_quality.status_code == 200
+
+    teaser = await async_client.get("/api/v1/intel/clv/teaser?days=30", headers=free_headers)
+    assert teaser.status_code == 200
+    teaser_payload = teaser.json()
+    assert teaser_payload["days"] == 30

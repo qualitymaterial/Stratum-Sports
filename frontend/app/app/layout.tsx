@@ -43,6 +43,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const links = [
     { href: "/app/dashboard", label: "Dashboard", proOnly: false },
+    { href: "/app/performance", label: "Performance", proOnly: false },
     { href: "/app/watchlist", label: "Watchlist", proOnly: false },
     { href: "/app/discord", label: "Alerts", proOnly: true },
   ];
