@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Validate deploy secrets
@@ -73,12 +73,14 @@ jobs:
             exit 1
           fi
 
-          if ! ssh -vvv -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" "echo SSH_OK"; then
+          SSH_OPTS="-o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o ServerAliveInterval=20 -o ServerAliveCountMax=15 -o TCPKeepAlive=yes -i ~/.ssh/id_deploy -p $DROPLET_PORT"
+
+          if ! ssh -vvv $SSH_OPTS "$DROPLET_USER@$DROPLET_HOST" "echo SSH_OK"; then
             echo "ERROR: SSH authentication/connection failed. Verify DROPLET_USER, key pair, and SSH port."
             exit 1
           fi
 
-          ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_deploy -p "$DROPLET_PORT" "$DROPLET_USER@$DROPLET_HOST" 'bash -se' <<'REMOTE'
+          if ! ssh $SSH_OPTS "$DROPLET_USER@$DROPLET_HOST" 'bash -se' <<'REMOTE'
             set -eu
 
             if [ -d /opt/stratum-sports ]; then
@@ -144,3 +146,9 @@ jobs:
 
             compose -f docker-compose.prod.yml --env-file "$ENV_FILE" ps
           REMOTE
+          then
+            echo "ERROR: Remote deploy command failed or SSH session dropped. Collecting diagnostics..."
+            ssh $SSH_OPTS "$DROPLET_USER@$DROPLET_HOST" "cd /opt/stratum-sports && docker compose -f docker-compose.prod.yml --env-file .env.production ps" || true
+            ssh $SSH_OPTS "$DROPLET_USER@$DROPLET_HOST" "cd /opt/stratum-sports && docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis" || true
+            exit 1
+          fi
