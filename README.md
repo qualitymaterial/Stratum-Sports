@@ -222,6 +222,18 @@ Example with overrides:
 python -m app.tools.run_dataset_build --history_step_minutes 60
 ```
 
+Live Data Snapshot:
+
+```bash
+docker compose run --rm backend python -m app.tools.print_live_data_snapshot
+```
+
+Actionable Live Board:
+
+```bash
+docker compose run --rm backend python -m app.tools.print_actionable_live_board
+```
+
 ## Research Backfill (Completed Games)
 
 Use this runner for Path B research windows that are fully in the past (completed games), then review close coverage quality before CLV evaluation.

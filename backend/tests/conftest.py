@@ -42,6 +42,7 @@ async def db_session() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
         await transaction.rollback()
         await connection.close()
+        await engine.dispose()
 
 
 @pytest_asyncio.fixture

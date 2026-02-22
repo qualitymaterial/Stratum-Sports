@@ -2,14 +2,15 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from statistics import mean
+from statistics import mean, median as stats_median
 from typing import Iterable
 
 from redis.asyncio import Redis
-from sqlalchemy import desc, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 
@@ -24,6 +25,30 @@ class BookMove:
     to_value: float
     direction: str
     velocity_minutes: float
+
+
+@dataclass
+class DislocationCandidate:
+    event_id: str
+    strength_score: int
+    dedupe_key: str
+    signal: Signal
+
+
+@dataclass
+class SteamBookWindow:
+    sportsbook_key: str
+    earliest_line: float
+    latest_line: float
+    move: float
+
+
+@dataclass
+class SteamCandidate:
+    event_id: str
+    strength_score: int
+    dedupe_key: str
+    signal: Signal
 
 
 def crosses_key_number(from_value: float, to_value: float, key_numbers: Iterable[float]) -> bool:
@@ -79,6 +104,72 @@ def compute_strength_score(
     )
 
 
+def american_to_implied_prob(price: int | float | None) -> float | None:
+    if price is None:
+        return None
+    try:
+        value = float(price)
+    except (TypeError, ValueError):
+        return None
+
+    if value == 0:
+        return None
+    if value > 0:
+        return 100.0 / (value + 100.0)
+    return abs(value) / (abs(value) + 100.0)
+
+
+def compute_strength_dislocation(
+    delta: float,
+    dispersion: float | None,
+    books_count: int,
+    market: str,
+) -> int:
+    baseline = 1.0
+    if market == "totals":
+        baseline = max(settings.dislocation_total_line_delta, 0.0001)
+    elif market == "h2h":
+        baseline = max(settings.dislocation_ml_implied_prob_delta, 0.0001)
+    else:
+        baseline = max(settings.dislocation_spread_line_delta, 0.0001)
+
+    delta_ratio = max(delta, 0.0) / baseline
+    delta_component = min(55.0, delta_ratio * 20.0)
+
+    if dispersion is None:
+        dispersion_component = 5.0
+    else:
+        dispersion_component = max(0.0, min(20.0, 20.0 / (1.0 + abs(float(dispersion)) * 2.5)))
+
+    books_component = min(15.0, max(0.0, float(books_count - 4) * 2.0))
+    score = int(max(1, min(100, round(8.0 + delta_component + dispersion_component + books_component))))
+    return score
+
+
+def compute_strength_steam(
+    total_move: float,
+    speed: float,
+    books_count: int,
+    market: str,
+) -> int:
+    threshold = settings.steam_min_move_spread if market == "spreads" else settings.steam_min_move_total
+    threshold = max(float(threshold), 0.0001)
+    window = max(1.0, float(settings.steam_window_minutes))
+
+    move_ratio = abs(total_move) / threshold
+    move_component = min(40.0, move_ratio * 16.0)
+
+    books_above_min = max(0, books_count - settings.steam_min_books + 1)
+    books_component = min(22.0, float(books_above_min) * 5.5)
+
+    baseline_speed = threshold / window
+    speed_ratio = speed / max(baseline_speed, 0.0001)
+    speed_component = min(18.0, speed_ratio * 6.0)
+
+    score = int(max(1, min(100, round(8.0 + move_component + books_component + speed_component))))
+    return score
+
+
 async def _dedupe_signal(redis: Redis | None, key: str, ttl_seconds: int) -> bool:
     if redis is None:
         return False
@@ -120,6 +211,13 @@ def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
         "created_at": signal.created_at,
         "metadata": metadata,
     }
+
+
+def summarize_signals_by_type(signals: list[Signal]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for signal in signals:
+        counts[signal.signal_type] = counts.get(signal.signal_type, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: item[0]))
 
 
 async def _detect_line_move_signals(
@@ -339,6 +437,420 @@ async def _detect_multibook_sync_signals(
     return created
 
 
+async def _latest_consensus_rows_for_events(
+    db: AsyncSession,
+    event_ids: list[str],
+    markets: list[str],
+    lookback_minutes: int,
+    min_books: int,
+) -> list[MarketConsensusSnapshot]:
+    cutoff = datetime.now(UTC) - timedelta(minutes=lookback_minutes)
+    latest_subquery = (
+        select(
+            MarketConsensusSnapshot.event_id.label("event_id"),
+            MarketConsensusSnapshot.market.label("market"),
+            MarketConsensusSnapshot.outcome_name.label("outcome_name"),
+            func.max(MarketConsensusSnapshot.fetched_at).label("max_fetched_at"),
+        )
+        .where(
+            MarketConsensusSnapshot.event_id.in_(event_ids),
+            MarketConsensusSnapshot.market.in_(markets),
+            MarketConsensusSnapshot.fetched_at >= cutoff,
+            MarketConsensusSnapshot.books_count >= min_books,
+        )
+        .group_by(
+            MarketConsensusSnapshot.event_id,
+            MarketConsensusSnapshot.market,
+            MarketConsensusSnapshot.outcome_name,
+        )
+        .subquery()
+    )
+
+    stmt = (
+        select(MarketConsensusSnapshot)
+        .join(
+            latest_subquery,
+            and_(
+                MarketConsensusSnapshot.event_id == latest_subquery.c.event_id,
+                MarketConsensusSnapshot.market == latest_subquery.c.market,
+                MarketConsensusSnapshot.outcome_name == latest_subquery.c.outcome_name,
+                MarketConsensusSnapshot.fetched_at == latest_subquery.c.max_fetched_at,
+            ),
+        )
+        .order_by(
+            MarketConsensusSnapshot.event_id.asc(),
+            MarketConsensusSnapshot.market.asc(),
+            MarketConsensusSnapshot.outcome_name.asc(),
+        )
+    )
+    return (await db.execute(stmt)).scalars().all()
+
+
+async def _latest_snapshot_by_book_for_events(
+    db: AsyncSession,
+    event_ids: list[str],
+    markets: list[str],
+    lookback_minutes: int,
+) -> dict[tuple[str, str, str], list[OddsSnapshot]]:
+    cutoff = datetime.now(UTC) - timedelta(minutes=lookback_minutes)
+    stmt = (
+        select(OddsSnapshot)
+        .where(
+            OddsSnapshot.event_id.in_(event_ids),
+            OddsSnapshot.market.in_(markets),
+            OddsSnapshot.fetched_at >= cutoff,
+        )
+        .order_by(
+            OddsSnapshot.event_id.asc(),
+            OddsSnapshot.market.asc(),
+            OddsSnapshot.outcome_name.asc(),
+            OddsSnapshot.sportsbook_key.asc(),
+            OddsSnapshot.fetched_at.desc(),
+        )
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+
+    latest_by_key: dict[tuple[str, str, str, str], OddsSnapshot] = {}
+    for row in rows:
+        key = (row.event_id, row.market, row.outcome_name, row.sportsbook_key)
+        if key in latest_by_key:
+            continue
+        latest_by_key[key] = row
+
+    by_event_market_outcome: dict[tuple[str, str, str], list[OddsSnapshot]] = defaultdict(list)
+    for row in latest_by_key.values():
+        by_event_market_outcome[(row.event_id, row.market, row.outcome_name)].append(row)
+
+    return by_event_market_outcome
+
+
+async def detect_dislocations(
+    event_ids: list[str],
+    db: AsyncSession,
+    redis: Redis | None = None,
+) -> list[Signal]:
+    if not settings.dislocation_enabled or not event_ids:
+        return []
+
+    markets = [m for m in settings.consensus_markets_list if m in {"spreads", "totals", "h2h"}]
+    if not markets:
+        return []
+
+    min_books = max(settings.dislocation_min_books, settings.consensus_min_books)
+    lookback_minutes = max(1, settings.dislocation_lookback_minutes)
+    consensus_rows = await _latest_consensus_rows_for_events(
+        db,
+        event_ids=event_ids,
+        markets=markets,
+        lookback_minutes=lookback_minutes,
+        min_books=min_books,
+    )
+    if not consensus_rows:
+        return []
+
+    latest_snapshots = await _latest_snapshot_by_book_for_events(
+        db,
+        event_ids=event_ids,
+        markets=markets,
+        lookback_minutes=lookback_minutes,
+    )
+    if not latest_snapshots:
+        return []
+
+    candidate_by_event: dict[str, list[DislocationCandidate]] = defaultdict(list)
+    for consensus in consensus_rows:
+        key = (consensus.event_id, consensus.market, consensus.outcome_name)
+        for snapshot in latest_snapshots.get(key, []):
+            delta = 0.0
+            delta_type = "line"
+            from_value = 0.0
+            to_value = 0.0
+            from_price: int | None = None
+            to_price: int | None = None
+
+            if consensus.market in {"spreads", "totals"}:
+                if consensus.consensus_line is None or snapshot.line is None:
+                    continue
+                threshold = (
+                    settings.dislocation_spread_line_delta
+                    if consensus.market == "spreads"
+                    else settings.dislocation_total_line_delta
+                )
+                from_value = float(consensus.consensus_line)
+                to_value = float(snapshot.line)
+                delta = to_value - from_value
+                if abs(delta) < threshold:
+                    continue
+                from_price = int(round(consensus.consensus_price)) if consensus.consensus_price is not None else None
+                to_price = int(snapshot.price)
+            else:
+                if consensus.consensus_price is None:
+                    continue
+                consensus_prob = american_to_implied_prob(consensus.consensus_price)
+                book_prob = american_to_implied_prob(snapshot.price)
+                if consensus_prob is None or book_prob is None:
+                    continue
+                delta_type = "implied_prob"
+                from_value = float(consensus_prob)
+                to_value = float(book_prob)
+                delta = to_value - from_value
+                if abs(delta) < settings.dislocation_ml_implied_prob_delta:
+                    continue
+                from_price = int(round(consensus.consensus_price))
+                to_price = int(snapshot.price)
+
+            strength = compute_strength_dislocation(
+                delta=abs(delta),
+                dispersion=consensus.dispersion,
+                books_count=consensus.books_count,
+                market=consensus.market,
+            )
+            direction = _direction(from_value, to_value)
+            dedupe_key = (
+                f"signal:dislocation:{consensus.event_id}:{consensus.market}:"
+                f"{consensus.outcome_name}:{snapshot.sportsbook_key}"
+            )
+            signal = Signal(
+                event_id=consensus.event_id,
+                market=consensus.market,
+                signal_type="DISLOCATION",
+                direction=direction,
+                from_value=from_value,
+                to_value=to_value,
+                from_price=from_price,
+                to_price=to_price,
+                window_minutes=lookback_minutes,
+                books_affected=1,
+                velocity_minutes=0.1,
+                strength_score=strength,
+                metadata_json={
+                    "book_key": snapshot.sportsbook_key,
+                    "market": consensus.market,
+                    "outcome_name": consensus.outcome_name,
+                    "book_line": float(snapshot.line) if snapshot.line is not None else None,
+                    "book_price": float(snapshot.price),
+                    "consensus_line": float(consensus.consensus_line) if consensus.consensus_line is not None else None,
+                    "consensus_price": float(consensus.consensus_price)
+                    if consensus.consensus_price is not None
+                    else None,
+                    "dispersion": float(consensus.dispersion) if consensus.dispersion is not None else None,
+                    "books_count": int(consensus.books_count),
+                    "delta": float(round(delta, 6)),
+                    "delta_type": delta_type,
+                    "lookback_minutes": lookback_minutes,
+                },
+            )
+            candidate_by_event[consensus.event_id].append(
+                DislocationCandidate(
+                    event_id=consensus.event_id,
+                    strength_score=strength,
+                    dedupe_key=dedupe_key,
+                    signal=signal,
+                )
+            )
+
+    if not candidate_by_event:
+        return []
+
+    created: list[Signal] = []
+    max_per_event = max(1, settings.dislocation_max_signals_per_event)
+    for event_id, candidates in candidate_by_event.items():
+        ranked = sorted(
+            candidates,
+            key=lambda c: (
+                c.strength_score,
+                abs(float(c.signal.metadata_json.get("delta", 0.0))),
+            ),
+            reverse=True,
+        )
+        for candidate in ranked[:max_per_event]:
+            if await _dedupe_signal(redis, candidate.dedupe_key, settings.dislocation_cooldown_seconds):
+                continue
+            db.add(candidate.signal)
+            created.append(candidate.signal)
+
+    if created:
+        logger.info(
+            "Dislocation detection completed",
+            extra={
+                "dislocation_signals_created": len(created),
+                "dislocation_events_scanned": len(candidate_by_event),
+            },
+        )
+
+    return created
+
+
+def _steam_market_threshold(market: str) -> float:
+    if market == "spreads":
+        return max(0.0, float(settings.steam_min_move_spread))
+    if market == "totals":
+        return max(0.0, float(settings.steam_min_move_total))
+    return 0.0
+
+
+def _steam_min_per_book_move(market: str) -> float:
+    # Conservative micro-noise filter before synchronization checks.
+    return max(0.05, _steam_market_threshold(market) * 0.4)
+
+
+async def detect_steam_v2(
+    event_ids: list[str],
+    db: AsyncSession,
+    redis: Redis | None = None,
+) -> list[Signal]:
+    if not settings.steam_enabled or not event_ids:
+        return []
+
+    window_minutes = max(1, settings.steam_window_minutes)
+    cutoff = datetime.now(UTC) - timedelta(minutes=window_minutes)
+    markets = ["spreads", "totals"]
+
+    stmt = (
+        select(OddsSnapshot)
+        .where(
+            OddsSnapshot.event_id.in_(event_ids),
+            OddsSnapshot.market.in_(markets),
+            OddsSnapshot.line.is_not(None),
+            OddsSnapshot.fetched_at >= cutoff,
+        )
+        .order_by(
+            OddsSnapshot.event_id.asc(),
+            OddsSnapshot.market.asc(),
+            OddsSnapshot.outcome_name.asc(),
+            OddsSnapshot.sportsbook_key.asc(),
+            OddsSnapshot.fetched_at.asc(),
+        )
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    if not rows:
+        return []
+
+    by_book: dict[tuple[str, str, str, str], list[OddsSnapshot]] = defaultdict(list)
+    for row in rows:
+        by_book[(row.event_id, row.market, row.outcome_name, row.sportsbook_key)].append(row)
+
+    by_direction: dict[tuple[str, str, str, str], list[SteamBookWindow]] = defaultdict(list)
+    for (event_id, market, outcome_name, sportsbook_key), snapshots in by_book.items():
+        if len(snapshots) < 2:
+            continue
+
+        earliest = snapshots[0]
+        latest = snapshots[-1]
+        if earliest.line is None or latest.line is None:
+            continue
+
+        earliest_line = float(earliest.line)
+        latest_line = float(latest.line)
+        move = latest_line - earliest_line
+        if abs(move) < _steam_min_per_book_move(market):
+            continue
+
+        direction = _direction(earliest_line, latest_line)
+        if direction not in {"UP", "DOWN"}:
+            continue
+
+        by_direction[(event_id, market, outcome_name, direction)].append(
+            SteamBookWindow(
+                sportsbook_key=sportsbook_key,
+                earliest_line=earliest_line,
+                latest_line=latest_line,
+                move=move,
+            )
+        )
+
+    if not by_direction:
+        return []
+
+    candidates_by_event: dict[str, list[SteamCandidate]] = defaultdict(list)
+    for (event_id, market, outcome_name, direction), moves in by_direction.items():
+        if len(moves) < settings.steam_min_books:
+            continue
+
+        start_line = float(stats_median([m.earliest_line for m in moves]))
+        end_line = float(stats_median([m.latest_line for m in moves]))
+        total_move = end_line - start_line
+        threshold = _steam_market_threshold(market)
+        if abs(total_move) < threshold:
+            continue
+
+        avg_move = float(mean([m.move for m in moves]))
+        speed = abs(total_move) / float(window_minutes)
+        books_involved = sorted({m.sportsbook_key for m in moves})
+        direction_lower = "up" if direction == "UP" else "down"
+        strength = compute_strength_steam(
+            total_move=total_move,
+            speed=speed,
+            books_count=len(books_involved),
+            market=market,
+        )
+        dedupe_key = f"signal:steam:{event_id}:{market}:{outcome_name}:{direction_lower}"
+
+        signal = Signal(
+            event_id=event_id,
+            market=market,
+            signal_type="STEAM",
+            direction=direction,
+            from_value=start_line,
+            to_value=end_line,
+            from_price=None,
+            to_price=None,
+            window_minutes=window_minutes,
+            books_affected=len(books_involved),
+            velocity_minutes=float(window_minutes),
+            strength_score=strength,
+            metadata_json={
+                "market": market,
+                "outcome_name": outcome_name,
+                "direction": direction_lower,
+                "books_involved": books_involved,
+                "window_minutes": window_minutes,
+                "total_move": round(total_move, 6),
+                "avg_move": round(avg_move, 6),
+                "start_line": round(start_line, 6),
+                "end_line": round(end_line, 6),
+                "speed": round(speed, 6),
+            },
+        )
+        candidates_by_event[event_id].append(
+            SteamCandidate(
+                event_id=event_id,
+                strength_score=strength,
+                dedupe_key=dedupe_key,
+                signal=signal,
+            )
+        )
+
+    if not candidates_by_event:
+        return []
+
+    created: list[Signal] = []
+    per_event_cap = max(1, settings.steam_max_signals_per_event)
+    for event_id, event_candidates in candidates_by_event.items():
+        ranked = sorted(
+            event_candidates,
+            key=lambda c: (
+                c.strength_score,
+                abs(float(c.signal.metadata_json.get("total_move", 0.0))),
+                c.signal.books_affected,
+            ),
+            reverse=True,
+        )
+        for candidate in ranked[:per_event_cap]:
+            if await _dedupe_signal(redis, candidate.dedupe_key, settings.steam_cooldown_seconds):
+                continue
+            db.add(candidate.signal)
+            created.append(candidate.signal)
+
+    if created:
+        logger.info(
+            "Steam v2 detection completed",
+            extra={"steam_signals_created": len(created), "steam_events_scanned": len(candidates_by_event)},
+        )
+
+    return created
+
+
 async def detect_market_movements(
     db: AsyncSession,
     redis: Redis | None,
@@ -356,6 +868,8 @@ async def detect_market_movements(
         await _detect_line_move_signals(db, redis, event_ids, market="totals", window_minutes=15)
     )
     all_created.extend(await _detect_multibook_sync_signals(db, redis, event_ids))
+    all_created.extend(await detect_dislocations(event_ids, db, redis))
+    all_created.extend(await detect_steam_v2(event_ids, db, redis))
 
     if not all_created:
         return []

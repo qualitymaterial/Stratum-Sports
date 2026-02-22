@@ -8,6 +8,8 @@ from app.api.routes import (
     discord,
     games,
     health,
+    intel,
+    ops,
     watchlist,
     ws,
 )
@@ -19,6 +21,8 @@ api_router.include_router(auth_discord.router, prefix="/auth/discord", tags=["au
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(games.router, prefix="/games", tags=["games"])
+api_router.include_router(intel.router, prefix="/intel", tags=["intel"])
+api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
 api_router.include_router(discord.router, prefix="/discord", tags=["discord"])
 api_router.include_router(ws.router, prefix="/realtime", tags=["realtime"])

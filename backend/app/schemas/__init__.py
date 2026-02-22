@@ -2,6 +2,18 @@ from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserO
 from app.schemas.billing import CheckoutSessionResponse
 from app.schemas.discord import DiscordConnectionOut, DiscordConnectionUpsert
 from app.schemas.game import DashboardCard, GameDetailOut
+from app.schemas.intel import ClvRecordPoint, ClvSummaryPoint, ConsensusPoint
+from app.schemas.ops import (
+    ClvByMarketItem,
+    ClvBySignalTypeItem,
+    CycleKpiOut,
+    CycleSummaryOut,
+    OperatorOpsMetrics,
+    OperatorPerformanceMetrics,
+    OperatorReliabilityMetrics,
+    OperatorReport,
+    SignalTypeCount,
+)
 from app.schemas.signal import SignalOut
 from app.schemas.watchlist import WatchlistOut
 
@@ -15,6 +27,18 @@ __all__ = [
     "DiscordConnectionUpsert",
     "DashboardCard",
     "GameDetailOut",
+    "ConsensusPoint",
+    "ClvRecordPoint",
+    "ClvSummaryPoint",
+    "CycleKpiOut",
+    "CycleSummaryOut",
+    "ClvBySignalTypeItem",
+    "ClvByMarketItem",
+    "OperatorOpsMetrics",
+    "OperatorPerformanceMetrics",
+    "OperatorReliabilityMetrics",
+    "OperatorReport",
+    "SignalTypeCount",
     "SignalOut",
     "WatchlistOut",
 ]

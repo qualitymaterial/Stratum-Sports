@@ -1,14 +1,17 @@
 from uuid import UUID
+from secrets import compare_digest
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.models.user import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
+settings = get_settings()
 
 
 async def get_current_user(
@@ -40,3 +43,10 @@ async def require_pro_user(user: User = Depends(get_current_user)) -> User:
             detail="Pro subscription required",
         )
     return user
+
+
+def require_ops_token(request: Request) -> None:
+    expected = settings.ops_internal_token.strip()
+    provided = request.headers.get("X-Stratum-Ops-Token", "")
+    if not expected or not compare_digest(provided, expected):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
