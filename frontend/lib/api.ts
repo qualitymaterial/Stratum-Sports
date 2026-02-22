@@ -217,6 +217,21 @@ export async function getActionableBookCard(token: string, eventId: string, sign
   return apiRequest<ActionableBookCard>(`/intel/books/actionable?${params.toString()}`, { token });
 }
 
+export async function getActionableBookCardsBatch(
+  token: string,
+  eventId: string,
+  signalIds: string[],
+) {
+  if (signalIds.length === 0) {
+    return [] as ActionableBookCard[];
+  }
+  const params = new URLSearchParams({
+    event_id: eventId,
+    signal_ids: signalIds.join(","),
+  });
+  return apiRequest<ActionableBookCard[]>(`/intel/books/actionable/batch?${params.toString()}`, { token });
+}
+
 export async function getClvTeaser(token: string, days = 30) {
   return apiRequest<ClvTeaserResponse>(`/intel/clv/teaser?days=${days}`, { token });
 }

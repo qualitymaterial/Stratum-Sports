@@ -24,6 +24,7 @@ from app.schemas.intel import (
 )
 from app.services.performance_intel import (
     get_actionable_book_card,
+    get_actionable_book_cards_batch,
     get_clv_performance_summary,
     get_clv_records_filtered,
     get_clv_trust_scorecards,
@@ -72,6 +73,24 @@ def _resolve_single_market(market: str | None) -> str | None:
         return None
     resolved = _resolve_markets(market)
     return resolved[0] if resolved else None
+
+
+def _parse_signal_ids_csv(signal_ids: str) -> list[UUID]:
+    parsed: list[UUID] = []
+    for raw in signal_ids.split(","):
+        token = raw.strip()
+        if not token:
+            continue
+        try:
+            parsed.append(UUID(token))
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid signal_id '{token}'",
+            ) from exc
+    if not parsed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="signal_ids is required")
+    return parsed
 
 
 def _ensure_performance_enabled() -> None:
@@ -359,3 +378,34 @@ async def get_actionable_books(
         },
     )
     return ActionableBookCard(**payload)
+
+
+@router.get("/books/actionable/batch", response_model=list[ActionableBookCard])
+async def get_actionable_books_batch(
+    event_id: str = Query(..., min_length=1),
+    signal_ids: str = Query(..., min_length=1, description="Comma-separated signal UUIDs"),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> list[ActionableBookCard]:
+    settings = get_settings()
+    if not settings.actionable_book_card_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actionable book card is disabled")
+
+    parsed_signal_ids = _parse_signal_ids_csv(signal_ids)
+    start = perf_counter()
+    payloads = await get_actionable_book_cards_batch(
+        db,
+        event_id=event_id,
+        signal_ids=parsed_signal_ids,
+        max_books=settings.actionable_book_max_books,
+    )
+    logger.info(
+        "Intel actionable book card batch served",
+        extra={
+            "event_id": event_id,
+            "signal_ids_requested": len(parsed_signal_ids),
+            "cards_returned": len(payloads),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [ActionableBookCard(**payload) for payload in payloads]

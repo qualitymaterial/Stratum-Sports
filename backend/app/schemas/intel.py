@@ -107,6 +107,10 @@ class ActionableBookCard(BaseModel):
     delta_type: str
     fetched_at: datetime | None
     freshness_seconds: int | None
+    freshness_bucket: str
     is_stale: bool
+    execution_rank: int
+    actionable_reason: str
     books_considered: int
+    top_books: list[ActionableBookQuote]
     quotes: list[ActionableBookQuote]

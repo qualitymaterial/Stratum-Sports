@@ -194,7 +194,11 @@ export type ActionableBookCard = {
   delta_type: string;
   fetched_at: string | null;
   freshness_seconds: number | null;
+  freshness_bucket: "fresh" | "aging" | "stale";
   is_stale: boolean;
+  execution_rank: number;
+  actionable_reason: string;
   books_considered: number;
+  top_books: ActionableBookQuote[];
   quotes: ActionableBookQuote[];
 };

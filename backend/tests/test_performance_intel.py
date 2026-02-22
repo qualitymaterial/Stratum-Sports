@@ -296,9 +296,95 @@ async def test_actionable_book_card_uses_latest_per_book(
     assert payload["books_considered"] == 2
     assert payload["consensus_source"] == "persisted_consensus"
     assert payload["best_book_key"] == "draftkings"
+    assert payload["execution_rank"] >= 1
+    assert payload["freshness_bucket"] in {"fresh", "aging", "stale"}
+    assert isinstance(payload["actionable_reason"], str) and payload["actionable_reason"]
+    assert len(payload["top_books"]) <= 2
     quote_map = {quote["sportsbook_key"]: quote for quote in payload["quotes"]}
     assert quote_map["draftkings"]["line"] == -2.0
     assert quote_map["fanduel"]["line"] == -3.5
+
+
+async def test_actionable_book_card_batch_endpoint_returns_multiple_cards(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_actionable_batch"
+
+    signal_one = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=72,
+        created_at=now - timedelta(minutes=40),
+        metadata={"outcome_name": "BOS"},
+    )
+    signal_two = _signal(
+        event_id=event_id,
+        market="totals",
+        signal_type="DISLOCATION",
+        strength=80,
+        created_at=now - timedelta(minutes=35),
+        metadata={"outcome_name": "Over"},
+    )
+    db_session.add_all([signal_one, signal_two])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.5,
+                price=-110,
+                fetched_at=now - timedelta(minutes=4),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-108,
+                fetched_at=now - timedelta(minutes=3),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="totals",
+                outcome_name="Over",
+                sportsbook_key="draftkings",
+                line=221.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=4),
+            ),
+            _snapshot(
+                event_id=event_id,
+                market="totals",
+                outcome_name="Over",
+                sportsbook_key="fanduel",
+                line=222.0,
+                price=-108,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-actionable-batch@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        f"/api/v1/intel/books/actionable/batch?event_id={event_id}&signal_ids={signal_one.id},{signal_two.id}",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    returned_ids = {row["signal_id"] for row in payload}
+    assert str(signal_one.id) in returned_ids
+    assert str(signal_two.id) in returned_ids
 
 
 async def test_new_intel_endpoints_gate_free_vs_pro(
@@ -327,6 +413,12 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
 
     pro_scorecards = await async_client.get("/api/v1/intel/clv/scorecards?days=30", headers=pro_headers)
     assert pro_scorecards.status_code == 200
+
+    free_actionable_batch = await async_client.get(
+        "/api/v1/intel/books/actionable/batch?event_id=event_any&signal_ids=00000000-0000-0000-0000-000000000001",
+        headers=free_headers,
+    )
+    assert free_actionable_batch.status_code == 403
 
 
 async def test_clv_scorecards_rank_and_tier_by_quality(

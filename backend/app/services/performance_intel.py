@@ -79,6 +79,70 @@ def _compute_quote_delta(
     return float(book_prob) - float(consensus_prob), "implied_prob"
 
 
+def _delta_baseline_for_market(market: str) -> float:
+    if market == "totals":
+        return max(0.1, float(settings.dislocation_total_line_delta))
+    if market == "h2h":
+        return max(0.001, float(settings.dislocation_ml_implied_prob_delta))
+    return max(0.1, float(settings.dislocation_spread_line_delta))
+
+
+def _freshness_bucket(freshness_seconds: int | None, stale_threshold: int) -> str:
+    if freshness_seconds is None:
+        return "stale"
+    if freshness_seconds <= max(60, stale_threshold // 2):
+        return "fresh"
+    if freshness_seconds <= stale_threshold:
+        return "aging"
+    return "stale"
+
+
+def _compute_execution_rank(
+    *,
+    market: str,
+    best_delta: float | None,
+    books_considered: int,
+    freshness_seconds: int | None,
+    stale_threshold: int,
+) -> int:
+    delta = abs(float(best_delta or 0.0))
+    baseline = _delta_baseline_for_market(market)
+    delta_component = min(50.0, (delta / baseline) * 24.0)
+
+    if freshness_seconds is None:
+        freshness_component = 4.0
+    elif freshness_seconds <= max(60, stale_threshold // 2):
+        freshness_component = 30.0
+    elif freshness_seconds <= stale_threshold:
+        freshness_component = 20.0
+    else:
+        freshness_component = 8.0
+
+    books_component = min(20.0, max(0.0, float(books_considered) * 2.5))
+    rank = int(max(1, min(100, round(10.0 + delta_component + freshness_component + books_component))))
+    return rank
+
+
+def _actionable_reason(
+    *,
+    best_delta: float | None,
+    books_considered: int,
+    freshness_bucket: str,
+    market: str,
+) -> str:
+    magnitude = abs(float(best_delta or 0.0))
+    baseline = _delta_baseline_for_market(market)
+    relative = magnitude / baseline if baseline > 0 else 0.0
+
+    if relative >= 1.8 and freshness_bucket == "fresh" and books_considered >= 3:
+        return "Large consensus gap with fresh pricing and broad book coverage."
+    if relative >= 1.0 and freshness_bucket in {"fresh", "aging"}:
+        return "Meaningful book dislocation relative to current consensus."
+    if freshness_bucket == "stale":
+        return "Potential edge but quote freshness is degraded."
+    return "Moderate dislocation; validate timing and book availability."
+
+
 async def get_clv_performance_summary(
     db: AsyncSession,
     *,
@@ -545,30 +609,6 @@ async def get_actionable_book_card(
         market=signal.market,
         outcome_name=outcome_name,
     )
-    if not quotes:
-        return {
-            "event_id": event_id,
-            "signal_id": signal.id,
-            "signal_type": signal.signal_type,
-            "market": signal.market,
-            "outcome_name": outcome_name,
-            "direction": signal.direction,
-            "strength_score": signal.strength_score,
-            "consensus_line": None,
-            "consensus_price": None,
-            "dispersion": None,
-            "consensus_source": "none",
-            "best_book_key": None,
-            "best_line": None,
-            "best_price": None,
-            "best_delta": None,
-            "delta_type": "line" if signal.market in {"spreads", "totals"} else "implied_prob",
-            "fetched_at": None,
-            "freshness_seconds": None,
-            "is_stale": True,
-            "books_considered": 0,
-            "quotes": [],
-        }
 
     consensus_row = None
     if outcome_name:
@@ -592,9 +632,39 @@ async def get_actionable_book_card(
         consensus_line, consensus_price, dispersion = _derive_consensus_from_quotes(signal.market, quotes)
         consensus_source = "derived_from_latest_books"
 
+    delta_type = "line" if signal.market in {"spreads", "totals"} else "implied_prob"
+    if not quotes:
+        return {
+            "event_id": event_id,
+            "signal_id": signal.id,
+            "signal_type": signal.signal_type,
+            "market": signal.market,
+            "outcome_name": outcome_name,
+            "direction": signal.direction,
+            "strength_score": signal.strength_score,
+            "consensus_line": consensus_line,
+            "consensus_price": consensus_price,
+            "dispersion": dispersion,
+            "consensus_source": "none",
+            "best_book_key": None,
+            "best_line": None,
+            "best_price": None,
+            "best_delta": None,
+            "delta_type": delta_type,
+            "fetched_at": None,
+            "freshness_seconds": None,
+            "freshness_bucket": "stale",
+            "is_stale": True,
+            "execution_rank": 1,
+            "actionable_reason": "No eligible live quotes found for this signal context.",
+            "books_considered": 0,
+            "top_books": [],
+            "quotes": [],
+        }
+
     quotes_payload: list[dict[str, Any]] = []
     for quote in quotes:
-        delta, delta_type = _compute_quote_delta(signal.market, quote, consensus_line, consensus_price)
+        delta, _delta_type = _compute_quote_delta(signal.market, quote, consensus_line, consensus_price)
         quotes_payload.append(
             {
                 "sportsbook_key": quote.sportsbook_key,
@@ -612,11 +682,12 @@ async def get_actionable_book_card(
             item["sportsbook_key"],
         ),
         reverse=True,
-    )
+        )
 
     max_quotes = max_books if max_books is not None else settings.actionable_book_max_books
     normalized_max_quotes = max(1, min(int(max_quotes), 20))
     quotes_payload = quotes_payload[:normalized_max_quotes]
+    top_books = quotes_payload[:3]
 
     best_quote = quotes_payload[0] if quotes_payload else None
     now = datetime.now(UTC)
@@ -627,7 +698,21 @@ async def get_actionable_book_card(
             int((now - best_quote["fetched_at"]).total_seconds()),
         )
     stale_threshold = max(180, int(settings.odds_poll_interval_seconds) * 3)
+    freshness_bucket = _freshness_bucket(freshness_seconds, stale_threshold)
     is_stale = freshness_seconds is None or freshness_seconds > stale_threshold
+    execution_rank = _compute_execution_rank(
+        market=signal.market,
+        best_delta=best_quote.get("delta") if best_quote else None,
+        books_considered=len(quotes_payload),
+        freshness_seconds=freshness_seconds,
+        stale_threshold=stale_threshold,
+    )
+    actionable_reason = _actionable_reason(
+        best_delta=best_quote.get("delta") if best_quote else None,
+        books_considered=len(quotes_payload),
+        freshness_bucket=freshness_bucket,
+        market=signal.market,
+    )
 
     return {
         "event_id": event_id,
@@ -645,10 +730,48 @@ async def get_actionable_book_card(
         "best_line": best_quote.get("line") if best_quote else None,
         "best_price": best_quote.get("price") if best_quote else None,
         "best_delta": best_quote.get("delta") if best_quote else None,
-        "delta_type": "line" if signal.market in {"spreads", "totals"} else "implied_prob",
+        "delta_type": delta_type,
         "fetched_at": best_quote.get("fetched_at") if best_quote else None,
         "freshness_seconds": freshness_seconds,
+        "freshness_bucket": freshness_bucket,
         "is_stale": is_stale,
+        "execution_rank": execution_rank,
+        "actionable_reason": actionable_reason,
         "books_considered": len(quotes_payload),
+        "top_books": top_books,
         "quotes": quotes_payload,
     }
+
+
+async def get_actionable_book_cards_batch(
+    db: AsyncSession,
+    *,
+    event_id: str,
+    signal_ids: list[UUID],
+    max_books: int | None = None,
+) -> list[dict[str, Any]]:
+    if not signal_ids:
+        return []
+
+    unique_ids: list[UUID] = []
+    seen: set[UUID] = set()
+    for signal_id in signal_ids:
+        if signal_id in seen:
+            continue
+        seen.add(signal_id)
+        unique_ids.append(signal_id)
+        if len(unique_ids) >= 20:
+            break
+
+    cards: list[dict[str, Any]] = []
+    for signal_id in unique_ids:
+        card = await get_actionable_book_card(
+            db,
+            event_id=event_id,
+            signal_id=signal_id,
+            max_books=max_books,
+        )
+        if card is None:
+            continue
+        cards.append(card)
+    return cards

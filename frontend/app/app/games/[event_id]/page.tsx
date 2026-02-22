@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import { MovementChart } from "@/components/MovementChart";
 import { SignalBadge } from "@/components/SignalBadge";
-import { getActionableBookCard, getGameDetail } from "@/lib/api";
+import { getActionableBookCardsBatch, getGameDetail } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
@@ -100,18 +100,23 @@ export default function GameDetailPage() {
     const run = async () => {
       setActionableLoading(true);
       try {
-        const result = await Promise.all(
-          actionableSignalIds.map(async (signalId) => {
-            try {
-              const card = await getActionableBookCard(token, eventId, signalId);
-              return [signalId, card] as const;
-            } catch {
-              return [signalId, null] as const;
-            }
-          }),
+        const cards = await getActionableBookCardsBatch(token, eventId, actionableSignalIds);
+        if (cancelled) {
+          return;
+        }
+        const map: Record<string, ActionableBookCard | null> = Object.fromEntries(
+          cards.map((card) => [card.signal_id, card] as const),
         );
+        for (const signalId of actionableSignalIds) {
+          if (!(signalId in map)) {
+            map[signalId] = null;
+          }
+        }
+        setActionableCards(map);
+      } catch {
         if (!cancelled) {
-          setActionableCards(Object.fromEntries(result));
+          const fallback = Object.fromEntries(actionableSignalIds.map((signalId) => [signalId, null] as const));
+          setActionableCards(fallback);
         }
       } finally {
         if (!cancelled) {
@@ -253,16 +258,35 @@ export default function GameDetailPage() {
                     {!actionableLoading && !actionable && <p>No actionable book card available.</p>}
                     {actionable && (
                       <div className="space-y-1">
-                        <p className="text-textMain">
-                          Book vs Consensus:{" "}
-                          <span className="font-semibold">{actionable.best_book_key ?? "-"}</span>{" "}
-                          {actionable.best_line != null
-                            ? `${actionable.best_line} (${actionable.best_price ?? "-"})`
-                            : actionable.best_price ?? "-"}
-                          {" "}vs{" "}
-                          {actionable.consensus_line != null
-                            ? `${actionable.consensus_line} (${actionable.consensus_price ?? "-"})`
-                            : actionable.consensus_price ?? "-"}
+                        <p className="flex flex-wrap items-center gap-2 text-textMain">
+                          <span className="rounded border border-borderTone px-1.5 py-0.5 text-[11px]">
+                            Rank {actionable.execution_rank}
+                          </span>
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wider ${
+                              actionable.freshness_bucket === "fresh"
+                                ? "bg-positive/10 text-positive"
+                                : actionable.freshness_bucket === "aging"
+                                  ? "bg-accent/15 text-accent"
+                                  : "bg-negative/15 text-negative"
+                            }`}
+                          >
+                            {actionable.freshness_bucket}
+                          </span>
+                          <span>
+                            Book vs Consensus:{" "}
+                            <span className="font-semibold">{actionable.best_book_key ?? "-"}</span>{" "}
+                            {actionable.best_line != null
+                              ? `${actionable.best_line} (${actionable.best_price ?? "-"})`
+                              : actionable.best_price ?? "-"}
+                            {" "}vs{" "}
+                            {actionable.consensus_line != null
+                              ? `${actionable.consensus_line} (${actionable.consensus_price ?? "-"})`
+                              : actionable.consensus_price ?? "-"}
+                          </span>
+                        </p>
+                        <p>
+                          {actionable.actionable_reason}
                         </p>
                         <p>
                           Delta:{" "}
@@ -277,6 +301,17 @@ export default function GameDetailPage() {
                               : "-"}
                           </span>
                         </p>
+                        {actionable.top_books.length > 0 && (
+                          <p>
+                            Top books:{" "}
+                            {actionable.top_books.map((book) => (
+                              <span key={`${signal.id}-${book.sportsbook_key}`} className="mr-2 inline-block">
+                                {book.sportsbook_key}:{" "}
+                                {book.line != null ? `${book.line} (${book.price})` : `${book.price}`}
+                              </span>
+                            ))}
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
