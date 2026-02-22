@@ -19,7 +19,7 @@ jobs:
           script_stop: true
           command_timeout: 30m
           script: |
-            set -Eeuo pipefail
+            set -eu
             cd /opt/stratum-sports
             test -f docker-compose.prod.yml
             test -f .env.production
