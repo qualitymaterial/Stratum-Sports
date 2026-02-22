@@ -16,10 +16,24 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
+          script_stop: true
           command_timeout: 30m
           script: |
-            set -e
+            set -Eeuo pipefail
             cd /opt/stratum-sports
-            git pull origin main
-            docker system prune -f
-            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+            test -f docker-compose.prod.yml
+            test -f .env.production
+
+            git fetch origin main
+            git checkout -B main origin/main
+            git reset --hard origin/main
+
+            docker system prune -f || true
+
+            if ! docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans; then
+              docker compose -f docker-compose.prod.yml --env-file .env.production ps || true
+              docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
+              exit 1
+            fi
+
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps
