@@ -83,10 +83,94 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --bui
 
 - `docs/deployment-aws-ec2.md`
 
+## Frontend API Base URL
+
+Frontend API base URL resolution order:
+- `NEXT_PUBLIC_API_BASE_URL`
+- `VITE_API_URL`
+- `REACT_APP_API_URL`
+
+If none are set:
+- Browser in development (`localhost`/`127.0.0.1`) uses `http://localhost:8000/api/v1`
+- Production browser uses `window.location.origin + /api/v1`
+
 ## Product Guide
 
 - End-user + operator guide: `docs/user-guide.md`
 - Release notes / changelog: `CHANGELOG.md`
+
+## Auth Smoke Test
+
+Run against default production target (`http://134.209.125.6:8000`):
+
+```bash
+./scripts/smoke_auth.sh
+```
+
+Run against a custom target:
+
+```bash
+./scripts/smoke_auth.sh http://your-api-host:8000
+```
+
+Make target:
+
+```bash
+make smoke-auth
+```
+
+## Admin Bootstrap
+
+Create or update an admin user (idempotent):
+
+```bash
+docker compose run --rm backend python -m app.scripts.create_admin --email admin@example.com --password 'replace-with-strong-password'
+```
+
+Behavior:
+- Sets `is_admin=true`
+- Sets `tier=pro`
+- Sets `is_active=true`
+- Updates password hash
+- Rotate password by running the same command with a new `--password` value.
+
+## Deployment Verification Runbook
+
+1) Register test user:
+
+```bash
+curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"verify+'$(date +%s)'@example.com","password":"VerifyPass!123"}'
+```
+
+2) Login:
+
+```bash
+curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"YOUR_EMAIL","password":"YOUR_PASSWORD"}'
+```
+
+3) Call protected endpoint with bearer token:
+
+```bash
+curl -sS http://134.209.125.6:8000/api/v1/auth/me \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+4) Run full smoke test:
+
+```bash
+./scripts/smoke_auth.sh http://134.209.125.6:8000
+```
+
+Auth failure debug checklist:
+- Confirm frontend API base URL is not `localhost` in production.
+- Confirm `Authorization: Bearer <token>` header is present on protected requests.
+- Confirm backend `CORS_ORIGINS` includes deployed frontend origin.
+- Confirm token is valid by calling `/api/v1/auth/me` with curl.
+- Confirm deployment uses `docker-compose.prod.yml` and `.env.production`.
 
 ## Required Environment Variables for Full Functionality
 
