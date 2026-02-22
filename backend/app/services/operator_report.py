@@ -30,13 +30,28 @@ async def build_operator_report(db: AsyncSession, days: int) -> dict:
         """
         SELECT
             j.key AS signal_type,
-            SUM((j.value)::int) AS count
+            SUM(
+                CASE
+                    WHEN j.value ~ '^-?[0-9]+$' THEN (j.value)::int
+                    ELSE 0
+                END
+            ) AS count
         FROM cycle_kpis ck
-        CROSS JOIN LATERAL jsonb_each_text(ck.signals_created_by_type) AS j(key, value)
+        CROSS JOIN LATERAL jsonb_each_text(
+            CASE
+                WHEN jsonb_typeof(ck.signals_created_by_type) = 'object' THEN ck.signals_created_by_type
+                ELSE '{}'::jsonb
+            END
+        ) AS j(key, value)
         WHERE ck.started_at >= :period_start
-          AND ck.signals_created_by_type IS NOT NULL
         GROUP BY j.key
-        ORDER BY SUM((j.value)::int) DESC, j.key ASC
+        HAVING SUM(
+            CASE
+                WHEN j.value ~ '^-?[0-9]+$' THEN (j.value)::int
+                ELSE 0
+            END
+        ) > 0
+        ORDER BY count DESC, j.key ASC
         """
     )
     signal_distribution_rows = (

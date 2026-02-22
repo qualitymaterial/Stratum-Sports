@@ -96,7 +96,13 @@ async def test_cleanup_old_cycle_kpis_deletes_expired(db_session: AsyncSession) 
     deleted = await cleanup_old_cycle_kpis(db_session, retention_days=30)
     assert deleted == 1
 
-    remaining = (await db_session.execute(select(CycleKpi))).scalars().all()
+    remaining = (
+        await db_session.execute(
+            select(CycleKpi).where(
+                CycleKpi.cycle_id.in_(["cycle_cleanup_old", "cycle_cleanup_new"])
+            )
+        )
+    ).scalars().all()
     assert len(remaining) == 1
     assert remaining[0].cycle_id == "cycle_cleanup_new"
 

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from httpx import AsyncClient
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -38,6 +39,10 @@ async def test_operator_report_aggregates_with_internal_token(
     db_session: AsyncSession,
 ) -> None:
     now = datetime.now(UTC)
+    await db_session.execute(delete(ClvRecord))
+    await db_session.execute(delete(Signal))
+    await db_session.execute(delete(CycleKpi))
+    await db_session.commit()
 
     db_session.add_all(
         [
