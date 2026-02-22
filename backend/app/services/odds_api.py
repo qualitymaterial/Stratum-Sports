@@ -1,6 +1,7 @@
+import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 import httpx
@@ -95,6 +96,40 @@ def _extract_history_events(payload: object) -> tuple[list[dict], datetime | Non
 
 
 class OddsApiClient:
+    _consecutive_failures: int = 0
+    _circuit_open_until: datetime | None = None
+
+    @classmethod
+    def _is_circuit_open(cls, now: datetime) -> bool:
+        if cls._circuit_open_until is None:
+            return False
+        if now >= cls._circuit_open_until:
+            cls._circuit_open_until = None
+            cls._consecutive_failures = 0
+            return False
+        return True
+
+    @classmethod
+    def _record_success(cls) -> None:
+        cls._consecutive_failures = 0
+        cls._circuit_open_until = None
+
+    @classmethod
+    def _record_failure(cls) -> None:
+        cls._consecutive_failures += 1
+        failures_to_open = max(1, settings.odds_api_circuit_failures_to_open)
+        if cls._consecutive_failures < failures_to_open:
+            return
+        open_seconds = max(5, settings.odds_api_circuit_open_seconds)
+        cls._circuit_open_until = datetime.now(UTC) + timedelta(seconds=open_seconds)
+        logger.warning(
+            "Odds API circuit opened",
+            extra={
+                "circuit_open_seconds": open_seconds,
+                "consecutive_failures": cls._consecutive_failures,
+            },
+        )
+
     async def fetch_nba_odds(
         self,
         *,
@@ -105,6 +140,19 @@ class OddsApiClient:
     ) -> OddsFetchResult:
         if not settings.odds_api_key:
             logger.warning("ODDS_API_KEY missing; skipping polling cycle")
+            return OddsFetchResult(events=[])
+
+        now = datetime.now(UTC)
+        if self._is_circuit_open(now):
+            logger.warning(
+                "Odds API circuit is open; skipping fetch",
+                extra={
+                    "circuit_open_until": self._circuit_open_until.isoformat()
+                    if self._circuit_open_until is not None
+                    else None,
+                    "consecutive_failures": self._consecutive_failures,
+                },
+            )
             return OddsFetchResult(events=[])
 
         url = f"{settings.odds_api_base_url}/sports/{sport_key}/odds"
@@ -119,17 +167,47 @@ class OddsApiClient:
         if configured_books.strip():
             params["bookmakers"] = configured_books
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            payload = response.json()
-            fetch_result = OddsFetchResult(
-                events=payload if isinstance(payload, list) else [],
-                requests_remaining=_parse_header_int(response.headers, "x-requests-remaining"),
-                requests_used=_parse_header_int(response.headers, "x-requests-used"),
-                requests_last=_parse_header_int(response.headers, "x-requests-last"),
-                requests_limit=_parse_header_int(response.headers, "x-requests-limit"),
-            )
+        attempts = max(1, settings.odds_api_retry_attempts)
+        backoff_base = max(0.1, settings.odds_api_retry_backoff_seconds)
+        backoff_cap = max(backoff_base, settings.odds_api_retry_backoff_max_seconds)
+
+        response: httpx.Response | None = None
+        payload: object | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
+                    payload = response.json()
+                self._record_success()
+                break
+            except (httpx.HTTPError, ValueError):
+                self._record_failure()
+                logger.warning(
+                    "Odds API fetch attempt failed",
+                    exc_info=True,
+                    extra={
+                        "attempt": attempt,
+                        "attempts_total": attempts,
+                        "consecutive_failures": self._consecutive_failures,
+                    },
+                )
+                if attempt >= attempts or self._is_circuit_open(datetime.now(UTC)):
+                    break
+                sleep_seconds = min(backoff_cap, backoff_base * (2 ** (attempt - 1)))
+                await asyncio.sleep(sleep_seconds)
+
+        if response is None or payload is None:
+            logger.error("Odds API fetch failed after retries; continuing cycle with no events")
+            return OddsFetchResult(events=[])
+
+        fetch_result = OddsFetchResult(
+            events=payload if isinstance(payload, list) else [],
+            requests_remaining=_parse_header_int(response.headers, "x-requests-remaining"),
+            requests_used=_parse_header_int(response.headers, "x-requests-used"),
+            requests_last=_parse_header_int(response.headers, "x-requests-last"),
+            requests_limit=_parse_header_int(response.headers, "x-requests-limit"),
+        )
 
         if not isinstance(payload, list):
             logger.warning("Unexpected odds payload type", extra={"type": str(type(payload))})

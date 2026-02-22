@@ -7,6 +7,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.services.consensus import (
     cleanup_old_consensus_snapshots,
     compute_and_persist_consensus,
+    dispersion_stddev,
     latest_snapshots_for_event,
 )
 
@@ -34,6 +35,10 @@ def _snapshot(
         price=price,
         fetched_at=fetched_at,
     )
+
+
+def test_dispersion_stddev_returns_none_for_single_point() -> None:
+    assert dispersion_stddev([10.5]) is None
 
 
 async def test_latest_snapshots_for_event_dedupes_to_latest_per_book_outcome(

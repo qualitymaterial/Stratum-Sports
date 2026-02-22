@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -57,12 +58,8 @@ async def add_watchlist_item(
     if game is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
 
-    existing_stmt = select(Watchlist).where(Watchlist.user_id == user.id, Watchlist.event_id == event_id)
-    existing = (await db.execute(existing_stmt)).scalar_one_or_none()
-    if existing:
-        return {"status": "exists", "event_id": event_id}
-
     if not is_pro(user):
+        await db.execute(select(User.id).where(User.id == user.id).with_for_update())
         count_stmt = select(func.count(Watchlist.id)).where(Watchlist.user_id == user.id)
         count = (await db.execute(count_stmt)).scalar_one()
         if count >= settings.free_watchlist_limit:
@@ -71,11 +68,17 @@ async def add_watchlist_item(
                 detail=f"Free tier watchlist limit is {settings.free_watchlist_limit}",
             )
 
-    item = Watchlist(user_id=user.id, event_id=event_id)
-    db.add(item)
+    insert_stmt = (
+        pg_insert(Watchlist)
+        .values(user_id=user.id, event_id=event_id)
+        .on_conflict_do_nothing(index_elements=[Watchlist.user_id, Watchlist.event_id])
+        .returning(Watchlist.id)
+    )
+    inserted_id = (await db.execute(insert_stmt)).scalar_one_or_none()
     await db.commit()
-    await db.refresh(item)
-    return {"status": "added", "event_id": event_id, "id": item.id}
+    if inserted_id is None:
+        return {"status": "exists", "event_id": event_id}
+    return {"status": "added", "event_id": event_id, "id": inserted_id}
 
 
 @router.delete("/{event_id}")

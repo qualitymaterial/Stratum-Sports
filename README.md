@@ -346,6 +346,16 @@ Consensus snapshots are computed from stored `odds_snapshots` after each ingesti
 - `CONSENSUS_MARKETS` (default `spreads,totals,h2h`)
 - `CONSENSUS_RETENTION_DAYS` (default `14`)
 
+## Odds API Resilience Controls
+
+Live odds polling includes bounded retry/backoff and a temporary circuit-open guard to avoid hard poller failures during upstream instability.
+
+- `ODDS_API_RETRY_ATTEMPTS` (default `3`)
+- `ODDS_API_RETRY_BACKOFF_SECONDS` (default `1.0`)
+- `ODDS_API_RETRY_BACKOFF_MAX_SECONDS` (default `8.0`)
+- `ODDS_API_CIRCUIT_FAILURES_TO_OPEN` (default `3`)
+- `ODDS_API_CIRCUIT_OPEN_SECONDS` (default `120`)
+
 ## Dislocation Signal Controls
 
 Dislocation detection runs in the existing signal pipeline and compares latest per-book odds snapshots to persisted consensus snapshots (no extra external API calls).
@@ -430,6 +440,8 @@ Internal weekly digest posts the operator report to an internal Discord webhook.
 - Watchlist: `/api/v1/watchlist`
 - Discord (Pro): `/api/v1/discord/connection`
 - Billing: `/api/v1/billing/create-checkout-session`, `/api/v1/billing/portal`, `/api/v1/billing/webhook`
+
+Discord webhook URLs must match the configured allowlist (`DISCORD_WEBHOOK_ALLOWED_HOSTS`, default `discord.com,ptb.discord.com,canary.discord.com`) and the `/api/webhooks/...` path.
 
 ## Migrations
 

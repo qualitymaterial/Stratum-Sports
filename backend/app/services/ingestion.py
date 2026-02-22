@@ -15,6 +15,15 @@ from app.services.odds_api import OddsApiClient
 
 logger = logging.getLogger(__name__)
 
+REDIS_DEDUPE_UPDATE_IF_CHANGED_LUA = """
+local existing = redis.call("GET", KEYS[1])
+if existing == ARGV[1] then
+    return 0
+end
+redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
+return 1
+"""
+
 
 @dataclass(frozen=True)
 class NormalizedOddsRow:
@@ -143,6 +152,29 @@ def normalize_event_odds_rows(
     return rows
 
 
+async def _should_persist_snapshot(
+    redis: Redis | None,
+    *,
+    dedupe_key: str,
+    dedupe_value: str,
+    ttl_seconds: int = 60 * 60 * 24,
+) -> bool:
+    if redis is None:
+        return True
+    try:
+        changed = await redis.eval(
+            REDIS_DEDUPE_UPDATE_IF_CHANGED_LUA,
+            1,
+            dedupe_key,
+            dedupe_value,
+            str(ttl_seconds),
+        )
+        return bool(changed)
+    except Exception:
+        logger.exception("Redis dedupe failed; continuing without dedupe")
+        return True
+
+
 async def ingest_odds_cycle(
     db: AsyncSession,
     redis: Redis | None,
@@ -207,14 +239,13 @@ async def ingest_odds_cycle(
             )
             dedupe_value = f"{row.line}|{row.price}"
 
-            try:
-                if redis is not None:
-                    previous_value = await redis.get(dedupe_key)
-                    if previous_value == dedupe_value:
-                        continue
-                    await redis.set(dedupe_key, dedupe_value, ex=60 * 60 * 24)
-            except Exception:
-                logger.exception("Redis dedupe failed; continuing without dedupe")
+            should_persist = await _should_persist_snapshot(
+                redis,
+                dedupe_key=dedupe_key,
+                dedupe_value=dedupe_value,
+            )
+            if not should_persist:
+                continue
 
             snapshot = OddsSnapshot(
                 event_id=row.event_id,

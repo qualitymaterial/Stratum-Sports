@@ -89,6 +89,7 @@ class Settings(BaseSettings):
     discord_client_id: str = ""
     discord_client_secret: str = ""
     discord_redirect_uri: str = "http://localhost:3000/auth/discord/callback"
+    discord_webhook_allowed_hosts: str = "discord.com,ptb.discord.com,canary.discord.com"
 
     odds_api_key: str = ""
     odds_api_base_url: str = "https://api.the-odds-api.com/v4"
@@ -100,6 +101,11 @@ class Settings(BaseSettings):
     odds_api_regions: str = "us"
     odds_api_markets: str = "spreads,totals,h2h"
     odds_api_bookmakers: str = ""
+    odds_api_retry_attempts: int = 3
+    odds_api_retry_backoff_seconds: float = 1.0
+    odds_api_retry_backoff_max_seconds: float = 8.0
+    odds_api_circuit_failures_to_open: int = 3
+    odds_api_circuit_open_seconds: int = 120
     stratum_close_capture_enabled: bool = True
     stratum_close_capture_max_events_per_cycle: int = 10
     nba_key_numbers: str = "2,3,4,5,6,7,8,10"
@@ -177,6 +183,10 @@ class Settings(BaseSettings):
     @property
     def consensus_markets_list(self) -> list[str]:
         return [v.strip() for v in self.consensus_markets.split(",") if v.strip()]
+
+    @property
+    def discord_webhook_allowed_hosts_list(self) -> list[str]:
+        return [v.strip().lower() for v in self.discord_webhook_allowed_hosts.split(",") if v.strip()]
 
     @property
     def resolved_database_url(self) -> str:

@@ -43,7 +43,7 @@ def dispersion_stddev(values: list[float]) -> float | None:
     if not values:
         return None
     if len(values) == 1:
-        return 0.0
+        return None
     return float(pstdev(values))
 
 
