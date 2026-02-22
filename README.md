@@ -385,6 +385,7 @@ CLV tracking is computed from existing `games.commence_time`, persisted `market_
 ## Performance Intel Controls
 
 Performance intel powers `/app/performance` and actionable signal cards in `/app/games/[event_id]`.
+The performance page includes Pro-only 1-click signal quality presets (`High Confidence`, `Low Noise`, `Early Move`, `Steam Only`) persisted locally in browser storage and executed via server-side filters.
 
 - `PERFORMANCE_UI_ENABLED` (default `true`)
 - `ACTIONABLE_BOOK_CARD_ENABLED` (default `true`)

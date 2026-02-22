@@ -6,28 +6,208 @@ import { LoadingState } from "@/components/LoadingState";
 import { getClvSummary, getClvTeaser, getClvTrustScorecards, getSignalQuality } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
+import { applyPresetFilters } from "@/lib/performancePresets";
 import { ClvPerformanceRow, ClvTeaserResponse, ClvTrustScorecard, SignalQualityRow } from "@/lib/types";
 
 const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"] as const;
 const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
+const PRESET_OPTIONS = ["CUSTOM", "HIGH_CONFIDENCE", "LOW_NOISE", "EARLY_MOVE", "STEAM_ONLY"] as const;
+type PresetOption = (typeof PRESET_OPTIONS)[number];
+
+type PresetDefinition = {
+  label: string;
+  description: string;
+  signalType?: (typeof SIGNAL_OPTIONS)[number];
+  market?: (typeof MARKET_OPTIONS)[number];
+  minStrength: number;
+  minSamples: number;
+  minBooksAffected: number;
+  maxDispersion: number | null;
+  windowMinutesMax: number | null;
+};
+
+const PRESET_DEFINITIONS: Record<Exclude<PresetOption, "CUSTOM">, PresetDefinition> = {
+  HIGH_CONFIDENCE: {
+    label: "High Confidence",
+    description: "Higher strength and book support with tighter dispersion.",
+    minStrength: 75,
+    minSamples: 25,
+    minBooksAffected: 3,
+    maxDispersion: 0.7,
+    windowMinutesMax: 20,
+  },
+  LOW_NOISE: {
+    label: "Low Noise",
+    description: "Filters to steadier, lower-volatility signals.",
+    minStrength: 65,
+    minSamples: 20,
+    minBooksAffected: 3,
+    maxDispersion: 0.5,
+    windowMinutesMax: 15,
+  },
+  EARLY_MOVE: {
+    label: "Early Move",
+    description: "Prioritizes fast pregame move-style signals.",
+    signalType: "MOVE",
+    minStrength: 60,
+    minSamples: 15,
+    minBooksAffected: 2,
+    maxDispersion: null,
+    windowMinutesMax: 10,
+  },
+  STEAM_ONLY: {
+    label: "Steam Only",
+    description: "Focuses on synchronized fast-moving steam events.",
+    signalType: "STEAM",
+    minStrength: 65,
+    minSamples: 10,
+    minBooksAffected: 4,
+    maxDispersion: null,
+    windowMinutesMax: 5,
+  },
+};
+
+const FILTERS_STORAGE_KEY = "stratum_performance_filters_v1";
 
 export default function PerformancePage() {
   const { user, loading, token } = useCurrentUser(true);
   const [days, setDays] = useState(30);
   const [signalType, setSignalType] = useState<(typeof SIGNAL_OPTIONS)[number]>("ALL");
   const [market, setMarket] = useState<(typeof MARKET_OPTIONS)[number]>("ALL");
+  const [selectedPreset, setSelectedPreset] = useState<PresetOption>("HIGH_CONFIDENCE");
   const [minStrength, setMinStrength] = useState(60);
   const [minSamples, setMinSamples] = useState(10);
+  const [minBooksAffected, setMinBooksAffected] = useState(1);
+  const [maxDispersion, setMaxDispersion] = useState<number | null>(null);
+  const [windowMinutesMax, setWindowMinutesMax] = useState<number | null>(null);
   const [summaryRows, setSummaryRows] = useState<ClvPerformanceRow[]>([]);
   const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
 
   const proAccess = hasProAccess(user);
   const resolvedSignalType = signalType === "ALL" ? undefined : signalType;
   const resolvedMarket = market === "ALL" ? undefined : market;
+
+  const applyPreset = (preset: PresetOption) => {
+    const applied = applyPresetFilters(
+      {
+        selectedPreset,
+        signalType,
+        market,
+        minStrength,
+        minSamples,
+        minBooksAffected,
+        maxDispersion,
+        windowMinutesMax,
+      },
+      preset,
+    );
+    setSelectedPreset(applied.selectedPreset as PresetOption);
+    setSignalType(applied.signalType as (typeof SIGNAL_OPTIONS)[number]);
+    setMarket(applied.market as (typeof MARKET_OPTIONS)[number]);
+    setMinStrength(applied.minStrength);
+    setMinSamples(applied.minSamples);
+    setMinBooksAffected(applied.minBooksAffected);
+    setMaxDispersion(applied.maxDispersion);
+    setWindowMinutesMax(applied.windowMinutesMax);
+  };
+
+  const markCustom = () => setSelectedPreset("CUSTOM");
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setFiltersHydrated(true);
+      return;
+    }
+    try {
+      const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as {
+          days?: number;
+          signalType?: (typeof SIGNAL_OPTIONS)[number];
+          market?: (typeof MARKET_OPTIONS)[number];
+          selectedPreset?: PresetOption;
+          minStrength?: number;
+          minSamples?: number;
+          minBooksAffected?: number;
+          maxDispersion?: number | null;
+          windowMinutesMax?: number | null;
+        };
+        if (typeof parsed.days === "number") {
+          setDays(Math.max(1, Math.min(90, parsed.days)));
+        }
+        if (parsed.signalType && SIGNAL_OPTIONS.includes(parsed.signalType)) {
+          setSignalType(parsed.signalType);
+        }
+        if (parsed.market && MARKET_OPTIONS.includes(parsed.market)) {
+          setMarket(parsed.market);
+        }
+        if (parsed.selectedPreset && PRESET_OPTIONS.includes(parsed.selectedPreset)) {
+          setSelectedPreset(parsed.selectedPreset);
+        }
+        if (typeof parsed.minStrength === "number") {
+          setMinStrength(Math.max(1, Math.min(100, parsed.minStrength)));
+        }
+        if (typeof parsed.minSamples === "number") {
+          setMinSamples(Math.max(1, Math.min(1000, parsed.minSamples)));
+        }
+        if (typeof parsed.minBooksAffected === "number") {
+          setMinBooksAffected(Math.max(1, Math.min(100, parsed.minBooksAffected)));
+        }
+        if (parsed.maxDispersion == null) {
+          setMaxDispersion(null);
+        } else if (typeof parsed.maxDispersion === "number" && Number.isFinite(parsed.maxDispersion)) {
+          setMaxDispersion(Math.max(0, parsed.maxDispersion));
+        }
+        if (parsed.windowMinutesMax == null) {
+          setWindowMinutesMax(null);
+        } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
+          setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
+        }
+      } else {
+        applyPreset("HIGH_CONFIDENCE");
+      }
+    } catch {
+      applyPreset("HIGH_CONFIDENCE");
+    } finally {
+      setFiltersHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!filtersHydrated || typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(
+      FILTERS_STORAGE_KEY,
+      JSON.stringify({
+        days,
+        signalType,
+        market,
+        selectedPreset,
+        minStrength,
+        minSamples,
+        minBooksAffected,
+        maxDispersion,
+        windowMinutesMax,
+      }),
+    );
+  }, [
+    days,
+    signalType,
+    market,
+    selectedPreset,
+    minStrength,
+    minSamples,
+    minBooksAffected,
+    maxDispersion,
+    windowMinutesMax,
+    filtersHydrated,
+  ]);
 
   const load = async () => {
     if (!token) {
@@ -57,7 +237,9 @@ export default function PerformancePage() {
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
-            min_books_affected: 1,
+            min_books_affected: minBooksAffected,
+            max_dispersion: maxDispersion ?? undefined,
+            window_minutes_max: windowMinutesMax ?? undefined,
             limit: 40,
             offset: 0,
           }),
@@ -81,11 +263,27 @@ export default function PerformancePage() {
   };
 
   useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
     if (!loading && token) {
       void load();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, token, proAccess, days, signalType, market, minStrength, minSamples]);
+  }, [
+    loading,
+    token,
+    proAccess,
+    days,
+    signalType,
+    market,
+    minStrength,
+    minSamples,
+    minBooksAffected,
+    maxDispersion,
+    windowMinutesMax,
+    filtersHydrated,
+  ]);
 
   const bySignalType = useMemo(() => {
     const grouped = new Map<string, ClvPerformanceRow>();
@@ -180,7 +378,10 @@ export default function PerformancePage() {
           Signal
           <select
             value={signalType}
-            onChange={(event) => setSignalType(event.target.value as (typeof SIGNAL_OPTIONS)[number])}
+            onChange={(event) => {
+              setSignalType(event.target.value as (typeof SIGNAL_OPTIONS)[number]);
+              markCustom();
+            }}
             className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
           >
             {SIGNAL_OPTIONS.map((option) => (
@@ -194,7 +395,10 @@ export default function PerformancePage() {
           Market
           <select
             value={market}
-            onChange={(event) => setMarket(event.target.value as (typeof MARKET_OPTIONS)[number])}
+            onChange={(event) => {
+              setMarket(event.target.value as (typeof MARKET_OPTIONS)[number]);
+              markCustom();
+            }}
             className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
           >
             {MARKET_OPTIONS.map((option) => (
@@ -211,7 +415,10 @@ export default function PerformancePage() {
             min={1}
             max={100}
             value={minStrength}
-            onChange={(event) => setMinStrength(Math.max(1, Math.min(100, Number(event.target.value) || 60)))}
+            onChange={(event) => {
+              setMinStrength(Math.max(1, Math.min(100, Number(event.target.value) || 60)));
+              markCustom();
+            }}
             className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
           />
         </label>
@@ -222,10 +429,96 @@ export default function PerformancePage() {
             min={1}
             max={1000}
             value={minSamples}
-            onChange={(event) => setMinSamples(Math.max(1, Math.min(1000, Number(event.target.value) || 10)))}
+            onChange={(event) => {
+              setMinSamples(Math.max(1, Math.min(1000, Number(event.target.value) || 10)));
+              markCustom();
+            }}
             className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
           />
         </label>
+      </div>
+
+      <div className="rounded-xl border border-borderTone bg-panel p-3 shadow-terminal">
+        <div className="flex flex-wrap items-center gap-2">
+          {PRESET_OPTIONS.map((preset) => {
+            const isActive = selectedPreset === preset;
+            return (
+              <button
+                key={preset}
+                onClick={() => applyPreset(preset)}
+                className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
+                  isActive
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                }`}
+              >
+                {preset === "CUSTOM" ? "Custom" : PRESET_DEFINITIONS[preset].label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-textMute">
+          {selectedPreset === "CUSTOM"
+            ? "Custom filter mode."
+            : PRESET_DEFINITIONS[selectedPreset as Exclude<PresetOption, "CUSTOM">].description}
+        </p>
+
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <label className="text-xs text-textMute">
+            Min Books Affected
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={minBooksAffected}
+              onChange={(event) => {
+                setMinBooksAffected(Math.max(1, Math.min(100, Number(event.target.value) || 1)));
+                markCustom();
+              }}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Max Dispersion
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={maxDispersion ?? ""}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (next === "") {
+                  setMaxDispersion(null);
+                } else {
+                  setMaxDispersion(Math.max(0, Number(next) || 0));
+                }
+                markCustom();
+              }}
+              placeholder="off"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Max Window Minutes
+            <input
+              type="number"
+              min={1}
+              max={240}
+              value={windowMinutesMax ?? ""}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (next === "") {
+                  setWindowMinutesMax(null);
+                } else {
+                  setWindowMinutesMax(Math.max(1, Math.min(240, Number(next) || 1)));
+                }
+                markCustom();
+              }}
+              placeholder="off"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+        </div>
       </div>
 
       {error && <p className="text-sm text-negative">{error}</p>}
