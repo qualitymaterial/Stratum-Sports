@@ -29,6 +29,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+    logger.info(
+        "Database URL configuration active",
+        extra={
+            "database_url_source": settings.resolved_database_url_source,
+            "database_host": (
+                settings.postgres_host if settings.resolved_database_url_source == "postgres_fallback" else None
+            ),
+            "database_port": (
+                settings.postgres_port if settings.resolved_database_url_source == "postgres_fallback" else None
+            ),
+            "database_name": (
+                settings.postgres_db if settings.resolved_database_url_source == "postgres_fallback" else None
+            ),
+        },
+    )
     redis: Redis | None = None
     try:
         redis = Redis.from_url(settings.redis_url, decode_responses=True)

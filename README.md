@@ -70,6 +70,8 @@ cp .env.production.example .env.production
 ```
 
 2. Fill all required secrets and production URLs in `.env.production`.
+   - PostgreSQL config should use `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`.
+   - `DATABASE_URL` is optional advanced override; if blank or contains the placeholder password token, backend/alembic auto-construct it from `POSTGRES_*`.
 
 3. Start production compose stack:
 

@@ -1,7 +1,52 @@
+import os
 from functools import lru_cache
+from typing import Mapping
+from urllib.parse import quote_plus
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DATABASE_URL_PLACEHOLDER = "REPLACE_WITH_STRONG_DB_PASSWORD"
+
+
+def resolve_database_url(
+    *,
+    database_url: str | None,
+    postgres_user: str | None,
+    postgres_password: str | None,
+    postgres_host: str | None = "db",
+    postgres_port: int | str | None = "5432",
+    postgres_db: str | None = "stratum_sports",
+) -> tuple[str, str]:
+    raw_database_url = (database_url or "").strip()
+    if raw_database_url and DATABASE_URL_PLACEHOLDER not in raw_database_url:
+        return raw_database_url, "env"
+
+    user = quote_plus((postgres_user or "stratum").strip())
+    password = quote_plus((postgres_password or "stratum").strip())
+    host = (postgres_host or "db").strip() or "db"
+    port = str(postgres_port or "5432").strip() or "5432"
+    db_name = (postgres_db or "stratum_sports").strip() or "stratum_sports"
+    constructed = f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{db_name}"
+    return constructed, "postgres_fallback"
+
+
+def resolve_database_url_from_env(
+    env: Mapping[str, str] | None = None,
+    *,
+    default_database_url: str | None = None,
+) -> tuple[str, str]:
+    source_env = os.environ if env is None else env
+    database_url = source_env.get("DATABASE_URL", default_database_url or "")
+    return resolve_database_url(
+        database_url=database_url,
+        postgres_user=source_env.get("POSTGRES_USER"),
+        postgres_password=source_env.get("POSTGRES_PASSWORD"),
+        postgres_host=source_env.get("POSTGRES_HOST", "db"),
+        postgres_port=source_env.get("POSTGRES_PORT", "5432"),
+        postgres_db=source_env.get("POSTGRES_DB", "stratum_sports"),
+    )
 
 
 class Settings(BaseSettings):
@@ -33,7 +78,12 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
-    database_url: str = "postgresql+asyncpg://stratum:stratum@db:5432/stratum_sports"
+    database_url: str = ""
+    postgres_user: str = "stratum"
+    postgres_password: str = "stratum"
+    postgres_host: str = "db"
+    postgres_port: int = 5432
+    postgres_db: str = "stratum_sports"
     redis_url: str = "redis://redis:6379/0"
 
     discord_client_id: str = ""
@@ -120,6 +170,30 @@ class Settings(BaseSettings):
     @property
     def consensus_markets_list(self) -> list[str]:
         return [v.strip() for v in self.consensus_markets.split(",") if v.strip()]
+
+    @property
+    def resolved_database_url(self) -> str:
+        url, _source = resolve_database_url(
+            database_url=self.database_url,
+            postgres_user=self.postgres_user,
+            postgres_password=self.postgres_password,
+            postgres_host=self.postgres_host,
+            postgres_port=self.postgres_port,
+            postgres_db=self.postgres_db,
+        )
+        return url
+
+    @property
+    def resolved_database_url_source(self) -> str:
+        _url, source = resolve_database_url(
+            database_url=self.database_url,
+            postgres_user=self.postgres_user,
+            postgres_password=self.postgres_password,
+            postgres_host=self.postgres_host,
+            postgres_port=self.postgres_port,
+            postgres_db=self.postgres_db,
+        )
+        return source
 
 
 @lru_cache

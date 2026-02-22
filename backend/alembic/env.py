@@ -5,6 +5,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.core.config import resolve_database_url_from_env
 from app.models import Base
 
 config = context.config
@@ -17,10 +18,11 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return os.getenv(
-        "DATABASE_URL",
-        config.get_main_option("sqlalchemy.url"),
+    resolved_url, _source = resolve_database_url_from_env(
+        os.environ,
+        default_database_url=config.get_main_option("sqlalchemy.url"),
     )
+    return resolved_url
 
 
 def run_migrations_offline() -> None:
