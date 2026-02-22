@@ -10,6 +10,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Validate deploy secrets
+        run: |
+          set -eu
+          [ -n "${{ secrets.DROPLET_HOST }}" ] || { echo "ERROR: DROPLET_HOST is empty"; exit 1; }
+          [ -n "${{ secrets.DROPLET_USER }}" ] || { echo "ERROR: DROPLET_USER is empty"; exit 1; }
+          [ -n "${{ secrets.DROPLET_SSH_KEY }}" ] || { echo "ERROR: DROPLET_SSH_KEY is empty"; exit 1; }
+          echo "Deploy secrets look present."
+
       - name: SSH into droplet and deploy
         uses: appleboy/ssh-action@v1.0.3
         with:
