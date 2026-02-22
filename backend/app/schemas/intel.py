@@ -146,3 +146,33 @@ class ActionableBookCard(BaseModel):
     books_considered: int
     top_books: list[ActionableBookQuote]
     quotes: list[ActionableBookQuote]
+
+
+class OpportunityPoint(BaseModel):
+    signal_id: UUID
+    event_id: str
+    game_label: str | None
+    game_commence_time: datetime | None
+    signal_type: str
+    market: str
+    outcome_name: str | None
+    direction: str
+    strength_score: int
+    created_at: datetime
+    best_book_key: str | None
+    best_line: float | None
+    best_price: int | None
+    consensus_line: float | None
+    consensus_price: float | None
+    best_delta: float | None
+    delta_type: str
+    books_considered: int
+    freshness_seconds: int | None
+    freshness_bucket: str
+    execution_rank: int
+    clv_prior_samples: int | None
+    clv_prior_pct_positive: float | None
+    opportunity_score: int
+    opportunity_status: str
+    reason_tags: list[str]
+    actionable_reason: str

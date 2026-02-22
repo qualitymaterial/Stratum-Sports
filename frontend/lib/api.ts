@@ -9,6 +9,7 @@ import {
   DiscordConnection,
   GameDetail,
   GameListItem,
+  OpportunityPoint,
   SignalQualityWeeklySummary,
   SignalQualityRow,
   User,
@@ -291,4 +292,24 @@ export async function getActionableBookCardsBatch(
 
 export async function getClvTeaser(token: string, days = 30) {
   return apiRequest<ClvTeaserResponse>(`/intel/clv/teaser?days=${days}`, { token });
+}
+
+export async function getBestOpportunities(
+  token: string,
+  options: {
+    days?: number;
+    signal_type?: string;
+    market?: string;
+    min_strength?: number;
+    limit?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "limit", options.limit);
+
+  return apiRequest<OpportunityPoint[]>(`/intel/opportunities?${params.toString()}`, { token });
 }

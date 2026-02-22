@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import {
+  getBestOpportunities,
   getClvRecap,
   getClvSummary,
   getClvTeaser,
@@ -19,6 +21,7 @@ import {
   ClvRecapRow,
   ClvTeaserResponse,
   ClvTrustScorecard,
+  OpportunityPoint,
   SignalQualityRow,
   SignalQualityWeeklySummary,
 } from "@/lib/types";
@@ -96,6 +99,20 @@ function formatRecapPeriod(periodStart: string, grain: RecapGrain): string {
   return iso.slice(0, 10);
 }
 
+function formatAmerican(price: number | null): string {
+  if (price == null) {
+    return "-";
+  }
+  return price > 0 ? `+${price}` : `${price}`;
+}
+
+function formatLine(line: number | null): string {
+  if (line == null) {
+    return "-";
+  }
+  return Number(line).toFixed(1);
+}
+
 export default function PerformancePage() {
   const { user, loading, token } = useCurrentUser(true);
   const [days, setDays] = useState(30);
@@ -112,6 +129,7 @@ export default function PerformancePage() {
   const [recapRows, setRecapRows] = useState<ClvRecapRow[]>([]);
   const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
+  const [opportunities, setOpportunities] = useState<OpportunityPoint[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<SignalQualityWeeklySummary | null>(null);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +271,8 @@ export default function PerformancePage() {
     setError(null);
     try {
       if (proAccess) {
-        const [scorecardsData, summaryData, recapData, weeklySummaryData, qualityData] = await Promise.all([
+        const [scorecardsData, summaryData, recapData, weeklySummaryData, qualityData, opportunitiesData] =
+          await Promise.all([
           getClvTrustScorecards(token, {
             days,
             signal_type: resolvedSignalType,
@@ -296,12 +315,20 @@ export default function PerformancePage() {
             limit: 40,
             offset: 0,
           }),
+          getBestOpportunities(token, {
+            days: Math.min(days, 7),
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_strength: minStrength,
+            limit: 10,
+          }),
         ]);
         setScorecards(scorecardsData);
         setSummaryRows(summaryData);
         setRecapRows(recapData.rows);
         setWeeklySummary(weeklySummaryData);
         setQualityRows(qualityData);
+        setOpportunities(opportunitiesData);
         setTeaser(null);
       } else {
         const teaserData = await getClvTeaser(token, days);
@@ -311,6 +338,7 @@ export default function PerformancePage() {
         setWeeklySummary(null);
         setScorecards([]);
         setQualityRows([]);
+        setOpportunities([]);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load performance intel");
@@ -633,6 +661,14 @@ export default function PerformancePage() {
           </p>
         </div>
       )}
+      {!proAccess && (
+        <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+          <h2 className="mb-2 text-sm uppercase tracking-wider text-textMute">Best Opportunities Now</h2>
+          <p className="text-sm text-textMute">
+            Pro users get ranked opportunities with best book vs consensus, freshness, and CLV prior context.
+          </p>
+        </div>
+      )}
 
       {proAccess && (
         <>
@@ -791,6 +827,114 @@ export default function PerformancePage() {
                 </div>
               </div>
             )}
+          </div>
+
+          <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm uppercase tracking-wider text-textMute">Best Opportunities Now</h2>
+              <p className="text-xs text-textMute">
+                Ranked by signal strength, dislocation magnitude, quote freshness, and CLV prior.
+              </p>
+            </div>
+            <div className="overflow-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                    <th className="border-b border-borderTone py-2">Score</th>
+                    <th className="border-b border-borderTone py-2">Status</th>
+                    <th className="border-b border-borderTone py-2">Game</th>
+                    <th className="border-b border-borderTone py-2">Signal</th>
+                    <th className="border-b border-borderTone py-2">Book vs Consensus</th>
+                    <th className="border-b border-borderTone py-2">Freshness</th>
+                    <th className="border-b border-borderTone py-2">CLV Prior</th>
+                    <th className="border-b border-borderTone py-2">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {opportunities.map((row) => (
+                    <tr key={row.signal_id}>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.opportunity_score}</td>
+                      <td className="border-b border-borderTone/50 py-2">
+                        <span
+                          className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
+                            row.opportunity_status === "actionable"
+                              ? "bg-positive/10 text-positive"
+                              : row.opportunity_status === "stale"
+                                ? "bg-negative/10 text-negative"
+                                : "bg-accent/10 text-accent"
+                          }`}
+                        >
+                          {row.opportunity_status}
+                        </span>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <Link href={`/app/games/${row.event_id}`} className="text-accent hover:underline">
+                          {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
+                        </Link>
+                        {row.game_commence_time && (
+                          <p className="text-[11px] text-textMute">
+                            {new Date(row.game_commence_time).toLocaleString([], {
+                              month: "short",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        )}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <p>
+                          {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                        </p>
+                        <p className="text-[11px] text-textMute">{row.reason_tags.join(" • ")}</p>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <p>
+                          {row.best_book_key ?? "-"}{" "}
+                          {row.best_line != null
+                            ? `${formatLine(row.best_line)} (${formatAmerican(row.best_price)})`
+                            : formatAmerican(row.best_price)}
+                        </p>
+                        <p className="text-[11px] text-textMute">
+                          vs{" "}
+                          {row.consensus_line != null
+                            ? `${formatLine(row.consensus_line)} (${formatAmerican(row.consensus_price)})`
+                            : formatAmerican(row.consensus_price)}{" "}
+                          • Δ {row.best_delta != null ? row.best_delta.toFixed(3) : "-"}
+                        </p>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <p className="capitalize">{row.freshness_bucket}</p>
+                        <p className="text-[11px] text-textMute">
+                          {row.freshness_seconds != null ? `${Math.floor(row.freshness_seconds / 60)}m` : "-"} • books{" "}
+                          {row.books_considered}
+                        </p>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        {row.clv_prior_pct_positive != null && row.clv_prior_samples != null
+                          ? `${row.clv_prior_pct_positive.toFixed(1)}% (${row.clv_prior_samples})`
+                          : "-"}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMute">
+                        {new Date(row.created_at).toLocaleString([], {
+                          month: "short",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                    </tr>
+                  ))}
+                  {opportunities.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-3 text-xs text-textMute">
+                        No opportunities matched current filters. Relax min strength or widen the day window.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-2">

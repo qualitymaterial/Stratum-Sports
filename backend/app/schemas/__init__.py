@@ -12,6 +12,7 @@ from app.schemas.intel import (
     ClvTrustScorecard,
     ClvTeaserResponse,
     ConsensusPoint,
+    OpportunityPoint,
     SignalQualityPoint,
     SignalQualityWeeklySummary,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "DashboardCard",
     "GameDetailOut",
     "ConsensusPoint",
+    "OpportunityPoint",
     "ClvRecapRow",
     "ClvRecapResponse",
     "ClvRecordPoint",

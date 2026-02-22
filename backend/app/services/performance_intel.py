@@ -997,3 +997,261 @@ async def get_actionable_book_cards_batch(
             continue
         cards.append(card)
     return cards
+
+
+async def _clv_prior_by_signal_market(
+    db: AsyncSession,
+    *,
+    days: int,
+) -> dict[tuple[str, str], dict[str, float | int]]:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    positive_expr = case((or_(ClvRecord.clv_line > 0, ClvRecord.clv_prob > 0), 1.0), else_=0.0)
+    stmt = (
+        select(
+            ClvRecord.signal_type.label("signal_type"),
+            ClvRecord.market.label("market"),
+            func.count(ClvRecord.id).label("samples"),
+            (func.avg(positive_expr) * 100.0).label("pct_positive"),
+        )
+        .where(ClvRecord.computed_at >= cutoff)
+        .group_by(ClvRecord.signal_type, ClvRecord.market)
+    )
+    rows = (await db.execute(stmt)).mappings().all()
+    payload: dict[tuple[str, str], dict[str, float | int]] = {}
+    for row in rows:
+        key = (str(row["signal_type"]), str(row["market"]))
+        payload[key] = {
+            "samples": int(row["samples"] or 0),
+            "pct_positive": float(row["pct_positive"] or 0.0),
+        }
+    return payload
+
+
+def _compute_opportunity_score(
+    *,
+    market: str,
+    strength_score: int,
+    execution_rank: int,
+    best_delta: float | None,
+    books_considered: int,
+    freshness_bucket: str,
+    clv_prior_pct_positive: float | None,
+    clv_prior_samples: int | None,
+    dispersion: float | None,
+) -> int:
+    baseline = _delta_baseline_for_market(market)
+    delta_ratio = abs(float(best_delta or 0.0)) / baseline if baseline > 0 else 0.0
+    delta_component = min(20.0, delta_ratio * 8.0)
+    strength_component = min(45.0, max(0.0, float(strength_score) * 0.45))
+    execution_component = min(22.0, max(0.0, float(execution_rank) * 0.22))
+    books_component = min(8.0, max(0.0, float(books_considered) * 1.6))
+
+    freshness_component = 0.0
+    if freshness_bucket == "fresh":
+        freshness_component = 8.0
+    elif freshness_bucket == "aging":
+        freshness_component = 3.0
+    else:
+        freshness_component = -12.0
+
+    clv_component = 0.0
+    if clv_prior_pct_positive is not None and clv_prior_samples is not None and clv_prior_samples >= 10:
+        clv_component = max(-8.0, min(8.0, (float(clv_prior_pct_positive) - 50.0) / 3.0))
+
+    dispersion_penalty = 0.0
+    if dispersion is not None and market in {"spreads", "totals"}:
+        if dispersion > 1.5:
+            dispersion_penalty = -6.0
+        elif dispersion > 1.0:
+            dispersion_penalty = -3.0
+
+    score = (
+        strength_component
+        + execution_component
+        + delta_component
+        + books_component
+        + freshness_component
+        + clv_component
+        + dispersion_penalty
+    )
+    return int(max(1, min(100, round(score))))
+
+
+def _opportunity_status(*, score: int, freshness_bucket: str) -> str:
+    if freshness_bucket == "stale":
+        return "stale"
+    if score >= 75:
+        return "actionable"
+    return "monitor"
+
+
+def _opportunity_reason_tags(
+    *,
+    signal_type: str,
+    market: str,
+    best_delta: float | None,
+    books_considered: int,
+    freshness_bucket: str,
+    dispersion: float | None,
+    clv_prior_pct_positive: float | None,
+    clv_prior_samples: int | None,
+) -> list[str]:
+    tags: list[str] = [signal_type]
+    baseline = _delta_baseline_for_market(market)
+    delta_ratio = abs(float(best_delta or 0.0)) / baseline if baseline > 0 else 0.0
+    if delta_ratio >= 1.5:
+        tags.append("LARGE_DELTA")
+    elif delta_ratio >= 1.0:
+        tags.append("MEANINGFUL_DELTA")
+    if books_considered >= 5:
+        tags.append("MULTI_BOOK")
+    if freshness_bucket == "fresh":
+        tags.append("FRESH_QUOTE")
+    elif freshness_bucket == "stale":
+        tags.append("STALE_QUOTE")
+    if dispersion is not None and dispersion <= 0.5 and market in {"spreads", "totals"}:
+        tags.append("LOW_DISPERSION")
+    if clv_prior_pct_positive is not None and clv_prior_samples is not None and clv_prior_samples >= 10:
+        if clv_prior_pct_positive >= 55.0:
+            tags.append("POSITIVE_CLV_PRIOR")
+        elif clv_prior_pct_positive <= 45.0:
+            tags.append("WEAK_CLV_PRIOR")
+    return tags
+
+
+async def get_best_opportunities(
+    db: AsyncSession,
+    *,
+    days: int,
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_strength: int | None = None,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    effective_min_strength = (
+        int(min_strength)
+        if min_strength is not None
+        else max(1, int(settings.signal_filter_default_min_strength))
+    )
+    normalized_limit = max(1, min(int(limit), 50))
+    candidate_limit = max(20, min(150, normalized_limit * 6))
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    stmt = (
+        select(Signal)
+        .where(
+            Signal.created_at >= cutoff,
+            Signal.strength_score >= effective_min_strength,
+        )
+        .order_by(Signal.created_at.desc(), Signal.strength_score.desc())
+        .limit(candidate_limit)
+    )
+    if signal_type:
+        stmt = stmt.where(Signal.signal_type == signal_type)
+    if market:
+        stmt = stmt.where(Signal.market == market)
+
+    signals = (await db.execute(stmt)).scalars().all()
+    if not signals:
+        return []
+
+    event_ids = sorted({signal.event_id for signal in signals if signal.event_id})
+    game_map: dict[str, Game] = {}
+    if event_ids:
+        games_stmt = select(Game).where(Game.event_id.in_(event_ids))
+        games = (await db.execute(games_stmt)).scalars().all()
+        game_map = {game.event_id: game for game in games}
+
+    clv_prior_map = await _clv_prior_by_signal_market(db, days=max(days, 30))
+    opportunities: list[dict[str, Any]] = []
+    for signal in signals:
+        card = await get_actionable_book_card(
+            db,
+            event_id=signal.event_id,
+            signal_id=signal.id,
+            max_books=settings.actionable_book_max_books,
+        )
+        if card is None or int(card.get("books_considered") or 0) <= 0:
+            continue
+
+        prior = clv_prior_map.get((signal.signal_type, signal.market))
+        prior_samples = int(prior["samples"]) if prior is not None else None
+        prior_pct = float(prior["pct_positive"]) if prior is not None else None
+        score = _compute_opportunity_score(
+            market=signal.market,
+            strength_score=int(signal.strength_score),
+            execution_rank=int(card.get("execution_rank") or 1),
+            best_delta=_safe_float(card.get("best_delta")),
+            books_considered=int(card.get("books_considered") or 0),
+            freshness_bucket=str(card.get("freshness_bucket") or "stale"),
+            clv_prior_pct_positive=prior_pct,
+            clv_prior_samples=prior_samples,
+            dispersion=_safe_float(card.get("dispersion")),
+        )
+        status = _opportunity_status(
+            score=score,
+            freshness_bucket=str(card.get("freshness_bucket") or "stale"),
+        )
+        tags = _opportunity_reason_tags(
+            signal_type=signal.signal_type,
+            market=signal.market,
+            best_delta=_safe_float(card.get("best_delta")),
+            books_considered=int(card.get("books_considered") or 0),
+            freshness_bucket=str(card.get("freshness_bucket") or "stale"),
+            dispersion=_safe_float(card.get("dispersion")),
+            clv_prior_pct_positive=prior_pct,
+            clv_prior_samples=prior_samples,
+        )
+
+        game = game_map.get(signal.event_id)
+        opportunities.append(
+            {
+                "signal_id": signal.id,
+                "event_id": signal.event_id,
+                "game_label": (f"{game.away_team} @ {game.home_team}" if game is not None else None),
+                "game_commence_time": game.commence_time if game is not None else None,
+                "signal_type": signal.signal_type,
+                "market": signal.market,
+                "outcome_name": card.get("outcome_name"),
+                "direction": signal.direction,
+                "strength_score": int(signal.strength_score),
+                "created_at": signal.created_at,
+                "best_book_key": card.get("best_book_key"),
+                "best_line": _safe_float(card.get("best_line")),
+                "best_price": (
+                    int(card["best_price"])
+                    if card.get("best_price") is not None
+                    else None
+                ),
+                "consensus_line": _safe_float(card.get("consensus_line")),
+                "consensus_price": _safe_float(card.get("consensus_price")),
+                "best_delta": _safe_float(card.get("best_delta")),
+                "delta_type": str(card.get("delta_type") or "line"),
+                "books_considered": int(card.get("books_considered") or 0),
+                "freshness_seconds": (
+                    int(card["freshness_seconds"])
+                    if card.get("freshness_seconds") is not None
+                    else None
+                ),
+                "freshness_bucket": str(card.get("freshness_bucket") or "stale"),
+                "execution_rank": int(card.get("execution_rank") or 1),
+                "clv_prior_samples": prior_samples,
+                "clv_prior_pct_positive": prior_pct,
+                "opportunity_score": score,
+                "opportunity_status": status,
+                "reason_tags": tags,
+                "actionable_reason": str(card.get("actionable_reason") or "No rationale available."),
+            }
+        )
+
+    opportunities.sort(
+        key=lambda item: (
+            int(item["opportunity_score"]),
+            int(item["strength_score"]),
+            int(item["execution_rank"]),
+            item["created_at"],
+            str(item["event_id"]),
+        ),
+        reverse=True,
+    )
+    return opportunities[:normalized_limit]

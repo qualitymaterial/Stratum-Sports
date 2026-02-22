@@ -238,3 +238,33 @@ export type ActionableBookCard = {
   top_books: ActionableBookQuote[];
   quotes: ActionableBookQuote[];
 };
+
+export type OpportunityPoint = {
+  signal_id: string;
+  event_id: string;
+  game_label: string | null;
+  game_commence_time: string | null;
+  signal_type: string;
+  market: string;
+  outcome_name: string | null;
+  direction: string;
+  strength_score: number;
+  created_at: string;
+  best_book_key: string | null;
+  best_line: number | null;
+  best_price: number | null;
+  consensus_line: number | null;
+  consensus_price: number | null;
+  best_delta: number | null;
+  delta_type: string;
+  books_considered: number;
+  freshness_seconds: number | null;
+  freshness_bucket: "fresh" | "aging" | "stale" | string;
+  execution_rank: number;
+  clv_prior_samples: number | null;
+  clv_prior_pct_positive: number | null;
+  opportunity_score: number;
+  opportunity_status: "actionable" | "monitor" | "stale" | string;
+  reason_tags: string[];
+  actionable_reason: string;
+};

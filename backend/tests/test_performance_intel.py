@@ -728,6 +728,118 @@ async def test_actionable_book_card_batch_endpoint_returns_multiple_cards(
     assert str(signal_two.id) in returned_ids
 
 
+async def test_opportunities_endpoint_returns_ranked_opportunities(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_a = "event_perf_opportunity_a"
+    event_b = "event_perf_opportunity_b"
+    commence = now + timedelta(hours=2)
+
+    signal_a = _signal(
+        event_id=event_a,
+        market="spreads",
+        signal_type="MOVE",
+        strength=85,
+        created_at=now - timedelta(minutes=12),
+        metadata={"outcome_name": "BOS"},
+    )
+    signal_b = _signal(
+        event_id=event_b,
+        market="spreads",
+        signal_type="MOVE",
+        strength=70,
+        created_at=now - timedelta(minutes=6),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all(
+        [
+            _game(event_id=event_a, commence_time=commence),
+            _game(event_id=event_b, commence_time=commence + timedelta(minutes=30)),
+            signal_a,
+            signal_b,
+        ]
+    )
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=event_a,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=event_a,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            _snapshot(
+                event_id=event_b,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-3.4,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=event_b,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.5,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=event_a,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.4,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=event_b,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.5,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-opportunities@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/opportunities?days=7&signal_type=MOVE&market=spreads&min_strength=60&limit=10",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 2
+    assert payload[0]["signal_id"] == str(signal_a.id)
+    assert payload[0]["event_id"] == event_a
+    assert payload[0]["game_label"] == "NYK @ BOS"
+    assert payload[0]["opportunity_score"] >= payload[1]["opportunity_score"]
+
+
 async def test_new_intel_endpoints_gate_free_vs_pro(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -772,6 +884,12 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
         headers=free_headers,
     )
     assert free_actionable_batch.status_code == 403
+
+    free_opportunities = await async_client.get("/api/v1/intel/opportunities?days=7", headers=free_headers)
+    assert free_opportunities.status_code == 403
+
+    pro_opportunities = await async_client.get("/api/v1/intel/opportunities?days=7", headers=pro_headers)
+    assert pro_opportunities.status_code == 200
 
 
 async def test_clv_scorecards_rank_and_tier_by_quality(
