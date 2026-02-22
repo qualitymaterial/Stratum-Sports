@@ -1074,7 +1074,11 @@ def _compute_opportunity_score(
         + clv_component
         + dispersion_penalty
     )
-    return int(max(1, min(100, round(score))))
+    normalized = int(max(1, min(100, round(score))))
+    if freshness_bucket == "stale":
+        # Keep stale quotes visible when requested, but prevent them from outranking live opportunities.
+        normalized = min(69, normalized)
+    return normalized
 
 
 def _opportunity_status(*, score: int, freshness_bucket: str) -> str:
@@ -1083,6 +1087,14 @@ def _opportunity_status(*, score: int, freshness_bucket: str) -> str:
     if score >= 75:
         return "actionable"
     return "monitor"
+
+
+def _opportunity_status_priority(status: str) -> int:
+    if status == "actionable":
+        return 3
+    if status == "monitor":
+        return 2
+    return 1
 
 
 def _opportunity_reason_tags(
@@ -1127,6 +1139,7 @@ async def get_best_opportunities(
     market: str | None = None,
     min_strength: int | None = None,
     limit: int = 10,
+    include_stale: bool = False,
 ) -> list[dict[str, Any]]:
     effective_min_strength = (
         int(min_strength)
@@ -1163,7 +1176,7 @@ async def get_best_opportunities(
         game_map = {game.event_id: game for game in games}
 
     clv_prior_map = await _clv_prior_by_signal_market(db, days=max(days, 30))
-    opportunities: list[dict[str, Any]] = []
+    deduped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for signal in signals:
         card = await get_actionable_book_card(
             db,
@@ -1204,48 +1217,79 @@ async def get_best_opportunities(
         )
 
         game = game_map.get(signal.event_id)
-        opportunities.append(
-            {
-                "signal_id": signal.id,
-                "event_id": signal.event_id,
-                "game_label": (f"{game.away_team} @ {game.home_team}" if game is not None else None),
-                "game_commence_time": game.commence_time if game is not None else None,
-                "signal_type": signal.signal_type,
-                "market": signal.market,
-                "outcome_name": card.get("outcome_name"),
-                "direction": signal.direction,
-                "strength_score": int(signal.strength_score),
-                "created_at": signal.created_at,
-                "best_book_key": card.get("best_book_key"),
-                "best_line": _safe_float(card.get("best_line")),
-                "best_price": (
-                    int(card["best_price"])
-                    if card.get("best_price") is not None
-                    else None
-                ),
-                "consensus_line": _safe_float(card.get("consensus_line")),
-                "consensus_price": _safe_float(card.get("consensus_price")),
-                "best_delta": _safe_float(card.get("best_delta")),
-                "delta_type": str(card.get("delta_type") or "line"),
-                "books_considered": int(card.get("books_considered") or 0),
-                "freshness_seconds": (
-                    int(card["freshness_seconds"])
-                    if card.get("freshness_seconds") is not None
-                    else None
-                ),
-                "freshness_bucket": str(card.get("freshness_bucket") or "stale"),
-                "execution_rank": int(card.get("execution_rank") or 1),
-                "clv_prior_samples": prior_samples,
-                "clv_prior_pct_positive": prior_pct,
-                "opportunity_score": score,
-                "opportunity_status": status,
-                "reason_tags": tags,
-                "actionable_reason": str(card.get("actionable_reason") or "No rationale available."),
-            }
+        outcome_name = str(card.get("outcome_name") or "")
+        row = {
+            "signal_id": signal.id,
+            "event_id": signal.event_id,
+            "game_label": (f"{game.away_team} @ {game.home_team}" if game is not None else None),
+            "game_commence_time": game.commence_time if game is not None else None,
+            "signal_type": signal.signal_type,
+            "market": signal.market,
+            "outcome_name": (outcome_name or None),
+            "direction": signal.direction,
+            "strength_score": int(signal.strength_score),
+            "created_at": signal.created_at,
+            "best_book_key": card.get("best_book_key"),
+            "best_line": _safe_float(card.get("best_line")),
+            "best_price": (
+                int(card["best_price"])
+                if card.get("best_price") is not None
+                else None
+            ),
+            "consensus_line": _safe_float(card.get("consensus_line")),
+            "consensus_price": _safe_float(card.get("consensus_price")),
+            "best_delta": _safe_float(card.get("best_delta")),
+            "delta_type": str(card.get("delta_type") or "line"),
+            "books_considered": int(card.get("books_considered") or 0),
+            "freshness_seconds": (
+                int(card["freshness_seconds"])
+                if card.get("freshness_seconds") is not None
+                else None
+            ),
+            "freshness_bucket": str(card.get("freshness_bucket") or "stale"),
+            "execution_rank": int(card.get("execution_rank") or 1),
+            "clv_prior_samples": prior_samples,
+            "clv_prior_pct_positive": prior_pct,
+            "opportunity_score": score,
+            "opportunity_status": status,
+            "reason_tags": tags,
+            "actionable_reason": str(card.get("actionable_reason") or "No rationale available."),
+        }
+
+        dedupe_key = (
+            str(signal.event_id),
+            str(signal.market),
+            outcome_name,
+            str(signal.direction),
         )
+        existing = deduped.get(dedupe_key)
+        if existing is None:
+            deduped[dedupe_key] = row
+        else:
+            incoming_rank = (
+                _opportunity_status_priority(str(row["opportunity_status"])),
+                int(row["opportunity_score"]),
+                int(row["strength_score"]),
+                int(row["execution_rank"]),
+                row["created_at"],
+            )
+            existing_rank = (
+                _opportunity_status_priority(str(existing["opportunity_status"])),
+                int(existing["opportunity_score"]),
+                int(existing["strength_score"]),
+                int(existing["execution_rank"]),
+                existing["created_at"],
+            )
+            if incoming_rank > existing_rank:
+                deduped[dedupe_key] = row
+
+    opportunities = list(deduped.values())
+    if not include_stale:
+        opportunities = [row for row in opportunities if str(row["freshness_bucket"]) != "stale"]
 
     opportunities.sort(
         key=lambda item: (
+            _opportunity_status_priority(str(item["opportunity_status"])),
             int(item["opportunity_score"]),
             int(item["strength_score"]),
             int(item["execution_rank"]),

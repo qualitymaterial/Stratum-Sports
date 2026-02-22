@@ -840,6 +840,138 @@ async def test_opportunities_endpoint_returns_ranked_opportunities(
     assert payload[0]["opportunity_score"] >= payload[1]["opportunity_score"]
 
 
+async def test_opportunities_dedupe_and_stale_filter_toggle(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    dedupe_event = "event_perf_opportunity_dedupe"
+    stale_event = "event_perf_opportunity_stale"
+    commence = now + timedelta(hours=3)
+
+    stronger = _signal(
+        event_id=dedupe_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=88,
+        created_at=now + timedelta(minutes=5),
+        metadata={"outcome_name": "BOS"},
+    )
+    weaker = _signal(
+        event_id=dedupe_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=62,
+        created_at=now + timedelta(minutes=4),
+        metadata={"outcome_name": "BOS"},
+    )
+    stale_signal = _signal(
+        event_id=stale_event,
+        market="totals",
+        signal_type="STEAM",
+        strength=100,
+        created_at=now + timedelta(minutes=3),
+        metadata={"outcome_name": "Over"},
+    )
+    db_session.add_all(
+        [
+            _game(event_id=dedupe_event, commence_time=commence),
+            _game(event_id=stale_event, commence_time=commence + timedelta(minutes=45)),
+            stronger,
+            weaker,
+            stale_signal,
+        ]
+    )
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=dedupe_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=dedupe_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            _snapshot(
+                event_id=stale_event,
+                market="totals",
+                outcome_name="Over",
+                sportsbook_key="draftkings",
+                line=232.0,
+                price=-115,
+                fetched_at=now - timedelta(days=2),
+            ),
+            _snapshot(
+                event_id=stale_event,
+                market="totals",
+                outcome_name="Over",
+                sportsbook_key="fanduel",
+                line=234.0,
+                price=-110,
+                fetched_at=now - timedelta(days=2, minutes=2),
+            ),
+            MarketConsensusSnapshot(
+                event_id=dedupe_event,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.4,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=stale_event,
+                market="totals",
+                outcome_name="Over",
+                consensus_line=235.0,
+                consensus_price=-110.0,
+                dispersion=0.6,
+                books_count=5,
+                fetched_at=now - timedelta(days=2, minutes=2),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-opportunities-toggle@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    default_response = await async_client.get(
+        "/api/v1/intel/opportunities?days=7&market=spreads&min_strength=80&limit=20",
+        headers=headers,
+    )
+    assert default_response.status_code == 200
+    default_payload = default_response.json()
+    assert all(row["freshness_bucket"] != "stale" for row in default_payload)
+    dedupe_rows = [row for row in default_payload if row["event_id"] == dedupe_event and row["market"] == "spreads"]
+    assert len(dedupe_rows) == 1
+    assert dedupe_rows[0]["signal_id"] == str(stronger.id)
+
+    include_stale_response = await async_client.get(
+        "/api/v1/intel/opportunities?days=7&signal_type=STEAM&market=totals&min_strength=100&include_stale=true&limit=50",
+        headers=headers,
+    )
+    assert include_stale_response.status_code == 200
+    include_stale_payload = include_stale_response.json()
+    stale_rows = [row for row in include_stale_payload if row["event_id"] == stale_event]
+    assert len(stale_rows) == 1, include_stale_payload
+    assert stale_rows[0]["opportunity_status"] == "stale"
+    assert stale_rows[0]["opportunity_score"] <= 69
+
+
 async def test_new_intel_endpoints_gate_free_vs_pro(
     async_client: AsyncClient,
     db_session: AsyncSession,

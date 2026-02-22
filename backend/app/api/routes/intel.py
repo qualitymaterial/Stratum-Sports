@@ -371,6 +371,7 @@ async def get_opportunities(
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
+    include_stale: bool = Query(False),
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_pro_user),
@@ -390,6 +391,7 @@ async def get_opportunities(
         market=resolved_market,
         min_strength=min_strength,
         limit=limit,
+        include_stale=include_stale,
     )
     logger.info(
         "Intel opportunities query served",
@@ -398,6 +400,7 @@ async def get_opportunities(
             "signal_type": resolved_signal_type,
             "market": resolved_market,
             "min_strength": min_strength,
+            "include_stale": include_stale,
             "rows": len(rows),
             "duration_ms": round((perf_counter() - start) * 1000.0, 2),
         },

@@ -124,6 +124,7 @@ export default function PerformancePage() {
   const [minBooksAffected, setMinBooksAffected] = useState(1);
   const [maxDispersion, setMaxDispersion] = useState<number | null>(null);
   const [windowMinutesMax, setWindowMinutesMax] = useState<number | null>(null);
+  const [includeStaleOpportunities, setIncludeStaleOpportunities] = useState(false);
   const [recapGrain, setRecapGrain] = useState<RecapGrain>("day");
   const [summaryRows, setSummaryRows] = useState<ClvPerformanceRow[]>([]);
   const [recapRows, setRecapRows] = useState<ClvRecapRow[]>([]);
@@ -184,6 +185,7 @@ export default function PerformancePage() {
           minBooksAffected?: number;
           maxDispersion?: number | null;
           windowMinutesMax?: number | null;
+          includeStaleOpportunities?: boolean;
           recapGrain?: RecapGrain;
         };
         if (typeof parsed.days === "number") {
@@ -217,6 +219,9 @@ export default function PerformancePage() {
         } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
           setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
         }
+        if (typeof parsed.includeStaleOpportunities === "boolean") {
+          setIncludeStaleOpportunities(parsed.includeStaleOpportunities);
+        }
         if (parsed.recapGrain === "day" || parsed.recapGrain === "week") {
           setRecapGrain(parsed.recapGrain);
         }
@@ -246,6 +251,7 @@ export default function PerformancePage() {
         minBooksAffected,
         maxDispersion,
         windowMinutesMax,
+        includeStaleOpportunities,
         recapGrain,
       }),
     );
@@ -259,6 +265,7 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
   ]);
@@ -320,6 +327,7 @@ export default function PerformancePage() {
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
+            include_stale: includeStaleOpportunities,
             limit: 10,
           }),
         ]);
@@ -367,6 +375,7 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
   ]);
@@ -832,9 +841,20 @@ export default function PerformancePage() {
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm uppercase tracking-wider text-textMute">Best Opportunities Now</h2>
-              <p className="text-xs text-textMute">
-                Ranked by signal strength, dislocation magnitude, quote freshness, and CLV prior.
-              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="text-xs text-textMute">
+                  Ranked by signal strength, dislocation magnitude, quote freshness, and CLV prior.
+                </p>
+                <label className="flex items-center gap-2 text-xs text-textMute">
+                  <input
+                    type="checkbox"
+                    checked={includeStaleOpportunities}
+                    onChange={(event) => setIncludeStaleOpportunities(event.target.checked)}
+                    className="h-3.5 w-3.5 rounded border border-borderTone bg-panelSoft"
+                  />
+                  Include stale
+                </label>
+              </div>
             </div>
             <div className="overflow-auto">
               <table className="w-full border-collapse text-sm">
@@ -911,9 +931,11 @@ export default function PerformancePage() {
                         </p>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        {row.clv_prior_pct_positive != null && row.clv_prior_samples != null
+                        {row.clv_prior_pct_positive != null &&
+                        row.clv_prior_samples != null &&
+                        row.clv_prior_samples >= 10
                           ? `${row.clv_prior_pct_positive.toFixed(1)}% (${row.clv_prior_samples})`
-                          : "-"}
+                          : "N/A (n<10)"}
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMute">
                         {new Date(row.created_at).toLocaleString([], {
