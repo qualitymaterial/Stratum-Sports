@@ -22,14 +22,18 @@ out/
 
 # Env
 .env
+.env.*
 .env.local
 .env.production
 .env.production.local
 
 # Logs
 *.log
+*.sqlite
 
 # Build
 dist/
 build/
 backend/reports/
+backend/backend/reports/
+**/reports/
