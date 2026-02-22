@@ -34,8 +34,8 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS}
       APP_HOST: 0.0.0.0
       APP_PORT: 8000
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
