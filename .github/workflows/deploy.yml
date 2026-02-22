@@ -44,8 +44,15 @@ jobs:
           chmod 700 ~/.ssh
           python3 - <<'PY'
           import os
+          import sys
           from pathlib import Path
           key = os.environ["DROPLET_SSH_KEY"].strip()
+          if key.startswith("ssh-ed25519 ") or key.startswith("ssh-rsa "):
+              print("ERROR: DROPLET_SSH_KEY appears to be a public key; use the private key block instead.")
+              sys.exit(1)
+          if "PRIVATE KEY" not in key:
+              print("ERROR: DROPLET_SSH_KEY does not look like a private key block.")
+              sys.exit(1)
           if "\\n" in key and "\n" not in key:
               key = key.replace("\\n", "\n")
           if not key.endswith("\n"):
