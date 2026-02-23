@@ -64,7 +64,10 @@ export default function AdminPage() {
 
   const proAccess = hasProAccess(user);
   const report = overview?.report ?? null;
-  const topSignalTypes = Object.entries(report?.ops.signals_created_by_type ?? {})
+  const ops = report?.ops;
+  const reliability = report?.reliability;
+  const recentCycles = overview?.recent_cycles ?? [];
+  const topSignalTypes = Object.entries(ops?.signals_created_by_type ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
 
@@ -133,31 +136,32 @@ export default function AdminPage() {
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Cycles</p>
-            <p className="mt-1 text-lg font-semibold text-textMain">{report.ops.total_cycles}</p>
-            <p className="mt-1 text-xs text-textMute">Degraded {report.ops.degraded_cycles}</p>
+            <p className="mt-1 text-lg font-semibold text-textMain">{ops?.total_cycles ?? 0}</p>
+            <p className="mt-1 text-xs text-textMute">Degraded {ops?.degraded_cycles ?? 0}</p>
           </div>
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Avg Cycle Duration</p>
             <p className="mt-1 text-lg font-semibold text-textMain">
-              {report.ops.avg_cycle_duration_ms != null
-                ? `${Math.round(report.ops.avg_cycle_duration_ms)} ms`
+              {ops?.avg_cycle_duration_ms != null
+                ? `${Math.round(ops.avg_cycle_duration_ms)} ms`
                 : "-"}
             </p>
-            <p className="mt-1 text-xs text-textMute">Signals {report.ops.total_signals_created}</p>
+            <p className="mt-1 text-xs text-textMute">Signals {ops?.total_signals_created ?? 0}</p>
           </div>
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Alerts</p>
-            <p className="mt-1 text-lg font-semibold text-textMain">{report.reliability.alerts_sent}</p>
+            <p className="mt-1 text-lg font-semibold text-textMain">{reliability?.alerts_sent ?? 0}</p>
             <p className="mt-1 text-xs text-textMute">
-              Failed {report.reliability.alerts_failed} ({(report.reliability.alert_failure_rate * 100).toFixed(1)}%)
+              Failed {reliability?.alerts_failed ?? 0} (
+              {((reliability?.alert_failure_rate ?? 0) * 100).toFixed(1)}%)
             </p>
           </div>
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Requests Used</p>
-            <p className="mt-1 text-lg font-semibold text-textMain">{report.ops.total_requests_used}</p>
+            <p className="mt-1 text-lg font-semibold text-textMain">{ops?.total_requests_used ?? 0}</p>
             <p className="mt-1 text-xs text-textMute">
               Avg remaining{" "}
-              {report.ops.avg_requests_remaining != null ? report.ops.avg_requests_remaining.toFixed(1) : "-"}
+              {ops?.avg_requests_remaining != null ? ops.avg_requests_remaining.toFixed(1) : "-"}
             </p>
           </div>
         </div>
@@ -196,7 +200,7 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {overview.recent_cycles.map((cycle) => (
+                {recentCycles.map((cycle) => (
                   <tr key={cycle.id}>
                     <td className="border-b border-borderTone/50 py-2 text-textMain">
                       {new Date(cycle.started_at).toLocaleString([], {
@@ -225,7 +229,7 @@ export default function AdminPage() {
                     </td>
                   </tr>
                 ))}
-                {overview.recent_cycles.length === 0 && (
+                {recentCycles.length === 0 && (
                   <tr>
                     <td colSpan={6} className="py-3 text-xs text-textMute">
                       No recent cycles in selected window.
