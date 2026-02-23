@@ -178,6 +178,7 @@ async def get_clv_performance_summary(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
     min_samples: int = 1,
@@ -198,6 +199,8 @@ async def get_clv_performance_summary(
         .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
         .where(ClvRecord.computed_at >= cutoff)
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == ClvRecord.event_id).where(Game.sport_key == sport_key)
 
     if signal_type:
         stmt = stmt.where(ClvRecord.signal_type == signal_type)
@@ -230,6 +233,7 @@ async def get_clv_postgame_recap(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
     grain: str = "day",
     signal_type: str | None = None,
     market: str | None = None,
@@ -264,6 +268,8 @@ async def get_clv_postgame_recap(
         stmt = stmt.where(ClvRecord.signal_type == signal_type)
     if market:
         stmt = stmt.where(ClvRecord.market == market)
+    if sport_key:
+        stmt = stmt.where(Game.sport_key == sport_key)
     if min_strength is not None:
         stmt = stmt.where(func.coalesce(Signal.strength_score, 0) >= int(min_strength))
 
@@ -374,6 +380,7 @@ async def get_clv_trust_scorecards(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
     min_samples: int = 10,
@@ -396,6 +403,8 @@ async def get_clv_trust_scorecards(
         .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
         .where(ClvRecord.computed_at >= cutoff)
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == ClvRecord.event_id).where(Game.sport_key == sport_key)
 
     if signal_type:
         stmt = stmt.where(ClvRecord.signal_type == signal_type)
@@ -477,6 +486,7 @@ async def get_clv_records_filtered(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
     event_id: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
@@ -507,6 +517,8 @@ async def get_clv_records_filtered(
         .outerjoin(Signal, Signal.id == ClvRecord.signal_id)
         .where(ClvRecord.computed_at >= cutoff)
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == ClvRecord.event_id).where(Game.sport_key == sport_key)
 
     if event_id:
         stmt = stmt.where(ClvRecord.event_id == event_id)
@@ -526,6 +538,7 @@ async def get_clv_records_filtered(
 async def get_signal_quality_rows(
     db: AsyncSession,
     *,
+    sport_key: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
     min_strength: int | None = None,
@@ -557,6 +570,8 @@ async def get_signal_quality_rows(
         )
         .order_by(Signal.created_at.desc())
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == Signal.event_id).where(Game.sport_key == sport_key)
 
     if signal_type:
         stmt = stmt.where(Signal.signal_type == signal_type)
@@ -630,6 +645,7 @@ async def get_signal_quality_weekly_summary(
     db: AsyncSession,
     *,
     days: int = 7,
+    sport_key: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
     min_strength: int | None = None,
@@ -650,6 +666,8 @@ async def get_signal_quality_weekly_summary(
         )
         .order_by(Signal.created_at.desc())
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == Signal.event_id).where(Game.sport_key == sport_key)
     if signal_type:
         stmt = stmt.where(Signal.signal_type == signal_type)
     if market:
@@ -724,13 +742,19 @@ async def get_clv_teaser(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
 ) -> dict[str, Any]:
     cutoff = datetime.now(UTC) - timedelta(days=days)
     total_records_stmt = select(func.count(ClvRecord.id)).where(ClvRecord.computed_at >= cutoff)
+    if sport_key:
+        total_records_stmt = total_records_stmt.join(Game, Game.event_id == ClvRecord.event_id).where(
+            Game.sport_key == sport_key
+        )
     total_records = int((await db.execute(total_records_stmt)).scalar() or 0)
     rows = await get_clv_performance_summary(
         db,
         days=days,
+        sport_key=sport_key,
         min_samples=1,
         min_strength=None,
     )
@@ -1003,6 +1027,7 @@ async def _clv_prior_by_signal_market(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
 ) -> dict[tuple[str, str], dict[str, float | int]]:
     cutoff = datetime.now(UTC) - timedelta(days=days)
     positive_expr = case((or_(ClvRecord.clv_line > 0, ClvRecord.clv_prob > 0), 1.0), else_=0.0)
@@ -1016,6 +1041,8 @@ async def _clv_prior_by_signal_market(
         .where(ClvRecord.computed_at >= cutoff)
         .group_by(ClvRecord.signal_type, ClvRecord.market)
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == ClvRecord.event_id).where(Game.sport_key == sport_key)
     rows = (await db.execute(stmt)).mappings().all()
     payload: dict[tuple[str, str], dict[str, float | int]] = {}
     for row in rows:
@@ -1135,6 +1162,7 @@ async def get_best_opportunities(
     db: AsyncSession,
     *,
     days: int,
+    sport_key: str | None = None,
     signal_type: str | None = None,
     market: str | None = None,
     min_strength: int | None = None,
@@ -1159,6 +1187,8 @@ async def get_best_opportunities(
         .order_by(Signal.created_at.desc(), Signal.strength_score.desc())
         .limit(candidate_limit)
     )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == Signal.event_id).where(Game.sport_key == sport_key)
     if signal_type:
         stmt = stmt.where(Signal.signal_type == signal_type)
     if market:
@@ -1175,7 +1205,7 @@ async def get_best_opportunities(
         games = (await db.execute(games_stmt)).scalars().all()
         game_map = {game.event_id: game for game in games}
 
-    clv_prior_map = await _clv_prior_by_signal_market(db, days=max(days, 30))
+    clv_prior_map = await _clv_prior_by_signal_market(db, days=max(days, 30), sport_key=sport_key)
     deduped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for signal in signals:
         card = await get_actionable_book_card(

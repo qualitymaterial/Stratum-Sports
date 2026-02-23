@@ -65,10 +65,10 @@ def _snapshot(
     )
 
 
-def _game(*, event_id: str, commence_time: datetime) -> Game:
+def _game(*, event_id: str, commence_time: datetime, sport_key: str = "basketball_nba") -> Game:
     return Game(
         event_id=event_id,
-        sport_key="basketball_nba",
+        sport_key=sport_key,
         commence_time=commence_time,
         home_team="BOS",
         away_team="NYK",
@@ -164,6 +164,86 @@ async def test_clv_summary_endpoint_supports_filters(
     assert len(payload) == 1
     assert payload[0]["signal_type"] == "MOVE"
     assert payload[0]["market"] == "spreads"
+    assert payload[0]["count"] == 1
+
+
+async def test_clv_summary_endpoint_filters_by_sport_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+
+    nba_event = "event_perf_clv_summary_nba"
+    ncaab_event = "event_perf_clv_summary_ncaab"
+    db_session.add_all(
+        [
+            _game(event_id=nba_event, commence_time=now - timedelta(hours=4), sport_key="basketball_nba"),
+            _game(event_id=ncaab_event, commence_time=now - timedelta(hours=5), sport_key="basketball_ncaab"),
+        ]
+    )
+
+    nba_signal = _signal(
+        event_id=nba_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(days=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    ncaab_signal = _signal(
+        event_id=ncaab_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(days=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all([nba_signal, ncaab_signal])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            ClvRecord(
+                signal_id=nba_signal.id,
+                event_id=nba_event,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=None,
+                close_line=-3.5,
+                close_price=None,
+                clv_line=-0.5,
+                clv_prob=None,
+                computed_at=now - timedelta(days=2),
+            ),
+            ClvRecord(
+                signal_id=ncaab_signal.id,
+                event_id=ncaab_event,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=None,
+                close_line=-3.2,
+                close_price=None,
+                clv_line=-0.2,
+                clv_prob=None,
+                computed_at=now - timedelta(days=2),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-summary-sport@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/clv/summary?days=30&sport_key=basketball_nba&signal_type=MOVE&market=spreads&min_samples=1",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
     assert payload[0]["count"] == 1
 
 
@@ -419,6 +499,49 @@ async def test_signal_quality_endpoint_filters_by_dispersion(
     assert len(payload) == 1
     assert payload[0]["signal_type"] == "DISLOCATION"
     assert payload[0]["book_key"] == "draftkings"
+
+
+async def test_signal_quality_endpoint_filters_by_sport_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    nba_event = "event_perf_signal_quality_sport_nba"
+    nfl_event = "event_perf_signal_quality_sport_nfl"
+    db_session.add_all(
+        [
+            _game(event_id=nba_event, commence_time=now + timedelta(hours=2), sport_key="basketball_nba"),
+            _game(event_id=nfl_event, commence_time=now + timedelta(hours=3), sport_key="americanfootball_nfl"),
+            _signal(
+                event_id=nba_event,
+                market="spreads",
+                signal_type="MOVE",
+                strength=80,
+                created_at=now - timedelta(minutes=15),
+                metadata={"outcome_name": "BOS"},
+            ),
+            _signal(
+                event_id=nfl_event,
+                market="spreads",
+                signal_type="MOVE",
+                strength=82,
+                created_at=now - timedelta(minutes=10),
+                metadata={"outcome_name": "BOS"},
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality-sport@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/quality?days=7&sport_key=americanfootball_nfl&signal_type=MOVE&market=spreads",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["event_id"] == nfl_event
 
 
 async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(

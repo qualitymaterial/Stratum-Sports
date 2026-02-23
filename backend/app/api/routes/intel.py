@@ -93,6 +93,21 @@ def _resolve_recap_grain(grain: str) -> str:
     return normalized
 
 
+def _resolve_sport_key(sport_key: str | None) -> str | None:
+    if sport_key is None:
+        return None
+    normalized = sport_key.strip()
+    configured = set(get_settings().odds_api_sport_keys_list)
+    if not configured:
+        configured = {"basketball_nba"}
+    if normalized not in configured:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported sport_key '{sport_key}'. Allowed: {','.join(sorted(configured))}",
+        )
+    return normalized
+
+
 def _parse_signal_ids_csv(signal_ids: str) -> list[UUID]:
     parsed: list[UUID] = []
     for raw in signal_ids.split(","):
@@ -189,6 +204,7 @@ async def get_latest_consensus(
 @router.get("/clv", response_model=list[ClvRecordPoint])
 async def get_event_clv(
     event_id: str | None = Query(None, min_length=1),
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
@@ -200,11 +216,13 @@ async def get_event_clv(
 ) -> list[ClvRecordPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     rows = await get_clv_records_filtered(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         event_id=event_id,
         signal_type=resolved_signal_type,
         market=resolved_market,
@@ -216,6 +234,7 @@ async def get_event_clv(
         "Intel CLV records query served",
         extra={
             "event_id": event_id,
+            "sport_key": resolved_sport_key,
             "signal_type": resolved_signal_type,
             "market": resolved_market,
             "days": days,
@@ -231,6 +250,7 @@ async def get_event_clv(
 @router.get("/clv/summary", response_model=list[ClvSummaryPoint])
 async def get_clv_summary(
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_samples: int = Query(1, ge=1, le=10000),
@@ -240,11 +260,13 @@ async def get_clv_summary(
 ) -> list[ClvSummaryPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     rows = await get_clv_performance_summary(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         signal_type=resolved_signal_type,
         market=resolved_market,
         min_samples=min_samples,
@@ -254,6 +276,7 @@ async def get_clv_summary(
         "Intel CLV summary query served",
         extra={
             "signal_type": resolved_signal_type,
+            "sport_key": resolved_sport_key,
             "market": resolved_market,
             "days": days,
             "min_samples": min_samples,
@@ -267,6 +290,7 @@ async def get_clv_summary(
 @router.get("/clv/recap", response_model=ClvRecapResponse)
 async def get_clv_recap(
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    sport_key: str | None = Query(None),
     grain: str = Query("day"),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
@@ -277,6 +301,7 @@ async def get_clv_recap(
 ) -> ClvRecapResponse:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     resolved_grain = _resolve_recap_grain(grain)
@@ -284,6 +309,7 @@ async def get_clv_recap(
     payload = await get_clv_postgame_recap(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         grain=resolved_grain,
         signal_type=resolved_signal_type,
         market=resolved_market,
@@ -295,6 +321,7 @@ async def get_clv_recap(
         extra={
             "days": days,
             "grain": resolved_grain,
+            "sport_key": resolved_sport_key,
             "signal_type": resolved_signal_type,
             "market": resolved_market,
             "min_samples": min_samples,
@@ -308,6 +335,7 @@ async def get_clv_recap(
 @router.get("/clv/scorecards", response_model=list[ClvTrustScorecard])
 async def get_clv_scorecards(
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_samples: int = Query(10, ge=1, le=10000),
@@ -317,11 +345,13 @@ async def get_clv_scorecards(
 ) -> list[ClvTrustScorecard]:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     rows = await get_clv_trust_scorecards(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         signal_type=resolved_signal_type,
         market=resolved_market,
         min_samples=min_samples,
@@ -331,6 +361,7 @@ async def get_clv_scorecards(
         "Intel CLV trust scorecards query served",
         extra={
             "signal_type": resolved_signal_type,
+            "sport_key": resolved_sport_key,
             "market": resolved_market,
             "days": days,
             "min_samples": min_samples,
@@ -344,20 +375,23 @@ async def get_clv_scorecards(
 @router.get("/clv/teaser", response_model=ClvTeaserResponse)
 async def get_clv_teaser_view(
     days: int = Query(30, ge=1, le=90),
+    sport_key: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ClvTeaserResponse:
     _ensure_performance_enabled()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     settings = get_settings()
     if not settings.free_teaser_enabled and not is_pro(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teaser endpoint disabled")
 
     start = perf_counter()
-    payload = await get_clv_teaser(db, days=days)
+    payload = await get_clv_teaser(db, days=days, sport_key=resolved_sport_key)
     logger.info(
         "Intel CLV teaser query served",
         extra={
             "days": days,
+            "sport_key": resolved_sport_key,
             "rows": len(payload["rows"]),
             "duration_ms": round((perf_counter() - start) * 1000.0, 2),
         },
@@ -368,6 +402,7 @@ async def get_clv_teaser_view(
 @router.get("/opportunities", response_model=list[OpportunityPoint])
 async def get_opportunities(
     days: int = Query(2, ge=1, le=30),
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
@@ -382,11 +417,13 @@ async def get_opportunities(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actionable book card is disabled")
 
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     rows = await get_best_opportunities(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         signal_type=resolved_signal_type,
         market=resolved_market,
         min_strength=min_strength,
@@ -397,6 +434,7 @@ async def get_opportunities(
         "Intel opportunities query served",
         extra={
             "days": days,
+            "sport_key": resolved_sport_key,
             "signal_type": resolved_signal_type,
             "market": resolved_market,
             "min_strength": min_strength,
@@ -410,6 +448,7 @@ async def get_opportunities(
 
 @router.get("/signals/quality", response_model=list[SignalQualityPoint])
 async def get_signal_quality(
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
@@ -427,11 +466,13 @@ async def get_signal_quality(
 ) -> list[SignalQualityPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
     rows = await get_signal_quality_rows(
         db,
+        sport_key=resolved_sport_key,
         signal_type=resolved_signal_type,
         market=resolved_market,
         min_strength=min_strength,
@@ -450,6 +491,7 @@ async def get_signal_quality(
         "Intel signal quality query served",
         extra={
             "signal_type": resolved_signal_type,
+            "sport_key": resolved_sport_key,
             "market": resolved_market,
             "days": days,
             "min_strength": min_strength,
@@ -465,6 +507,7 @@ async def get_signal_quality(
 @router.get("/signals/weekly-summary", response_model=SignalQualityWeeklySummary)
 async def get_signal_quality_weekly(
     days: int = Query(7, ge=1, le=30),
+    sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
@@ -474,12 +517,14 @@ async def get_signal_quality_weekly(
 ) -> SignalQualityWeeklySummary:
     _ensure_performance_enabled()
     start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
     connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
     payload = await get_signal_quality_weekly_summary(
         db,
         days=days,
+        sport_key=resolved_sport_key,
         signal_type=resolved_signal_type,
         market=resolved_market,
         min_strength=min_strength,
@@ -490,6 +535,7 @@ async def get_signal_quality_weekly(
         "Intel signal quality weekly summary served",
         extra={
             "days": days,
+            "sport_key": resolved_sport_key,
             "signal_type": resolved_signal_type,
             "market": resolved_market,
             "apply_alert_rules": apply_alert_rules,

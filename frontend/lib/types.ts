@@ -6,6 +6,8 @@ export type User = {
   created_at: string;
 };
 
+export type SportKey = "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl";
+
 export type Signal = {
   id: string;
   event_id: string;

@@ -13,6 +13,7 @@ import {
   OpportunityPoint,
   SignalQualityWeeklySummary,
   SignalQualityRow,
+  SportKey,
   User,
   WatchlistItem,
 } from "@/lib/types";
@@ -64,7 +65,7 @@ export async function discordCallback(code: string, state: string) {
 export async function getDashboardCards(
   token: string,
   options: {
-    sport_key?: "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl";
+    sport_key?: SportKey;
   } = {},
 ) {
   const params = new URLSearchParams();
@@ -155,6 +156,7 @@ export async function getClvSummary(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     signal_type?: string;
     market?: string;
     min_samples?: number;
@@ -163,6 +165,7 @@ export async function getClvSummary(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_samples", options.min_samples);
@@ -175,6 +178,7 @@ export async function getClvRecap(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     grain?: "day" | "week";
     signal_type?: string;
     market?: string;
@@ -184,6 +188,7 @@ export async function getClvRecap(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "grain", options.grain);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
@@ -197,6 +202,7 @@ export async function getClvTrustScorecards(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     signal_type?: string;
     market?: string;
     min_samples?: number;
@@ -205,6 +211,7 @@ export async function getClvTrustScorecards(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_samples", options.min_samples);
@@ -217,6 +224,7 @@ export async function getClvRecords(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     event_id?: string;
     signal_type?: string;
     market?: string;
@@ -227,6 +235,7 @@ export async function getClvRecords(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "event_id", options.event_id);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
@@ -241,6 +250,7 @@ export async function getSignalQuality(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     signal_type?: string;
     market?: string;
     min_strength?: number;
@@ -255,6 +265,7 @@ export async function getSignalQuality(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_strength", options.min_strength);
@@ -273,6 +284,7 @@ export async function getSignalQualityWeeklySummary(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     signal_type?: string;
     market?: string;
     min_strength?: number;
@@ -281,6 +293,7 @@ export async function getSignalQualityWeeklySummary(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_strength", options.min_strength);
@@ -312,14 +325,18 @@ export async function getActionableBookCardsBatch(
   return apiRequest<ActionableBookCard[]>(`/intel/books/actionable/batch?${params.toString()}`, { token });
 }
 
-export async function getClvTeaser(token: string, days = 30) {
-  return apiRequest<ClvTeaserResponse>(`/intel/clv/teaser?days=${days}`, { token });
+export async function getClvTeaser(token: string, days = 30, sport_key?: SportKey) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", days);
+  appendOptionalParam(params, "sport_key", sport_key);
+  return apiRequest<ClvTeaserResponse>(`/intel/clv/teaser?${params.toString()}`, { token });
 }
 
 export async function getBestOpportunities(
   token: string,
   options: {
     days?: number;
+    sport_key?: SportKey;
     signal_type?: string;
     market?: string;
     min_strength?: number;
@@ -329,6 +346,7 @@ export async function getBestOpportunities(
 ) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_strength", options.min_strength);

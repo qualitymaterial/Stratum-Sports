@@ -25,6 +25,7 @@ import {
   OpportunityPoint,
   SignalQualityRow,
   SignalQualityWeeklySummary,
+  SportKey,
 } from "@/lib/types";
 
 const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"] as const;
@@ -32,6 +33,12 @@ const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
 const PRESET_OPTIONS = ["CUSTOM", "HIGH_CONFIDENCE", "LOW_NOISE", "EARLY_MOVE", "STEAM_ONLY"] as const;
 type PresetOption = (typeof PRESET_OPTIONS)[number];
 type RecapGrain = "day" | "week";
+const PERFORMANCE_SPORT_STORAGE_KEY = "stratum_performance_sport";
+const PERFORMANCE_SPORT_OPTIONS: Array<{ key: SportKey; label: string }> = [
+  { key: "basketball_nba", label: "NBA" },
+  { key: "basketball_ncaab", label: "NCAA M" },
+  { key: "americanfootball_nfl", label: "NFL" },
+];
 
 type PresetDefinition = {
   label: string;
@@ -87,6 +94,17 @@ const PRESET_DEFINITIONS: Record<Exclude<PresetOption, "CUSTOM">, PresetDefiniti
 };
 
 const FILTERS_STORAGE_KEY = "stratum_performance_filters_v1";
+
+function getInitialPerformanceSport(): SportKey {
+  if (typeof window === "undefined") {
+    return "basketball_nba";
+  }
+  const stored = window.localStorage.getItem(PERFORMANCE_SPORT_STORAGE_KEY);
+  if (stored === "basketball_nba" || stored === "basketball_ncaab" || stored === "americanfootball_nfl") {
+    return stored;
+  }
+  return "basketball_nba";
+}
 
 function formatRecapPeriod(periodStart: string, grain: RecapGrain): string {
   const parsed = new Date(periodStart);
@@ -251,6 +269,7 @@ function buildOperatorSummary(
 export default function PerformancePage() {
   const router = useRouter();
   const { user, loading, token } = useCurrentUser(true);
+  const [selectedSport, setSelectedSport] = useState<SportKey>(getInitialPerformanceSport);
   const [days, setDays] = useState(30);
   const [signalType, setSignalType] = useState<(typeof SIGNAL_OPTIONS)[number]>("ALL");
   const [market, setMarket] = useState<(typeof MARKET_OPTIONS)[number]>("ALL");
@@ -313,6 +332,7 @@ export default function PerformancePage() {
       if (raw) {
         const parsed = JSON.parse(raw) as {
           days?: number;
+          selectedSport?: SportKey;
           signalType?: (typeof SIGNAL_OPTIONS)[number];
           market?: (typeof MARKET_OPTIONS)[number];
           selectedPreset?: PresetOption;
@@ -326,6 +346,13 @@ export default function PerformancePage() {
         };
         if (typeof parsed.days === "number") {
           setDays(Math.max(1, Math.min(90, parsed.days)));
+        }
+        if (
+          parsed.selectedSport === "basketball_nba" ||
+          parsed.selectedSport === "basketball_ncaab" ||
+          parsed.selectedSport === "americanfootball_nfl"
+        ) {
+          setSelectedSport(parsed.selectedSport);
         }
         if (parsed.signalType && SIGNAL_OPTIONS.includes(parsed.signalType)) {
           setSignalType(parsed.signalType);
@@ -372,6 +399,13 @@ export default function PerformancePage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(PERFORMANCE_SPORT_STORAGE_KEY, selectedSport);
+  }, [selectedSport]);
+
+  useEffect(() => {
     if (!filtersHydrated || typeof window === "undefined") {
       return;
     }
@@ -379,6 +413,7 @@ export default function PerformancePage() {
       FILTERS_STORAGE_KEY,
       JSON.stringify({
         days,
+        selectedSport,
         signalType,
         market,
         selectedPreset,
@@ -393,6 +428,7 @@ export default function PerformancePage() {
     );
   }, [
     days,
+    selectedSport,
     signalType,
     market,
     selectedPreset,
@@ -418,6 +454,7 @@ export default function PerformancePage() {
           await Promise.all([
           getClvTrustScorecards(token, {
             days,
+            sport_key: selectedSport,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_samples: minSamples,
@@ -425,6 +462,7 @@ export default function PerformancePage() {
           }),
           getClvSummary(token, {
             days,
+            sport_key: selectedSport,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_samples: minSamples,
@@ -432,6 +470,7 @@ export default function PerformancePage() {
           }),
           getClvRecap(token, {
             days,
+            sport_key: selectedSport,
             grain: recapGrain,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
@@ -440,6 +479,7 @@ export default function PerformancePage() {
           }),
           getSignalQualityWeeklySummary(token, {
             days: Math.min(30, Math.max(7, days)),
+            sport_key: selectedSport,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
@@ -447,6 +487,7 @@ export default function PerformancePage() {
           }),
           getSignalQuality(token, {
             days,
+            sport_key: selectedSport,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
@@ -460,6 +501,7 @@ export default function PerformancePage() {
           }),
           getBestOpportunities(token, {
             days: Math.min(days, 7),
+            sport_key: selectedSport,
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
@@ -475,7 +517,7 @@ export default function PerformancePage() {
         setOpportunities(opportunitiesData);
         setTeaser(null);
       } else {
-        const teaserData = await getClvTeaser(token, days);
+        const teaserData = await getClvTeaser(token, days, selectedSport);
         setTeaser(teaserData);
         setSummaryRows([]);
         setRecapRows([]);
@@ -503,6 +545,7 @@ export default function PerformancePage() {
     loading,
     token,
     proAccess,
+    selectedSport,
     days,
     signalType,
     market,
@@ -609,7 +652,21 @@ export default function PerformancePage() {
         </button>
       </header>
 
-      <div className="grid gap-3 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-6">
+        <label className="text-xs text-textMute">
+          Sport
+          <select
+            value={selectedSport}
+            onChange={(event) => setSelectedSport(event.target.value as SportKey)}
+            className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+          >
+            {PERFORMANCE_SPORT_OPTIONS.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="text-xs text-textMute">
           Days
           <input
