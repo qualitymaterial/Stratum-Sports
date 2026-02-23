@@ -113,6 +113,44 @@ function formatLine(line: number | null): string {
   return Number(line).toFixed(1);
 }
 
+function formatOpportunityQuote(line: number | null, price: number | null): string {
+  if (price == null) {
+    return line != null ? formatLine(line) : "-";
+  }
+  return line != null ? `${formatLine(line)} (${formatAmerican(price)})` : formatAmerican(price);
+}
+
+function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; nextStep: string } {
+  const bestBook = row.best_book_key ?? "Best book";
+  const delta =
+    row.best_delta == null
+      ? "unknown delta"
+      : `${Math.abs(row.best_delta).toFixed(3)} ${
+          row.delta_type === "implied_prob" ? "implied-probability points" : "line points"
+        }`;
+  const whatChanged = `${bestBook} is ${delta} off consensus (${formatOpportunityQuote(
+    row.best_line,
+    row.best_price,
+  )} vs ${formatOpportunityQuote(row.consensus_line, row.consensus_price)}).`;
+
+  if (row.opportunity_status === "actionable" && row.freshness_bucket === "fresh") {
+    return {
+      whatChanged,
+      nextStep: "Actionable now: compare top books immediately and capture the best number.",
+    };
+  }
+  if (row.freshness_bucket === "stale" || row.opportunity_status === "stale") {
+    return {
+      whatChanged,
+      nextStep: "Refresh first: quote is stale, so only act if the edge still exists live.",
+    };
+  }
+  return {
+    whatChanged,
+    nextStep: "Monitor: validate freshness and confirm the book still beats consensus before acting.",
+  };
+}
+
 function buildOperatorSummary(
   weeklySummary: SignalQualityWeeklySummary | null,
   opportunities: OpportunityPoint[],
@@ -1000,6 +1038,17 @@ export default function PerformancePage() {
                           {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
                         </p>
                         <p className="text-[11px] text-textMute">{row.reason_tags.join(" • ")}</p>
+                        <p className="mt-1 text-[11px] leading-5 text-textMute">
+                          {(() => {
+                            const insight = buildOpportunityInsight(row);
+                            return (
+                              <>
+                                <span className="text-textMain">What this means:</span> {insight.whatChanged}{" "}
+                                {insight.nextStep}
+                              </>
+                            );
+                          })()}
+                        </p>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>

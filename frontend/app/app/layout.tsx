@@ -47,6 +47,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { href: "/app/watchlist", label: "Watchlist", proOnly: false },
     { href: "/app/discord", label: "Alerts", proOnly: true },
   ];
+  if (user.is_admin) {
+    links.push({ href: "/app/admin", label: "Admin", proOnly: false });
+  }
   const proAccess = hasProAccess(user);
 
   return (
@@ -82,9 +85,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           <div className="flex items-center gap-2 text-xs">
             {user.is_admin && (
-              <span className="rounded border border-primary px-2 py-1 font-bold uppercase tracking-widest text-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.3)]">
+              <Link
+                href="/app/admin"
+                className="rounded border border-primary px-2 py-1 font-bold uppercase tracking-widest text-primary shadow-[0_0_10px_rgba(var(--primary-rgb),0.3)] transition hover:bg-primary/10"
+              >
                 Admin
-              </span>
+              </Link>
             )}
             <span
               className={`rounded border px-2 py-1 uppercase tracking-wider ${proAccess
