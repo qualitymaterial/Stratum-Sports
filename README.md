@@ -73,15 +73,27 @@ cp .env.production.example .env.production
    - PostgreSQL config should use `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`.
    - `DATABASE_URL` is optional advanced override; if blank or contains the placeholder password token, backend/alembic auto-construct it from `POSTGRES_*`.
 
-3. Start production compose stack:
+3. Start production compose stack (pull prebuilt images):
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+docker compose -f docker-compose.prod.yml --env-file .env.production pull
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build --remove-orphans
 ```
 
 4. Full deployment runbook:
 
 - `docs/deployment-aws-ec2.md`
+
+### GitHub Actions Production Deploy
+
+The production workflow builds images in GitHub and pushes them to GHCR, then the droplet only pulls and restarts containers.
+
+Required repository secrets:
+- `DROPLET_HOST`
+- `DROPLET_USER`
+- `DROPLET_SSH_KEY`
+- `GHCR_USERNAME`
+- `GHCR_TOKEN` (token with `read:packages`)
 
 ## Frontend API Base URL
 

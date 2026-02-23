@@ -24,9 +24,7 @@ services:
     restart: unless-stopped
 
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${BACKEND_IMAGE:-ghcr.io/qualitymaterial/stratum-sports-backend:latest}
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -44,9 +42,7 @@ services:
     restart: unless-stopped
 
   worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ${WORKER_IMAGE:-ghcr.io/qualitymaterial/stratum-sports-backend:latest}
     command: ["/app/worker-start.sh"]
     env_file: .env.production
     environment:
@@ -60,9 +56,7 @@ services:
     restart: unless-stopped
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    image: ${FRONTEND_IMAGE:-ghcr.io/qualitymaterial/stratum-sports-frontend:latest}
     env_file: .env.production
     environment:
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}

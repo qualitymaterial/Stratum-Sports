@@ -4,31 +4,91 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: qualitymaterial
 
 jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:latest
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:latest
+
   deploy:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 20
+    needs: build-images
     steps:
-      - name: SSH into droplet and deploy
+      - name: Validate deploy secrets
+        run: |
+          set -eu
+          [ -n "${{ secrets.DROPLET_HOST }}" ] || { echo "ERROR: DROPLET_HOST is empty"; exit 1; }
+          [ -n "${{ secrets.DROPLET_USER }}" ] || { echo "ERROR: DROPLET_USER is empty"; exit 1; }
+          [ -n "${{ secrets.DROPLET_SSH_KEY }}" ] || { echo "ERROR: DROPLET_SSH_KEY is empty"; exit 1; }
+          [ -n "${{ secrets.GHCR_USERNAME }}" ] || { echo "ERROR: GHCR_USERNAME is empty"; exit 1; }
+          [ -n "${{ secrets.GHCR_TOKEN }}" ] || { echo "ERROR: GHCR_TOKEN is empty"; exit 1; }
+
+      - name: SSH into droplet and deploy pulled images
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script_stop: true
           command_timeout: 30m
+          envs: IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN
           script: |
             set -eu
             cd /opt/stratum-sports
-            pwd
-            ls -la
             test -f docker-compose.prod.yml
             test -f .env.production
 
             git config --global --add safe.directory /opt/stratum-sports || true
-            git --version
-            docker --version
+            git fetch origin main
+            git checkout -B main origin/main
+            git reset --hard origin/main
 
             if docker compose version >/dev/null 2>&1; then
               compose() { docker compose "$@"; }
@@ -39,16 +99,12 @@ jobs:
               exit 1
             fi
 
-            git fetch origin main
-            git checkout -B main origin/main
-            git reset --hard origin/main
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            BACKEND_IMAGE="ghcr.io/qualitymaterial/stratum-sports-backend:${IMAGE_TAG}"
+            WORKER_IMAGE="$BACKEND_IMAGE"
+            FRONTEND_IMAGE="ghcr.io/qualitymaterial/stratum-sports-frontend:${IMAGE_TAG}"
+            export BACKEND_IMAGE WORKER_IMAGE FRONTEND_IMAGE
 
-            docker system prune -f || true
-
-            if ! compose -f docker-compose.prod.yml --env-file .env.production up -d --build --remove-orphans; then
-              compose -f docker-compose.prod.yml --env-file .env.production ps || true
-              compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
-              exit 1
-            fi
-
+            compose -f docker-compose.prod.yml --env-file .env.production pull backend worker frontend
+            compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build --remove-orphans
             compose -f docker-compose.prod.yml --env-file .env.production ps
