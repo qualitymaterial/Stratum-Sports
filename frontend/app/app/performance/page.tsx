@@ -113,6 +113,73 @@ function formatLine(line: number | null): string {
   return Number(line).toFixed(1);
 }
 
+function buildOperatorSummary(
+  weeklySummary: SignalQualityWeeklySummary | null,
+  opportunities: OpportunityPoint[],
+): {
+  headline: string;
+  detail: string;
+  action: string;
+  tone: "positive" | "neutral" | "negative";
+} {
+  const freshCount = opportunities.filter((row) => row.freshness_bucket === "fresh").length;
+  const staleCount = opportunities.filter((row) => row.freshness_bucket === "stale").length;
+  const actionableCount = opportunities.filter((row) => row.opportunity_status === "actionable").length;
+  const monitorCount = opportunities.filter((row) => row.opportunity_status === "monitor").length;
+
+  const sentRate = weeklySummary?.sent_rate_pct ?? null;
+  const clvPositive = weeklySummary?.clv_pct_positive ?? null;
+  const clvSamples = weeklySummary?.clv_samples ?? 0;
+
+  if (opportunities.length === 0 && !weeklySummary) {
+    return {
+      headline: "Operator summary unavailable",
+      detail: "No weekly quality snapshot or opportunities are available for the current filters.",
+      action: "Widen your day window or reduce filter strictness to populate opportunities.",
+      tone: "neutral",
+    };
+  }
+
+  let headline = "Market quality mixed";
+  let tone: "positive" | "neutral" | "negative" = "neutral";
+  if ((sentRate ?? 0) >= 85 && (clvPositive ?? 0) >= 50) {
+    headline = "Market quality healthy";
+    tone = "positive";
+  } else if ((sentRate ?? 0) < 65 || ((clvPositive ?? 0) < 42 && clvSamples >= 20)) {
+    headline = "Market quality degraded";
+    tone = "negative";
+  }
+
+  const detailParts = [
+    `${freshCount} fresh`,
+    `${monitorCount} monitor`,
+    `${staleCount} stale`,
+    `from ${opportunities.length} ranked opportunities`,
+  ];
+  if (weeklySummary) {
+    detailParts.push(
+      `sent rate ${weeklySummary.sent_rate_pct.toFixed(1)}%`,
+      `CLV positive ${weeklySummary.clv_pct_positive.toFixed(1)}% (${weeklySummary.clv_samples} samples)`,
+    );
+  }
+
+  let action = "Monitor and wait for fresher opportunities before committing.";
+  if (actionableCount > 0 && freshCount > 0) {
+    action = `Prioritize ${Math.min(actionableCount, freshCount)} fresh actionable setup(s), then compare top books immediately.`;
+  } else if (freshCount > 0) {
+    action = `Focus on ${freshCount} fresh monitor setup(s) and confirm quote freshness before acting.`;
+  } else if (staleCount > 0) {
+    action = "Most setups are stale; refresh quotes and avoid execution until freshness improves.";
+  }
+
+  return {
+    headline,
+    detail: detailParts.join(" · "),
+    action,
+    tone,
+  };
+}
+
 export default function PerformancePage() {
   const { user, loading, token } = useCurrentUser(true);
   const [days, setDays] = useState(30);
@@ -443,6 +510,11 @@ export default function PerformancePage() {
     return Array.from(grouped.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [recapRows]);
 
+  const operatorSummary = useMemo(
+    () => buildOperatorSummary(weeklySummary, opportunities),
+    [weeklySummary, opportunities],
+  );
+
   if (loading || !user) {
     return <LoadingState label="Loading performance..." />;
   }
@@ -628,6 +700,27 @@ export default function PerformancePage() {
       </div>
 
       {error && <p className="text-sm text-negative">{error}</p>}
+
+      {proAccess && (
+        <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+          <p className="text-xs uppercase tracking-wider text-textMute">Operator Summary</p>
+          <p
+            className={`mt-2 text-sm font-semibold ${
+              operatorSummary.tone === "positive"
+                ? "text-positive"
+                : operatorSummary.tone === "negative"
+                  ? "text-negative"
+                  : "text-accent"
+            }`}
+          >
+            {operatorSummary.headline}
+          </p>
+          <p className="mt-1 text-xs text-textMute">{operatorSummary.detail}</p>
+          <p className="mt-2 text-sm text-textMain">
+            <span className="font-medium">Recommended next step:</span> {operatorSummary.action}
+          </p>
+        </div>
+      )}
 
       {!proAccess && teaser && (
         <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
