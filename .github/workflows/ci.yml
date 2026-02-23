@@ -14,14 +14,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare backend env file
+        run: cp .env.example .env
+
       - name: Start required services
         run: docker compose up -d db redis
 
       - name: Backend lint
-        run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend ruff check app tests
+        run: docker compose run --rm -e POLL_INTERVAL_SECONDS= -e RUFF_NO_CACHE=true backend ruff check app tests
 
       - name: Backend tests
-        run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend pytest -q
+        run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend pytest -q -p no:cacheprovider
 
       - name: Teardown services
         if: always()
