@@ -1019,19 +1019,24 @@ export default function PerformancePage() {
                         </span>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <Link href={`/app/games/${row.event_id}`} className="text-accent hover:underline">
-                          {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
-                        </Link>
-                        {row.game_commence_time && (
-                          <p className="text-[11px] text-textMute">
-                            {new Date(row.game_commence_time).toLocaleString([], {
-                              month: "short",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
+                        <Link
+                          href={`/app/games/${row.event_id}`}
+                          className="group inline-block cursor-pointer rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                        >
+                          <p className="text-accent group-hover:underline">
+                            {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
                           </p>
-                        )}
+                          {row.game_commence_time && (
+                            <p className="text-[11px] text-textMute group-hover:text-textMain">
+                              {new Date(row.game_commence_time).toLocaleString([], {
+                                month: "short",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          )}
+                        </Link>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>
