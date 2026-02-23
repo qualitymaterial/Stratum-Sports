@@ -23,6 +23,9 @@ jobs:
       - name: Backend lint
         run: docker compose run --rm -e POLL_INTERVAL_SECONDS= -e RUFF_NO_CACHE=true backend ruff check app tests
 
+      - name: Run migrations for test database
+        run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend alembic upgrade head
+
       - name: Backend tests
         run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend pytest -q -p no:cacheprovider
 
