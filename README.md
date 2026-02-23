@@ -86,7 +86,16 @@ docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-
 
 ### GitHub Actions Production Deploy
 
-The production workflow builds images in GitHub and pushes them to GHCR, then the droplet only pulls and restarts containers.
+Deployment uses two workflows:
+- `CI` runs on `push` and `pull_request` and must pass first.
+- `Deploy to DigitalOcean` is **manual-only** (`workflow_dispatch`) and verifies CI success for the selected commit before deployment.
+
+The deploy workflow builds images in GitHub and pushes them to GHCR, then the droplet only pulls and restarts containers.
+Post-deploy, the workflow validates:
+- `/api/v1/health/live`
+- `/api/v1/health/ready`
+
+If health checks fail, the workflow prints compose status and service logs before failing.
 
 Required repository secrets:
 - `DROPLET_HOST`

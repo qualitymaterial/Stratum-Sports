@@ -14,7 +14,12 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . /app
-RUN chmod +x /app/start.sh /app/worker-start.sh
+RUN chmod +x /app/start.sh /app/worker-start.sh \
+    && groupadd --system app \
+    && useradd --system --gid app --create-home app \
+    && chown -R app:app /app
+
+USER app
 
 EXPOSE 8000
 CMD ["/app/start.sh"]

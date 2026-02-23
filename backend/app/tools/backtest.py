@@ -230,9 +230,8 @@ def _leaderboard(
     reverse: bool,
     limit: int = 10,
 ) -> list[dict[str, object]]:
-    if metric == "clv_line":
-        candidates = [signal for signal in signals if signal.clv_line is not None]
-        sort_key = lambda signal: (
+    def _line_sort_key(signal: SimulatedSignal) -> tuple[float, datetime, str, str, str, str]:
+        return (
             float(signal.clv_line),
             signal.created_at,
             signal.event_id,
@@ -240,9 +239,9 @@ def _leaderboard(
             signal.market,
             signal.outcome_name,
         )
-    else:
-        candidates = [signal for signal in signals if signal.clv_prob is not None]
-        sort_key = lambda signal: (
+
+    def _prob_sort_key(signal: SimulatedSignal) -> tuple[float, datetime, str, str, str, str]:
+        return (
             float(signal.clv_prob),
             signal.created_at,
             signal.event_id,
@@ -250,6 +249,13 @@ def _leaderboard(
             signal.market,
             signal.outcome_name,
         )
+
+    if metric == "clv_line":
+        candidates = [signal for signal in signals if signal.clv_line is not None]
+        sort_key = _line_sort_key
+    else:
+        candidates = [signal for signal in signals if signal.clv_prob is not None]
+        sort_key = _prob_sort_key
 
     ranked = sorted(candidates, key=sort_key, reverse=reverse)[:limit]
     rows: list[dict[str, object]] = []
