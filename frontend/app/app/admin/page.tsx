@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { getAdminOverview } from "@/lib/api";
@@ -64,10 +64,9 @@ export default function AdminPage() {
 
   const proAccess = hasProAccess(user);
   const report = overview?.report ?? null;
-  const topSignalTypes = useMemo(() => {
-    const pairs = Object.entries(report?.ops.signals_created_by_type ?? {});
-    return pairs.sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [report]);
+  const topSignalTypes = Object.entries(report?.ops.signals_created_by_type ?? {})
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
 
   return (
     <section className="space-y-4">
