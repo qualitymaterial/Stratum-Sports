@@ -49,6 +49,7 @@ def _close_capture_cadence_seconds(minutes_to_tip: float) -> int | None:
 
 async def _build_close_capture_plan(db, state: CloseCaptureState, now_utc: datetime) -> dict:
     sport_keys = settings.odds_api_sport_keys_list
+    multi_sport_mode = len(sport_keys) > 1
     window_start = now_utc - timedelta(minutes=30)
     window_end = now_utc + timedelta(hours=6)
     stmt = (
@@ -139,9 +140,10 @@ async def _build_close_capture_plan(db, state: CloseCaptureState, now_utc: datet
         "events_considered": len(rows),
         "events_due_total": len(due_events),
         "events_due_selected": len(selected_event_ids),
-        "eligible_event_ids": selected_event_ids if selected_event_ids else None,
-        "skip_ingest": not should_discovery_poll and len(selected_event_ids) == 0,
+        "eligible_event_ids": None if multi_sport_mode else (selected_event_ids if selected_event_ids else None),
+        "skip_ingest": False if multi_sport_mode else (not should_discovery_poll and len(selected_event_ids) == 0),
         "next_due_seconds": next_due_seconds,
+        "multi_sport_mode": multi_sport_mode,
     }
 
 
