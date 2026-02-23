@@ -1142,7 +1142,9 @@ export default function PerformancePage() {
                     <tr key={row.id}>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <p>{row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}</p>
+                        <Link href={`/app/games/${row.event_id}`} className="text-accent hover:underline">
+                          {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
+                        </Link>
                         {row.game_commence_time && (
                           <p className="text-[11px] text-textMute">
                             {new Date(row.game_commence_time).toLocaleString([], {
