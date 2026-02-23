@@ -15,6 +15,53 @@ import { ActionableBookCard, GameDetail } from "@/lib/types";
 
 const API_BASE = getApiBaseUrl();
 
+function formatBookQuote(line: number | null, price: number | null): string {
+  if (price == null) {
+    return line != null ? `${formatLine(line, 1)}` : "-";
+  }
+  return line != null
+    ? `${formatLine(line, 1)} (${formatMoneyline(price)})`
+    : `${formatMoneyline(price)}`;
+}
+
+function buildPlainEnglishInsight(actionable: ActionableBookCard): {
+  whatChanged: string;
+  whyItMatters: string;
+  nextAction: string;
+} {
+  const bookName = actionable.best_book_key ?? "Current book";
+  const bestQuote = formatBookQuote(actionable.best_line, actionable.best_price);
+  const consensusQuote = formatBookQuote(actionable.consensus_line, actionable.consensus_price);
+  const deltaValue = actionable.best_delta ?? 0;
+  const deltaAbs = Math.abs(deltaValue);
+  const deltaLabel =
+    actionable.delta_type === "implied_prob"
+      ? `${deltaAbs.toFixed(3)} implied-probability points`
+      : `${deltaAbs.toFixed(3)} line points`;
+  const freshnessMinutes =
+    actionable.freshness_seconds == null ? null : Math.floor(actionable.freshness_seconds / 60);
+
+  const whatChanged = `${bookName} is off market consensus by ${deltaLabel} (${bestQuote} vs ${consensusQuote}).`;
+
+  let whyItMatters = `Consensus uses ${actionable.books_considered} books, so this can indicate temporary mispricing.`;
+  if (actionable.freshness_bucket === "aging") {
+    whyItMatters = `Edge signal is aging (${freshnessMinutes ?? "?"}m old), so reliability is dropping.`;
+  } else if (actionable.freshness_bucket === "stale") {
+    whyItMatters = `Quote is stale (${freshnessMinutes ?? "?"}m old), so this edge may already be gone.`;
+  }
+
+  let nextAction = "Monitor and re-check live prices before acting.";
+  if (actionable.freshness_bucket === "fresh" && actionable.execution_rank >= 70) {
+    nextAction = "Actionable now: compare top books and take the best available number.";
+  } else if (actionable.freshness_bucket === "stale") {
+    nextAction = "Refresh first; only act if a fresh quote still shows a meaningful delta.";
+  } else if (actionable.freshness_bucket === "aging") {
+    nextAction = "Treat as monitor: verify this book still beats consensus in real time.";
+  }
+
+  return { whatChanged, whyItMatters, nextAction };
+}
+
 export default function GameDetailPage() {
   const params = useParams<{ event_id: string }>();
   const eventId = params.event_id;
@@ -289,6 +336,23 @@ export default function GameDetailPage() {
                         <p>
                           {actionable.actionable_reason}
                         </p>
+                        {(() => {
+                          const insight = buildPlainEnglishInsight(actionable);
+                          return (
+                            <div className="rounded border border-borderTone/70 bg-panelSoft p-2 text-[11px] leading-5">
+                              <p className="mb-1 uppercase tracking-wider text-textMute">What This Means</p>
+                              <p>
+                                <span className="text-textMain">What changed:</span> {insight.whatChanged}
+                              </p>
+                              <p>
+                                <span className="text-textMain">Why it matters:</span> {insight.whyItMatters}
+                              </p>
+                              <p>
+                                <span className="text-textMain">What to do:</span> {insight.nextAction}
+                              </p>
+                            </div>
+                          );
+                        })()}
                         <p>
                           Delta:{" "}
                           <span className="text-textMain">

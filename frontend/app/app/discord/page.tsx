@@ -30,6 +30,7 @@ export default function DiscordPage() {
 
   useEffect(() => {
     if (!token || loading) return;
+    setError(null);
     void getDiscordConnection(token)
       .then((conn) => {
         setConnection(conn);
@@ -46,19 +47,31 @@ export default function DiscordPage() {
           cooldown_minutes: Math.max(0, Number(conn.thresholds?.cooldown_minutes ?? 15)),
         });
       })
-      .catch(() => {
-        // 404 means no connection yet — start with defaults
+      .catch((err) => {
+        // 404 means no connection yet — start with defaults.
+        const message = err instanceof Error ? err.message : "Failed to load Discord settings";
+        const lower = message.toLowerCase();
+        if (lower.includes("404") || lower.includes("not found")) {
+          return;
+        }
+        setError(message);
       });
   }, [token, loading]);
 
   const onSave = async () => {
     if (!token) return;
+    const webhookUrl = form.webhook_url.trim();
+    if (form.is_enabled && !webhookUrl) {
+      setError("Webhook URL is required while alerts are enabled.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setSaved(false);
     try {
       const conn = await upsertDiscordConnection(token, {
-        webhook_url: form.webhook_url,
+        webhook_url: webhookUrl,
         is_enabled: form.is_enabled,
         alert_spreads: form.alert_spreads,
         alert_totals: form.alert_totals,
@@ -84,6 +97,7 @@ export default function DiscordPage() {
     return <LoadingState label="Loading Discord settings..." />;
   }
   const proAccess = hasProAccess(user);
+  const webhookRequired = form.is_enabled && !form.webhook_url.trim();
 
   if (!proAccess) {
     return (
@@ -229,9 +243,14 @@ export default function DiscordPage() {
 
       {error && <p className="text-sm text-negative">{error}</p>}
       {saved && <p className="text-sm text-accent">Settings saved.</p>}
+      {webhookRequired && (
+        <p className="text-xs text-textMute">
+          Enter a Discord webhook URL to save while alerts are enabled.
+        </p>
+      )}
 
       <button
-        disabled={saving || !form.webhook_url.trim()}
+        disabled={saving || webhookRequired}
         onClick={() => {
           void onSave();
         }}
