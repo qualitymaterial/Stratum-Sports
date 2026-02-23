@@ -2,6 +2,11 @@ name: Deploy to DigitalOcean
 
 on:
   workflow_dispatch:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches:
+      - main
 
 permissions:
   actions: read
@@ -13,9 +18,41 @@ env:
   IMAGE_OWNER: qualitymaterial
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      should_deploy: ${{ steps.prepare.outputs.should_deploy }}
+      deploy_sha: ${{ steps.prepare.outputs.deploy_sha }}
+      ci_run_url: ${{ steps.prepare.outputs.ci_run_url }}
+    steps:
+      - name: Resolve deploy context
+        id: prepare
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
+              echo "CI conclusion=${{ github.event.workflow_run.conclusion }}; skipping deploy."
+              echo "should_deploy=false" >> "$GITHUB_OUTPUT"
+              echo "deploy_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+              echo "ci_run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+            echo "deploy_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+            echo "ci_run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+          echo "deploy_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "ci_run_url=" >> "$GITHUB_OUTPUT"
+
   verify-ci:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    needs: prepare
+    if: needs.prepare.outputs.should_deploy == 'true'
     outputs:
       ci_run_url: ${{ steps.verify.outputs.ci_run_url }}
     steps:
@@ -26,7 +63,7 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            const headSha = context.sha;
+            const headSha = "${{ needs.prepare.outputs.deploy_sha }}";
             const result = await github.rest.actions.listWorkflowRuns({
               owner,
               repo,
@@ -52,10 +89,13 @@ jobs:
   build-images:
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    needs: verify-ci
+    needs: [prepare, verify-ci]
+    if: needs.prepare.outputs.should_deploy == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.deploy_sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -74,7 +114,7 @@ jobs:
           file: ./backend/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:${{ needs.prepare.outputs.deploy_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:latest
 
       - name: Build and push frontend image
@@ -84,13 +124,14 @@ jobs:
           file: ./frontend/Dockerfile
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:${{ needs.prepare.outputs.deploy_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:latest
 
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: build-images
+    needs: [prepare, build-images]
+    if: needs.prepare.outputs.should_deploy == 'true'
     steps:
       - name: Validate deploy secrets
         run: |
@@ -104,7 +145,7 @@ jobs:
       - name: SSH into droplet and deploy pulled images
         uses: appleboy/ssh-action@v1.0.3
         env:
-          IMAGE_TAG: ${{ github.sha }}
+          IMAGE_TAG: ${{ needs.prepare.outputs.deploy_sha }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         with:
