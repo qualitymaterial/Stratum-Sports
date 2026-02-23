@@ -131,6 +131,14 @@ Make target:
 make smoke-auth
 ```
 
+## Pre-Push Safety Check
+
+Run the lightweight production guardrail checks before pushing:
+
+```bash
+make pre-push-check
+```
+
 ## Admin Bootstrap
 
 Create or update an admin user (idempotent):

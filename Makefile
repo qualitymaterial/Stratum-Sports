@@ -1,4 +1,4 @@
-.PHONY: up down logs backend-test backend-lint migrate smoke-auth
+.PHONY: up down logs backend-test backend-lint migrate smoke-auth pre-push-check
 
 up:
 	docker compose up --build
@@ -29,3 +29,6 @@ prod-logs:
 
 smoke-auth:
 	./scripts/smoke_auth.sh
+
+pre-push-check:
+	./scripts/pre_push_check.sh
