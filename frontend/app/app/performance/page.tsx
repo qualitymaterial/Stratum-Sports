@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
@@ -219,6 +220,7 @@ function buildOperatorSummary(
 }
 
 export default function PerformancePage() {
+  const router = useRouter();
   const { user, loading, token } = useCurrentUser(true);
   const [days, setDays] = useState(30);
   const [signalType, setSignalType] = useState<(typeof SIGNAL_OPTIONS)[number]>("ALL");
@@ -1193,7 +1195,19 @@ export default function PerformancePage() {
                 </thead>
                 <tbody>
                   {qualityRows.map((row) => (
-                    <tr key={row.id}>
+                    <tr
+                      key={row.id}
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => router.push(`/app/games/${row.event_id}`)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          router.push(`/app/games/${row.event_id}`);
+                        }
+                      }}
+                      className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
+                    >
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <Link href={`/app/games/${row.event_id}`} className="text-accent hover:underline">
