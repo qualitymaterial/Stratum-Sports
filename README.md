@@ -226,6 +226,7 @@ If you are running low on The Odds API credits, tune these:
 - `ODDS_POLL_INTERVAL_LOW_CREDIT_SECONDS` (default `900`): cadence when credits are low
 - `ODDS_API_LOW_CREDIT_THRESHOLD` (default `200`): triggers low-credit cadence at or below this value
 - `ODDS_API_TARGET_DAILY_CREDITS` (default `1200`): budget guardrail; poller stretches interval to stay near this burn rate
+- `ODDS_API_SPORT_KEYS` (default `basketball_nba,basketball_ncaab,americanfootball_nfl`): comma-separated sports polled each cycle
 - `ODDS_API_BOOKMAKERS` (optional): comma-separated bookmaker keys to reduce request cost
 
 The poller reads response headers (`x-requests-remaining`, `x-requests-used`, `x-requests-last`) and automatically slows down in low-credit mode.

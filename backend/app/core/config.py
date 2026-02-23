@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     odds_poll_interval_low_credit_seconds: int = 900
     odds_api_low_credit_threshold: int = 200
     odds_api_target_daily_credits: int = 1200
+    odds_api_sport_keys: str = "basketball_nba,basketball_ncaab,americanfootball_nfl"
     odds_api_regions: str = "us"
     odds_api_markets: str = "spreads,totals,h2h"
     odds_api_bookmakers: str = ""
@@ -187,6 +188,11 @@ class Settings(BaseSettings):
     @property
     def discord_webhook_allowed_hosts_list(self) -> list[str]:
         return [v.strip().lower() for v in self.discord_webhook_allowed_hosts.split(",") if v.strip()]
+
+    @property
+    def odds_api_sport_keys_list(self) -> list[str]:
+        values = [v.strip() for v in self.odds_api_sport_keys.split(",") if v.strip()]
+        return values or ["basketball_nba"]
 
     @property
     def resolved_database_url(self) -> str:

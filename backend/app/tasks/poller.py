@@ -48,12 +48,13 @@ def _close_capture_cadence_seconds(minutes_to_tip: float) -> int | None:
 
 
 async def _build_close_capture_plan(db, state: CloseCaptureState, now_utc: datetime) -> dict:
+    sport_keys = settings.odds_api_sport_keys_list
     window_start = now_utc - timedelta(minutes=30)
     window_end = now_utc + timedelta(hours=6)
     stmt = (
         select(Game.event_id, Game.commence_time)
         .where(
-            Game.sport_key == "basketball_nba",
+            Game.sport_key.in_(sport_keys),
             Game.commence_time >= window_start,
             Game.commence_time <= window_end,
         )
@@ -311,6 +312,7 @@ async def main() -> None:
             "target_daily_credits": settings.odds_api_target_daily_credits,
             "close_capture_enabled": settings.stratum_close_capture_enabled,
             "close_capture_max_events_per_cycle": settings.stratum_close_capture_max_events_per_cycle,
+            "odds_api_sport_keys": settings.odds_api_sport_keys_list,
         },
     )
 

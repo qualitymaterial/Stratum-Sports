@@ -11,7 +11,7 @@ from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.services.consensus import compute_and_persist_consensus
-from app.services.odds_api import OddsApiClient
+from app.services.odds_api import OddsApiClient, OddsFetchResult
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +180,40 @@ async def ingest_odds_cycle(
     redis: Redis | None,
     eligible_event_ids: set[str] | None = None,
 ) -> dict:
+    settings = get_settings()
     client = OddsApiClient()
-    fetch_result = await client.fetch_nba_odds()
-    events = fetch_result.events
+    sport_keys = settings.odds_api_sport_keys_list
+    fetch_results: list[tuple[str, OddsFetchResult]] = []
+    for sport_key in sport_keys:
+        fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key)))
+
+    events: list[dict] = []
+    requests_remaining_values: list[int] = []
+    requests_used_values: list[int] = []
+    requests_limit_values: list[int] = []
+    requests_last_total = 0
+    requests_last_seen = False
+    per_sport_events_seen: dict[str, int] = {}
+
+    for sport_key, fetch_result in fetch_results:
+        sport_events = fetch_result.events if isinstance(fetch_result.events, list) else []
+        per_sport_events_seen[sport_key] = len(sport_events)
+        events.extend(sport_events)
+        if fetch_result.requests_remaining is not None:
+            requests_remaining_values.append(fetch_result.requests_remaining)
+        if fetch_result.requests_used is not None:
+            requests_used_values.append(fetch_result.requests_used)
+        if fetch_result.requests_limit is not None:
+            requests_limit_values.append(fetch_result.requests_limit)
+        if fetch_result.requests_last is not None:
+            requests_last_total += fetch_result.requests_last
+            requests_last_seen = True
+
+    api_requests_remaining = min(requests_remaining_values) if requests_remaining_values else None
+    api_requests_used = max(requests_used_values) if requests_used_values else None
+    api_requests_limit = max(requests_limit_values) if requests_limit_values else None
+    api_requests_last = requests_last_total if requests_last_seen else None
+
     if eligible_event_ids is not None:
         events = [
             event
@@ -206,10 +237,12 @@ async def ingest_odds_cycle(
             "event_ids_updated": [],
             "consensus_points_written": 0,
             "consensus_failed": False,
-            "api_requests_remaining": fetch_result.requests_remaining,
-            "api_requests_used": fetch_result.requests_used,
-            "api_requests_last": fetch_result.requests_last,
-            "api_requests_limit": fetch_result.requests_limit,
+            "api_requests_remaining": api_requests_remaining,
+            "api_requests_used": api_requests_used,
+            "api_requests_last": api_requests_last,
+            "api_requests_limit": api_requests_limit,
+            "sports_polled": sport_keys,
+            "events_seen_by_sport": per_sport_events_seen,
         }
 
     fetched_at = datetime.now(UTC)
@@ -280,7 +313,6 @@ async def ingest_odds_cycle(
 
     await db.commit()
 
-    settings = get_settings()
     if settings.consensus_enabled and event_ids:
         try:
             consensus_points_written = await compute_and_persist_consensus(db, list(event_ids))
@@ -294,10 +326,12 @@ async def ingest_odds_cycle(
             "inserted": inserted,
             "events_seen": len(events),
             "consensus_points_written": consensus_points_written,
-            "api_requests_remaining": fetch_result.requests_remaining,
-            "api_requests_used": fetch_result.requests_used,
-            "api_requests_last": fetch_result.requests_last,
-            "api_requests_limit": fetch_result.requests_limit,
+            "api_requests_remaining": api_requests_remaining,
+            "api_requests_used": api_requests_used,
+            "api_requests_last": api_requests_last,
+            "api_requests_limit": api_requests_limit,
+            "sports_polled": sport_keys,
+            "events_seen_by_sport": per_sport_events_seen,
             "consensus_failed": consensus_failed,
         },
     )
@@ -310,8 +344,10 @@ async def ingest_odds_cycle(
         "event_ids_updated": list(event_ids),
         "consensus_points_written": consensus_points_written,
         "consensus_failed": consensus_failed,
-        "api_requests_remaining": fetch_result.requests_remaining,
-        "api_requests_used": fetch_result.requests_used,
-        "api_requests_last": fetch_result.requests_last,
-        "api_requests_limit": fetch_result.requests_limit,
+        "api_requests_remaining": api_requests_remaining,
+        "api_requests_used": api_requests_used,
+        "api_requests_last": api_requests_last,
+        "api_requests_limit": api_requests_limit,
+        "sports_polled": sport_keys,
+        "events_seen_by_sport": per_sport_events_seen,
     }
