@@ -61,8 +61,16 @@ export async function discordCallback(code: string, state: string) {
   );
 }
 
-export async function getDashboardCards(token: string) {
-  return apiRequest<DashboardCard[]>("/dashboard/cards", { token });
+export async function getDashboardCards(
+  token: string,
+  options: {
+    sport_key?: "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl";
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  const query = params.toString();
+  return apiRequest<DashboardCard[]>(`/dashboard/cards${query ? `?${query}` : ""}`, { token });
 }
 
 export async function getGameDetail(eventId: string, token: string) {

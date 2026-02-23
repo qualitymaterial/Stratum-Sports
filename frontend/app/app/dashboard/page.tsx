@@ -14,12 +14,33 @@ import { formatLine, formatMoneyline } from "@/lib/oddsFormat";
 import { useOddsSocket } from "@/lib/useOddsSocket";
 import { DashboardCard } from "@/lib/types";
 
+type DashboardSportKey = "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl";
+
+const DASHBOARD_SPORT_STORAGE_KEY = "stratum_dashboard_sport";
+const DASHBOARD_SPORT_OPTIONS: Array<{ key: DashboardSportKey; label: string }> = [
+  { key: "basketball_nba", label: "NBA" },
+  { key: "basketball_ncaab", label: "NCAA M" },
+  { key: "americanfootball_nfl", label: "NFL" },
+];
+
+function getInitialSport(): DashboardSportKey {
+  if (typeof window === "undefined") {
+    return "basketball_nba";
+  }
+  const stored = window.localStorage.getItem(DASHBOARD_SPORT_STORAGE_KEY);
+  if (stored === "basketball_nba" || stored === "basketball_ncaab" || stored === "americanfootball_nfl") {
+    return stored;
+  }
+  return "basketball_nba";
+}
+
 export default function DashboardPage() {
   const [flashing, setFlashing] = useState<Record<string, "up" | "down" | null>>({});
   const { user, loading, token } = useCurrentUser(true);
   const [cards, setCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedSport, setSelectedSport] = useState<DashboardSportKey>(getInitialSport);
 
   // Handle real-time updates
   const handleUpdate = useCallback((msg: any) => {
@@ -62,7 +83,7 @@ export default function DashboardPage() {
     setRefreshing(true);
     setError(null);
     try {
-      const data = await getDashboardCards(token);
+      const data = await getDashboardCards(token, { sport_key: selectedSport });
       setCards(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
@@ -75,7 +96,14 @@ export default function DashboardPage() {
     if (!loading && token) {
       void load();
     }
-  }, [loading, token]);
+  }, [loading, token, selectedSport]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(DASHBOARD_SPORT_STORAGE_KEY, selectedSport);
+  }, [selectedSport]);
 
   const summary = useMemo(() => {
     const signals = cards.flatMap((card) => card.signals);
@@ -88,6 +116,9 @@ export default function DashboardPage() {
           : 0,
     };
   }, [cards]);
+
+  const selectedSportLabel =
+    DASHBOARD_SPORT_OPTIONS.find((option) => option.key === selectedSport)?.label ?? "NBA";
 
   if (loading || !user) {
     return <LoadingState label="Loading dashboard..." />;
@@ -113,6 +144,24 @@ export default function DashboardPage() {
               ? "Free tier data is delayed by 10 minutes."
               : "Pro tier access granted."}
           </p>
+          <div className="mt-3 inline-flex flex-wrap gap-2">
+            {DASHBOARD_SPORT_OPTIONS.map((option) => {
+              const active = option.key === selectedSport;
+              return (
+                <button
+                  key={option.key}
+                  onClick={() => setSelectedSport(option.key)}
+                  className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
+                    active
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
         <button
           onClick={() => {
@@ -147,8 +196,8 @@ export default function DashboardPage() {
           <p className="text-sm font-medium text-textMain">No upcoming games</p>
           <p className="mt-2 text-xs text-textMute">
             {!proAccess
-              ? "Odds data refreshes every 60 seconds once the poller is running and an Odds API key is configured."
-              : "Odds data refreshes every 60 seconds. Check back once the polling worker is active."}
+              ? `${selectedSportLabel} data is delayed by 10 minutes. Odds data refreshes every 60 seconds once the poller is running and an Odds API key is configured.`
+              : `No qualifying ${selectedSportLabel} games in the current window. Odds data refreshes every 60 seconds when polling is active.`}
           </p>
         </div>
       )}

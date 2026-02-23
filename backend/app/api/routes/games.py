@@ -18,10 +18,14 @@ router = APIRouter()
 
 @router.get("")
 async def list_games(
+    sport_key: str | None = Query(
+        None,
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
-    games = await list_upcoming_games(db, limit=40)
+    games = await list_upcoming_games(db, limit=40, sport_key=sport_key)
     return [
         {
             "event_id": game.event_id,

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -11,7 +11,11 @@ router = APIRouter()
 
 @router.get("/cards")
 async def get_dashboard_cards(
+    sport_key: str = Query(
+        "basketball_nba",
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
-    return await build_dashboard_cards(db, user)
+    return await build_dashboard_cards(db, user, sport_key=sport_key)

@@ -26,6 +26,7 @@ export type Signal = {
 
 export type DashboardCard = {
   event_id: string;
+  sport_key: string;
   home_team: string;
   away_team: string;
   commence_time: string;

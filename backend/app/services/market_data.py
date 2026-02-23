@@ -18,21 +18,31 @@ def _avg(values: list[float]) -> float | None:
     return float(mean(values)) if values else None
 
 
-async def list_upcoming_games(db: AsyncSession, *, limit: int = 25) -> list[Game]:
+async def list_upcoming_games(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+    sport_key: str | None = None,
+) -> list[Game]:
     # Include games that started up to 6 hours ago (still in-play for NBA)
     now = datetime.now(UTC) - timedelta(hours=6)
-    stmt = (
-        select(Game)
-        .where(Game.commence_time >= now)
-        .order_by(Game.commence_time.asc())
-        .limit(limit)
-    )
+    filters = [Game.commence_time >= now]
+    if sport_key:
+        filters.append(Game.sport_key == sport_key)
+
+    stmt = select(Game).where(and_(*filters)).order_by(Game.commence_time.asc()).limit(limit)
     return (await db.execute(stmt)).scalars().all()
 
 
-async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20) -> list[dict]:
+async def build_dashboard_cards(
+    db: AsyncSession,
+    user: User,
+    *,
+    limit: int = 20,
+    sport_key: str | None = None,
+) -> list[dict]:
     pro_user = is_pro(user)
-    games = await list_upcoming_games(db, limit=limit)
+    games = await list_upcoming_games(db, limit=limit, sport_key=sport_key)
     if not games:
         return []
 
@@ -116,6 +126,7 @@ async def build_dashboard_cards(db: AsyncSession, user: User, *, limit: int = 20
         cards.append(
             {
                 "event_id": game.event_id,
+                "sport_key": game.sport_key,
                 "home_team": game.home_team,
                 "away_team": game.away_team,
                 "commence_time": game.commence_time,
