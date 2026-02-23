@@ -152,6 +152,35 @@ function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; 
   };
 }
 
+function buildOpportunityHoverText(row: OpportunityPoint): string {
+  const insight = buildOpportunityInsight(row);
+  const freshness = row.freshness_seconds != null ? `${Math.floor(row.freshness_seconds / 60)}m` : "unknown";
+  const books = row.books_considered;
+  return [
+    `What changed: ${insight.whatChanged}`,
+    `Freshness: ${row.freshness_bucket} (${freshness}), books=${books}`,
+    `What to do: ${insight.nextStep}`,
+  ].join("\n");
+}
+
+function buildQualityHoverText(row: SignalQualityRow): string {
+  const dispersion = row.dispersion != null ? row.dispersion.toFixed(3) : "n/a";
+  const decision =
+    row.alert_decision === "sent"
+      ? "Passed alert rules and was sent."
+      : `Filtered by alert rules (${row.alert_reason}).`;
+  const action =
+    row.alert_decision === "sent"
+      ? "Open game detail to compare current book quotes."
+      : "Adjust filters or alert rules if this should be included.";
+  return [
+    `Signal: ${row.signal_type} on ${row.market} ${row.outcome_name ?? "-"}`,
+    `Strength=${row.strength_score}, books=${row.books_affected}, dispersion=${dispersion}`,
+    `Decision: ${decision}`,
+    `What to do: ${action}`,
+  ].join("\n");
+}
+
 function buildOperatorSummary(
   weeklySummary: SignalQualityWeeklySummary | null,
   opportunities: OpportunityPoint[],
@@ -1043,19 +1072,15 @@ export default function PerformancePage() {
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>
                           {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                          <span
+                            className="ml-2 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                            title={buildOpportunityHoverText(row)}
+                            aria-label="What this means"
+                          >
+                            ?
+                          </span>
                         </p>
                         <p className="text-[11px] text-textMute">{row.reason_tags.join(" • ")}</p>
-                        <p className="mt-1 text-[11px] leading-5 text-textMute">
-                          {(() => {
-                            const insight = buildOpportunityInsight(row);
-                            return (
-                              <>
-                                <span className="text-textMain">What this means:</span> {insight.whatChanged}{" "}
-                                {insight.nextStep}
-                              </>
-                            );
-                          })()}
-                        </p>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>
@@ -1178,6 +1203,7 @@ export default function PerformancePage() {
 
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Recent Filtered Signals</h2>
+            <p className="mb-2 text-xs text-textMute">Hover `?` for "What this means" guidance.</p>
             <div className="overflow-auto">
               <table className="w-full border-collapse text-sm">
                 <thead>
@@ -1208,7 +1234,18 @@ export default function PerformancePage() {
                       }}
                       className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
                     >
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <span className="inline-flex items-center gap-2">
+                          <span>{row.signal_type}</span>
+                          <span
+                            className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                            title={buildQualityHoverText(row)}
+                            aria-label="What this means"
+                          >
+                            ?
+                          </span>
+                        </span>
+                      </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <Link href={`/app/games/${row.event_id}`} className="text-accent hover:underline">
                           {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
