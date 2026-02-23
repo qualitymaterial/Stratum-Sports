@@ -268,3 +268,72 @@ export type OpportunityPoint = {
   reason_tags: string[];
   actionable_reason: string;
 };
+
+export type AdminClvBySignalType = {
+  signal_type: string;
+  count: number;
+  pct_positive: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+};
+
+export type AdminClvByMarket = {
+  market: string;
+  count: number;
+  pct_positive: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+};
+
+export type AdminOperatorReport = {
+  days: number;
+  period_start: string;
+  period_end: string;
+  ops: {
+    total_cycles: number;
+    avg_cycle_duration_ms: number | null;
+    degraded_cycles: number;
+    total_requests_used: number;
+    avg_requests_remaining: number | null;
+    total_snapshots_inserted: number;
+    total_consensus_points_written: number;
+    total_signals_created: number;
+    signals_created_by_type: Record<string, number>;
+  };
+  performance: {
+    clv_by_signal_type: AdminClvBySignalType[];
+    clv_by_market: AdminClvByMarket[];
+  };
+  reliability: {
+    alerts_sent: number;
+    alerts_failed: number;
+    alert_failure_rate: number;
+  };
+};
+
+export type AdminCycleKpi = {
+  id: string;
+  cycle_id: string;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  requests_used_delta: number | null;
+  requests_remaining: number | null;
+  requests_limit: number | null;
+  events_processed: number | null;
+  snapshots_inserted: number | null;
+  consensus_points_written: number | null;
+  signals_created_total: number | null;
+  signals_created_by_type: Record<string, number> | null;
+  alerts_sent: number | null;
+  alerts_failed: number | null;
+  error: string | null;
+  degraded: boolean;
+  notes: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type AdminOverview = {
+  report: AdminOperatorReport;
+  recent_cycles: AdminCycleKpi[];
+};

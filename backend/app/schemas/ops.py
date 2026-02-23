@@ -90,3 +90,8 @@ class OperatorReport(BaseModel):
     ops: OperatorOpsMetrics
     performance: OperatorPerformanceMetrics
     reliability: OperatorReliabilityMetrics
+
+
+class AdminOverviewOut(BaseModel):
+    report: OperatorReport
+    recent_cycles: list[CycleKpiOut]

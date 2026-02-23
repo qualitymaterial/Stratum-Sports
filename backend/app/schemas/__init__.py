@@ -17,6 +17,7 @@ from app.schemas.intel import (
     SignalQualityWeeklySummary,
 )
 from app.schemas.ops import (
+    AdminOverviewOut,
     ClvByMarketItem,
     ClvBySignalTypeItem,
     CycleKpiOut,
@@ -53,6 +54,7 @@ __all__ = [
     "ActionableBookQuote",
     "ActionableBookCard",
     "CycleKpiOut",
+    "AdminOverviewOut",
     "CycleSummaryOut",
     "ClvBySignalTypeItem",
     "ClvByMarketItem",

@@ -1,4 +1,5 @@
 import {
+  AdminOverview,
   ActionableBookCard,
   ClvRecapResponse,
   ClvPerformanceRow,
@@ -33,6 +34,19 @@ export async function login(email: string, password: string) {
 
 export async function getMe(token: string) {
   return apiRequest<User>("/auth/me", { token });
+}
+
+export async function getAdminOverview(
+  token: string,
+  options: {
+    days?: number;
+    cycle_limit?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "cycle_limit", options.cycle_limit);
+  return apiRequest<AdminOverview>(`/admin/overview?${params.toString()}`, { token });
 }
 
 export async function getDiscordAuthUrl() {
