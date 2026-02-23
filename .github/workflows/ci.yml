@@ -20,6 +20,34 @@ jobs:
       - name: Start required services
         run: docker compose up -d db redis
 
+      - name: Wait for db and redis health
+        run: |
+          set -eu
+          wait_for_service() {
+            service="$1"
+            max_attempts=40
+            attempt=1
+            cid="$(docker compose ps -q "$service")"
+            if [ -z "$cid" ]; then
+              echo "ERROR: service container not found: $service"
+              return 1
+            fi
+            while [ "$attempt" -le "$max_attempts" ]; do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid")"
+              if [ "$status" = "healthy" ] || [ "$status" = "running" ]; then
+                echo "$service ready (status=$status)"
+                return 0
+              fi
+              echo "waiting for $service (status=$status, attempt $attempt/$max_attempts)"
+              sleep 3
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: timed out waiting for $service readiness"
+            return 1
+          }
+          wait_for_service db
+          wait_for_service redis
+
       - name: Backend lint
         run: docker compose run --rm -e POLL_INTERVAL_SECONDS= -e RUFF_NO_CACHE=true backend ruff check app tests
 
@@ -28,6 +56,12 @@ jobs:
 
       - name: Backend tests
         run: docker compose run --rm -e POLL_INTERVAL_SECONDS= backend pytest -q -p no:cacheprovider
+
+      - name: Backend diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps || true
+          docker compose logs --tail=200 db redis backend || true
 
       - name: Teardown services
         if: always()
