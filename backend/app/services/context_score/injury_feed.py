@@ -58,6 +58,46 @@ def _resolve_endpoint(sport_key: str) -> str:
     return str(getattr(settings, attr, "")).strip()
 
 
+def _expand_templated_endpoint(sport_key: str, endpoint: str) -> str | None:
+    expanded = endpoint.strip()
+    if not expanded:
+        return None
+    if "{team}" in expanded:
+        logger.warning(
+            "SportsDataIO injury endpoint with {team} template is not supported by current fetcher",
+            extra={"sport_key": sport_key},
+        )
+        return None
+
+    if sport_key == "americanfootball_nfl":
+        season = settings.sportsdataio_nfl_injuries_season.strip()
+        week = settings.sportsdataio_nfl_injuries_week.strip()
+        if "{season}" in expanded:
+            if not season:
+                logger.info(
+                    "SPORTSDATAIO_NFL_INJURIES_SEASON missing; skipping NFL injury feed",
+                    extra={"sport_key": sport_key},
+                )
+                return None
+            expanded = expanded.replace("{season}", season)
+        if "{week}" in expanded:
+            if not week:
+                logger.info(
+                    "SPORTSDATAIO_NFL_INJURIES_WEEK missing; skipping NFL injury feed",
+                    extra={"sport_key": sport_key},
+                )
+                return None
+            expanded = expanded.replace("{week}", week)
+
+    if re.search(r"\{[^{}]+\}", expanded):
+        logger.warning(
+            "SportsDataIO injury endpoint still contains unresolved template placeholders",
+            extra={"sport_key": sport_key, "endpoint": expanded},
+        )
+        return None
+    return expanded
+
+
 def _build_url(endpoint: str) -> str:
     if endpoint.startswith("http://") or endpoint.startswith("https://"):
         return endpoint
@@ -121,7 +161,8 @@ def _match_game_team(raw_team: str, home_aliases: set[str], away_aliases: set[st
 
 
 async def _fetch_rows(sport_key: str) -> list[dict[str, Any]]:
-    endpoint = _resolve_endpoint(sport_key)
+    configured_endpoint = _resolve_endpoint(sport_key)
+    endpoint = _expand_templated_endpoint(sport_key, configured_endpoint)
     if not endpoint or not settings.sportsdataio_api_key:
         return []
 

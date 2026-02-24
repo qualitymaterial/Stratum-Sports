@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.services.context_score import injury_feed
 from app.services.context_score import injuries as injuries_service
 
 
@@ -126,3 +127,23 @@ async def test_injury_context_falls_back_when_live_feed_unavailable(
     assert result["status"] == "computed"
     assert result["details"]["source"] == "heuristic"
     assert "sportsdataio_unavailable" in result["notes"]
+
+
+def test_nfl_endpoint_template_expands_when_season_week_set(monkeypatch) -> None:
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_season", "2025REG")
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_week", "18")
+
+    endpoint = "/v3/nfl/stats/json/Injuries/{season}/{week}"
+    expanded = injury_feed._expand_templated_endpoint("americanfootball_nfl", endpoint)
+
+    assert expanded == "/v3/nfl/stats/json/Injuries/2025REG/18"
+
+
+def test_nfl_endpoint_template_returns_none_when_week_missing(monkeypatch) -> None:
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_season", "2025REG")
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_week", "")
+
+    endpoint = "/v3/nfl/stats/json/Injuries/{season}/{week}"
+    expanded = injury_feed._expand_templated_endpoint("americanfootball_nfl", endpoint)
+
+    assert expanded is None

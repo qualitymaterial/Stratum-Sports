@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     sportsdataio_injuries_endpoint_nba: str = ""
     sportsdataio_injuries_endpoint_ncaab: str = ""
     sportsdataio_injuries_endpoint_nfl: str = ""
+    sportsdataio_nfl_injuries_season: str = ""
+    sportsdataio_nfl_injuries_week: str = ""
     sportsdataio_timeout_seconds: float = 8.0
     sportsdataio_cache_seconds: int = 180
 

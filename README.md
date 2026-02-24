@@ -214,6 +214,8 @@ Optional live injury context (SportsDataIO):
 - `SPORTSDATAIO_INJURIES_ENDPOINT_NBA`
 - `SPORTSDATAIO_INJURIES_ENDPOINT_NCAAB`
 - `SPORTSDATAIO_INJURIES_ENDPOINT_NFL`
+- `SPORTSDATAIO_NFL_INJURIES_SEASON` (required when NFL endpoint uses `{season}`)
+- `SPORTSDATAIO_NFL_INJURIES_WEEK` (required when NFL endpoint uses `{week}`)
 
 Notes:
 - Endpoints are plan-specific at SportsDataIO. Leave endpoint vars blank to keep heuristic fallback behavior.
