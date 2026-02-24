@@ -201,3 +201,18 @@ class OpportunityPoint(BaseModel):
     opportunity_status: str
     reason_tags: list[str]
     actionable_reason: str
+
+
+class OpportunityTeaserPoint(BaseModel):
+    event_id: str
+    game_label: str | None
+    game_commence_time: datetime | None
+    signal_type: str
+    market: str
+    outcome_name: str | None
+    direction: str
+    strength_score: int
+    created_at: datetime
+    freshness_bucket: str
+    books_considered: int
+    opportunity_status: str

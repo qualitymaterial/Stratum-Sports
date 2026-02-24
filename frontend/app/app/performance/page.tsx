@@ -13,6 +13,7 @@ import {
   getClvTeaser,
   getClvTrustScorecards,
   getDashboardCards,
+  getOpportunityTeaser,
   getSignalQuality,
   getSignalLifecycleSummary,
   getSignalQualityWeeklySummary,
@@ -27,6 +28,7 @@ import {
   ClvTrustScorecard,
   DashboardCard,
   OpportunityPoint,
+  OpportunityTeaserPoint,
   SignalQualityRow,
   SignalQualityWeeklySummary,
   SignalLifecycleSummary,
@@ -226,6 +228,15 @@ function buildOpportunityDrilldownHref(row: OpportunityPoint): string {
   return `/app/games/${row.event_id}?${params.toString()}`;
 }
 
+function buildTeaserDrilldownHref(row: OpportunityTeaserPoint): string {
+  const params = new URLSearchParams();
+  params.set("focus_market", row.market);
+  if (row.outcome_name) {
+    params.set("focus_outcome", row.outcome_name);
+  }
+  return `/app/games/${row.event_id}?${params.toString()}`;
+}
+
 function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; nextStep: string } {
   const bestBook = row.best_book_key ?? "Best book";
   const delta =
@@ -387,6 +398,7 @@ export default function PerformancePage() {
   const [scorecards, setScorecards] = useState<ClvTrustScorecard[]>([]);
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityPoint[]>([]);
+  const [freeOpportunityRows, setFreeOpportunityRows] = useState<OpportunityTeaserPoint[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<SignalQualityWeeklySummary | null>(null);
   const [lifecycleSummary, setLifecycleSummary] = useState<SignalLifecycleSummary | null>(null);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
@@ -775,15 +787,25 @@ export default function PerformancePage() {
         setLifecycleSummary(lifecycleSummaryData);
         setQualityRows(qualityData);
         setOpportunities(opportunitiesData);
+        setFreeOpportunityRows([]);
         setTeaser(null);
         setFreeSampleCards([]);
       } else {
-        const [teaserData, cardsData] = await Promise.all([
+        const [teaserData, cardsData, freeOpportunityData] = await Promise.all([
           getClvTeaser(token, days, selectedSport),
           getDashboardCards(token, { sport_key: selectedSport }),
+          getOpportunityTeaser(token, {
+            days: Math.min(days, 7),
+            sport_key: selectedSport,
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_strength: minStrength,
+            limit: 3,
+          }),
         ]);
         setTeaser(teaserData);
         setFreeSampleCards(cardsData);
+        setFreeOpportunityRows(freeOpportunityData);
         setSummaryRows([]);
         setRecapRows([]);
         setWeeklySummary(null);
@@ -1187,6 +1209,89 @@ export default function PerformancePage() {
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
           >
             {upgrading ? "Opening Checkout..." : "Upgrade to Unlock Live + Full Intel"}
+          </button>
+        </div>
+      )}
+      {!proAccess && (
+        <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+          <h2 className="mb-2 text-sm uppercase tracking-wider text-textMute">Top Delayed Opportunities</h2>
+          <p className="mb-3 text-xs text-textMute">
+            Free tier shows delayed opportunity context so you can evaluate current board quality. Edge and width detail
+            are Pro-only.
+          </p>
+          <div className="overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                  <th className="border-b border-borderTone py-2">Game</th>
+                  <th className="border-b border-borderTone py-2">Signal</th>
+                  <th className="border-b border-borderTone py-2">Strength</th>
+                  <th className="border-b border-borderTone py-2">Freshness</th>
+                  <th className="border-b border-borderTone py-2">Edge (Pro)</th>
+                  <th className="border-b border-borderTone py-2">Width (Pro)</th>
+                  <th className="border-b border-borderTone py-2">Created</th>
+                </tr>
+              </thead>
+              <tbody>
+                {freeOpportunityRows.map((row) => {
+                  const drilldownHref = buildTeaserDrilldownHref(row);
+                  return (
+                    <tr key={`${row.event_id}-${row.created_at}-${row.signal_type}-${row.market}`}>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <Link href={drilldownHref} className="text-accent hover:underline">
+                          {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
+                        </Link>
+                        {row.game_commence_time && (
+                          <p className="text-[11px] text-textMute">
+                            {new Date(row.game_commence_time).toLocaleString([], {
+                              month: "short",
+                              day: "2-digit",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                        )}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.strength_score}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <span className="capitalize">{row.freshness_bucket}</span>
+                        <span className="text-xs text-textMute"> • books {row.books_considered}</span>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMute">Locked</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMute">Locked</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMute">
+                        {new Date(row.created_at).toLocaleString([], {
+                          month: "short",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </td>
+                    </tr>
+                  );
+                })}
+                {freeOpportunityRows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-3 text-xs text-textMute">
+                      No delayed opportunities yet for the selected filters. Try widening days or setting market to
+                      ALL.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <button
+            onClick={() => {
+              void handleUpgrade();
+            }}
+            disabled={upgrading}
+            className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
+          >
+            {upgrading ? "Opening Checkout..." : "Upgrade to Unlock Edge + Width"}
           </button>
         </div>
       )}

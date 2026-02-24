@@ -309,6 +309,21 @@ export type OpportunityPoint = {
   actionable_reason: string;
 };
 
+export type OpportunityTeaserPoint = {
+  event_id: string;
+  game_label: string | null;
+  game_commence_time: string | null;
+  signal_type: string;
+  market: string;
+  outcome_name: string | null;
+  direction: string;
+  strength_score: number;
+  created_at: string;
+  freshness_bucket: "fresh" | "aging" | "stale" | string;
+  books_considered: number;
+  opportunity_status: "actionable" | "monitor" | "stale" | string;
+};
+
 export type AdminClvBySignalType = {
   signal_type: string;
   count: number;

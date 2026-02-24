@@ -11,6 +11,7 @@ import {
   GameDetail,
   GameListItem,
   OpportunityPoint,
+  OpportunityTeaserPoint,
   SignalLifecycleSummary,
   SignalQualityWeeklySummary,
   SignalQualityRow,
@@ -413,4 +414,26 @@ export async function getBestOpportunities(
   appendOptionalParam(params, "limit", options.limit);
 
   return apiRequest<OpportunityPoint[]>(`/intel/opportunities?${params.toString()}`, { token });
+}
+
+export async function getOpportunityTeaser(
+  token: string,
+  options: {
+    days?: number;
+    sport_key?: SportKey;
+    signal_type?: string;
+    market?: string;
+    min_strength?: number;
+    limit?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "limit", options.limit);
+
+  return apiRequest<OpportunityTeaserPoint[]>(`/intel/opportunities/teaser?${params.toString()}`, { token });
 }

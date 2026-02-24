@@ -1533,3 +1533,58 @@ async def get_best_opportunities(
         reverse=True,
     )
     return opportunities[:normalized_limit]
+
+
+async def get_delayed_opportunity_teaser(
+    db: AsyncSession,
+    *,
+    days: int,
+    sport_key: str | None = None,
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_strength: int | None = None,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    normalized_limit = max(1, min(int(limit), 20))
+    candidate_limit = max(50, min(150, normalized_limit * 10))
+    delay_cutoff = datetime.now(UTC) - timedelta(minutes=max(0, int(settings.free_delay_minutes)))
+
+    opportunities = await get_best_opportunities(
+        db,
+        days=days,
+        sport_key=sport_key,
+        signal_type=signal_type,
+        market=market,
+        min_strength=min_strength,
+        limit=candidate_limit,
+        include_stale=True,
+    )
+    delayed = [row for row in opportunities if row.get("created_at") is not None and row["created_at"] <= delay_cutoff]
+    delayed.sort(
+        key=lambda item: (
+            _opportunity_status_priority(str(item["opportunity_status"])),
+            int(item["opportunity_score"]),
+            item["created_at"],
+        ),
+        reverse=True,
+    )
+
+    redacted_rows: list[dict[str, Any]] = []
+    for row in delayed[:normalized_limit]:
+        redacted_rows.append(
+            {
+                "event_id": row["event_id"],
+                "game_label": row.get("game_label"),
+                "game_commence_time": row.get("game_commence_time"),
+                "signal_type": row["signal_type"],
+                "market": row["market"],
+                "outcome_name": row.get("outcome_name"),
+                "direction": row["direction"],
+                "strength_score": row["strength_score"],
+                "created_at": row["created_at"],
+                "freshness_bucket": row["freshness_bucket"],
+                "books_considered": row["books_considered"],
+                "opportunity_status": row["opportunity_status"],
+            }
+        )
+    return redacted_rows

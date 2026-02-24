@@ -101,6 +101,7 @@ async def _register_pro_user(async_client: AsyncClient, db_session: AsyncSession
         "/api/v1/intel/clv/recap?days=7&grain=day",
         "/api/v1/intel/clv/scorecards?days=7",
         "/api/v1/intel/clv/teaser?days=7",
+        "/api/v1/intel/opportunities/teaser?days=7",
         "/api/v1/intel/signals/quality?days=7",
         "/api/v1/intel/signals/weekly-summary?days=7",
         "/api/v1/intel/signals/lifecycle?days=7",
@@ -1191,6 +1192,115 @@ async def test_opportunities_dedupe_and_stale_filter_toggle(
     assert stale_rows[0]["opportunity_score"] <= 69
 
 
+async def test_opportunities_teaser_endpoint_returns_delayed_free_rows(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    delayed_event = "event_perf_opportunity_teaser_delayed"
+    fresh_event = "event_perf_opportunity_teaser_fresh"
+    commence = now + timedelta(hours=2)
+
+    delayed_signal = _signal(
+        event_id=delayed_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=88,
+        created_at=now - timedelta(minutes=25),
+        metadata={"outcome_name": "BOS"},
+    )
+    fresh_signal = _signal(
+        event_id=fresh_event,
+        market="spreads",
+        signal_type="MOVE",
+        strength=82,
+        created_at=now - timedelta(minutes=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all(
+        [
+            _game(event_id=delayed_event, commence_time=commence),
+            _game(event_id=fresh_event, commence_time=commence + timedelta(minutes=30)),
+            delayed_signal,
+            fresh_signal,
+        ]
+    )
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=delayed_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=3),
+            ),
+            _snapshot(
+                event_id=delayed_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=fresh_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.5,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=fresh_event,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=delayed_event,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.4,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=fresh_event,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.4,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    free_token = await _register(async_client, "perf-opportunity-teaser-free@example.com")
+    free_headers = {"Authorization": f"Bearer {free_token}"}
+    response = await async_client.get("/api/v1/intel/opportunities/teaser?days=7&limit=5", headers=free_headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    event_ids = {row["event_id"] for row in payload}
+    assert delayed_event in event_ids
+    assert fresh_event not in event_ids
+    assert "best_book_key" not in payload[0]
+
+
 async def test_new_intel_endpoints_gate_free_vs_pro(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -1223,6 +1333,9 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
     assert teaser.status_code == 200
     teaser_payload = teaser.json()
     assert teaser_payload["days"] == 30
+
+    free_opportunity_teaser = await async_client.get("/api/v1/intel/opportunities/teaser?days=7", headers=free_headers)
+    assert free_opportunity_teaser.status_code == 200
 
     free_scorecards = await async_client.get("/api/v1/intel/clv/scorecards?days=30", headers=free_headers)
     assert free_scorecards.status_code == 403

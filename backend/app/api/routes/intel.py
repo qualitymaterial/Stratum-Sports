@@ -23,12 +23,14 @@ from app.schemas.intel import (
     ClvTeaserResponse,
     ConsensusPoint,
     OpportunityPoint,
+    OpportunityTeaserPoint,
     SignalLifecycleSummary,
     SignalQualityPoint,
     SignalQualityWeeklySummary,
 )
 from app.services.performance_intel import (
     get_best_opportunities,
+    get_delayed_opportunity_teaser,
     get_actionable_book_card,
     get_actionable_book_cards_batch,
     get_clv_postgame_recap,
@@ -452,6 +454,53 @@ async def get_opportunities(
         },
     )
     return [OpportunityPoint(**row) for row in rows]
+
+
+@router.get("/opportunities/teaser", response_model=list[OpportunityTeaserPoint])
+async def get_opportunities_teaser(
+    days: int = Query(2, ge=1, le=30),
+    sport_key: str | None = Query(None),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    limit: int = Query(3, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[OpportunityTeaserPoint]:
+    _ensure_performance_enabled()
+    settings = get_settings()
+    if not settings.actionable_book_card_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Actionable book card is disabled")
+    if not settings.free_teaser_enabled and not is_pro(user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Teaser endpoint disabled")
+
+    start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    rows = await get_delayed_opportunity_teaser(
+        db,
+        days=days,
+        sport_key=resolved_sport_key,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        limit=limit,
+    )
+    logger.info(
+        "Intel opportunities teaser query served",
+        extra={
+            "days": days,
+            "sport_key": resolved_sport_key,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "min_strength": min_strength,
+            "limit": limit,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [OpportunityTeaserPoint(**row) for row in rows]
 
 
 @router.get("/signals/quality", response_model=list[SignalQualityPoint])
