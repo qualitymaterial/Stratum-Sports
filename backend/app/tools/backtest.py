@@ -30,6 +30,10 @@ from app.tools.backtest_rules import (
     sort_simulated_signals,
 )
 
+TIME_BUCKET_ORDER: tuple[str, ...] = ("OPEN", "MID", "LATE", "PRETIP", "UNKNOWN")
+SCORE_BAND_ORDER: tuple[str, ...] = ("0-54", "55-74", "75-100")
+SCORE_SOURCE_ORDER: tuple[str, ...] = ("composite", "strength_fallback")
+
 
 def _default_output_dir() -> Path:
     return Path(__file__).resolve().parents[2] / "reports"
@@ -156,6 +160,106 @@ def _build_clv_by_type(signals: list[SimulatedSignal]) -> dict[str, dict[str, fl
         }
 
     return summary
+
+
+def _is_positive_signal(signal: SimulatedSignal) -> bool:
+    return (
+        (signal.clv_line is not None and signal.clv_line > 0)
+        or (signal.clv_prob is not None and signal.clv_prob > 0)
+    )
+
+
+def _normalize_score(value: float | int) -> int:
+    return max(0, min(100, int(round(float(value)))))
+
+
+def _resolve_time_bucket(signal: SimulatedSignal) -> str:
+    raw_bucket = getattr(signal, "time_bucket", None)
+    if raw_bucket is None:
+        raw_bucket = signal.metadata.get("time_bucket")
+    if not isinstance(raw_bucket, str):
+        return "UNKNOWN"
+    normalized = raw_bucket.strip().upper()
+    if normalized in TIME_BUCKET_ORDER:
+        return normalized
+    return "UNKNOWN"
+
+
+def _resolve_segment_score(signal: SimulatedSignal) -> tuple[int, str]:
+    composite_value = getattr(signal, "composite_score", None)
+    if composite_value is None:
+        composite_value = signal.metadata.get("composite_score")
+    if isinstance(composite_value, (int, float)) and not isinstance(composite_value, bool):
+        return _normalize_score(composite_value), "composite"
+    return _normalize_score(signal.strength_score), "strength_fallback"
+
+
+def _score_band(score: int) -> str:
+    if score <= 54:
+        return "0-54"
+    if score <= 74:
+        return "55-74"
+    return "75-100"
+
+
+def _build_segments_time_bucket(signals: list[SimulatedSignal]) -> list[dict[str, object]]:
+    aggregates: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"count": 0, "positive_count": 0})
+    for signal in signals:
+        bucket = _resolve_time_bucket(signal)
+        _score, score_source = _resolve_segment_score(signal)
+        key = (bucket, score_source)
+        aggregates[key]["count"] += 1
+        if _is_positive_signal(signal):
+            aggregates[key]["positive_count"] += 1
+
+    rows: list[dict[str, object]] = []
+    for bucket in TIME_BUCKET_ORDER:
+        for score_source in SCORE_SOURCE_ORDER:
+            stats = aggregates.get((bucket, score_source))
+            if not stats:
+                continue
+            count = int(stats["count"])
+            positive_count = int(stats["positive_count"])
+            rows.append(
+                {
+                    "time_bucket": bucket,
+                    "score_source": score_source,
+                    "count": count,
+                    "positive_count": positive_count,
+                    "positive_rate": (positive_count / count) if count > 0 else 0.0,
+                }
+            )
+    return rows
+
+
+def _build_segments_score_band(signals: list[SimulatedSignal]) -> list[dict[str, object]]:
+    aggregates: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"count": 0, "positive_count": 0})
+    for signal in signals:
+        score, score_source = _resolve_segment_score(signal)
+        band = _score_band(score)
+        key = (band, score_source)
+        aggregates[key]["count"] += 1
+        if _is_positive_signal(signal):
+            aggregates[key]["positive_count"] += 1
+
+    rows: list[dict[str, object]] = []
+    for band in SCORE_BAND_ORDER:
+        for score_source in SCORE_SOURCE_ORDER:
+            stats = aggregates.get((band, score_source))
+            if not stats:
+                continue
+            count = int(stats["count"])
+            positive_count = int(stats["positive_count"])
+            rows.append(
+                {
+                    "score_band": band,
+                    "score_source": score_source,
+                    "count": count,
+                    "positive_count": positive_count,
+                    "positive_rate": (positive_count / count) if count > 0 else 0.0,
+                }
+            )
+    return rows
 
 
 def _family(signal_type: str) -> str | None:
@@ -323,6 +427,8 @@ async def run_backtest(
             "bottom_clv_line": [],
             "top_clv_prob": [],
             "bottom_clv_prob": [],
+            "segments_time_bucket": [],
+            "segments_score_band": [],
         }
         return [], summary
 
@@ -427,6 +533,8 @@ async def run_backtest(
         "bottom_clv_line": _leaderboard(all_signals, metric="clv_line", reverse=False),
         "top_clv_prob": _leaderboard(all_signals, metric="clv_prob", reverse=True),
         "bottom_clv_prob": _leaderboard(all_signals, metric="clv_prob", reverse=False),
+        "segments_time_bucket": _build_segments_time_bucket(all_signals),
+        "segments_score_band": _build_segments_score_band(all_signals),
     }
     return all_signals, summary
 

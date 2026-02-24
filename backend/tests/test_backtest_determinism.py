@@ -6,8 +6,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.tools.backtest import (
+    SCORE_BAND_ORDER,
+    SCORE_SOURCE_ORDER,
+    TIME_BUCKET_ORDER,
+    _build_segments_score_band,
+    _build_segments_time_bucket,
+)
 from app.tools.backtest import run_backtest
-from app.tools.backtest_rules import resolve_snapshot_ordering, snapshot_ordering_tuple
+from app.tools.backtest_rules import SimulatedSignal, resolve_snapshot_ordering, snapshot_ordering_tuple
 
 
 def _snapshot(
@@ -185,6 +192,141 @@ async def test_backtest_replay_is_deterministic(db_session: AsyncSession) -> Non
     assert _signal_fingerprint(signals_a) == _signal_fingerprint(signals_b)
     assert summary_a == summary_b
     assert summary_a["timestamp_field_used_counts"].get("fetched_at", 0) > 0
+    assert "segments_time_bucket" in summary_a
+    assert "segments_score_band" in summary_a
+    assert summary_a["segments_time_bucket"]
+    assert all(row["time_bucket"] == "UNKNOWN" for row in summary_a["segments_time_bucket"])
+    assert all(row["score_source"] == "strength_fallback" for row in summary_a["segments_time_bucket"])
+
+    bucket_order_map = {name: idx for idx, name in enumerate(TIME_BUCKET_ORDER)}
+    source_order_map = {name: idx for idx, name in enumerate(SCORE_SOURCE_ORDER)}
+    observed_bucket_order = [
+        (bucket_order_map[row["time_bucket"]], source_order_map[row["score_source"]])
+        for row in summary_a["segments_time_bucket"]
+    ]
+    assert observed_bucket_order == sorted(observed_bucket_order)
+
+    band_order_map = {name: idx for idx, name in enumerate(SCORE_BAND_ORDER)}
+    observed_band_order = [
+        (band_order_map[row["score_band"]], source_order_map[row["score_source"]])
+        for row in summary_a["segments_score_band"]
+    ]
+    assert observed_band_order == sorted(observed_band_order)
+
+
+def test_segment_builders_include_unknown_bucket_and_deterministic_ordering() -> None:
+    now = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    signals = [
+        SimulatedSignal(
+            event_id="event-1",
+            signal_type="MOVE",
+            market="spreads",
+            outcome_name="BOS",
+            created_at=now,
+            direction="UP",
+            strength_score=80,
+            entry_line=-3.5,
+            entry_price=-110,
+            from_value=-4.0,
+            to_value=-3.5,
+            from_price=-110,
+            to_price=-110,
+            window_minutes=10,
+            books_affected=5,
+            velocity_minutes=3.0,
+            metadata={"composite_score": 82, "time_bucket": "PRETIP"},
+            clv_line=0.2,
+            clv_prob=None,
+        ),
+        SimulatedSignal(
+            event_id="event-2",
+            signal_type="MOVE",
+            market="totals",
+            outcome_name="Over",
+            created_at=now,
+            direction="DOWN",
+            strength_score=62,
+            entry_line=225.0,
+            entry_price=-110,
+            from_value=226.0,
+            to_value=225.0,
+            from_price=-110,
+            to_price=-110,
+            window_minutes=15,
+            books_affected=6,
+            velocity_minutes=4.0,
+            metadata={},
+            clv_line=-0.1,
+            clv_prob=None,
+        ),
+        SimulatedSignal(
+            event_id="event-3",
+            signal_type="KEY_CROSS",
+            market="spreads",
+            outcome_name="NYK",
+            created_at=now,
+            direction="DOWN",
+            strength_score=45,
+            entry_line=3.5,
+            entry_price=-108,
+            from_value=2.5,
+            to_value=3.5,
+            from_price=-108,
+            to_price=-108,
+            window_minutes=10,
+            books_affected=5,
+            velocity_minutes=2.0,
+            metadata={"time_bucket": None},
+            clv_line=None,
+            clv_prob=0.02,
+        ),
+    ]
+
+    time_segments = _build_segments_time_bucket(signals)
+    score_segments = _build_segments_score_band(signals)
+
+    assert any(row["time_bucket"] == "UNKNOWN" for row in time_segments)
+    assert any(row["score_source"] == "composite" for row in time_segments)
+    assert any(row["score_source"] == "strength_fallback" for row in time_segments)
+    assert all(set(row.keys()) == {"time_bucket", "score_source", "count", "positive_count", "positive_rate"} for row in time_segments)
+    assert all(set(row.keys()) == {"score_band", "score_source", "count", "positive_count", "positive_rate"} for row in score_segments)
+
+    bucket_order_map = {name: idx for idx, name in enumerate(TIME_BUCKET_ORDER)}
+    source_order_map = {name: idx for idx, name in enumerate(SCORE_SOURCE_ORDER)}
+    assert [
+        (bucket_order_map[row["time_bucket"]], source_order_map[row["score_source"]])
+        for row in time_segments
+    ] == sorted(
+        (bucket_order_map[row["time_bucket"]], source_order_map[row["score_source"]])
+        for row in time_segments
+    )
+
+    band_order_map = {name: idx for idx, name in enumerate(SCORE_BAND_ORDER)}
+    assert [
+        (band_order_map[row["score_band"]], source_order_map[row["score_source"]])
+        for row in score_segments
+    ] == sorted(
+        (band_order_map[row["score_band"]], source_order_map[row["score_source"]])
+        for row in score_segments
+    )
+
+
+async def test_backtest_summary_includes_empty_segment_keys_when_no_games(db_session: AsyncSession) -> None:
+    _signals, summary = await run_backtest(
+        db=db_session,
+        start=datetime(2026, 3, 1, tzinfo=UTC),
+        end=datetime(2026, 3, 2, tzinfo=UTC),
+        sport_key="basketball_nba",
+        step_seconds=60,
+        markets=("spreads", "totals", "h2h"),
+        lookback_minutes=10,
+        min_books=5,
+    )
+    assert summary["games_processed"] == 0
+    assert "segments_time_bucket" in summary
+    assert "segments_score_band" in summary
+    assert summary["segments_time_bucket"] == []
+    assert summary["segments_score_band"] == []
 
 
 def test_timestamp_fallback_priority() -> None:
@@ -229,4 +371,3 @@ def test_timestamp_fallback_priority() -> None:
 
     ordering_tuple = snapshot_ordering_tuple(row_pk_only, fallback_timestamp=base)
     assert ordering_tuple == (base, "row-pk-only")
-
