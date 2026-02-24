@@ -24,6 +24,12 @@ def _signal(
     strength: int,
     created_at: datetime,
     metadata: dict,
+    velocity: float | None = None,
+    acceleration: float | None = None,
+    time_bucket: str | None = None,
+    composite_score: int | None = None,
+    minutes_to_tip: int | None = None,
+    computed_at: datetime | None = None,
 ) -> Signal:
     return Signal(
         event_id=event_id,
@@ -37,6 +43,12 @@ def _signal(
         window_minutes=10,
         books_affected=3,
         velocity_minutes=3.0,
+        velocity=velocity,
+        acceleration=acceleration,
+        time_bucket=time_bucket,
+        composite_score=composite_score,
+        minutes_to_tip=minutes_to_tip,
+        computed_at=computed_at,
         strength_score=strength,
         created_at=created_at,
         metadata_json=metadata,
@@ -705,6 +717,189 @@ async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(
     assert "hidden" in decisions
     hidden_row = next(row for row in payload if row["alert_decision"] == "hidden")
     assert "below min" in hidden_row["alert_reason"] or "above max" in hidden_row["alert_reason"]
+
+
+async def test_signal_quality_endpoint_supports_enrichment_filters(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_quality_enriched"
+    other_event_id = "event_perf_signal_quality_enriched_other"
+    db_session.add_all(
+        [
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=85,
+                created_at=now - timedelta(minutes=30),
+                metadata={"outcome_name": "BOS"},
+                velocity=0.025,
+                acceleration=0.004,
+                time_bucket="PRETIP",
+                composite_score=83,
+                minutes_to_tip=42,
+                computed_at=now - timedelta(minutes=29),
+            ),
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=80,
+                created_at=now - timedelta(minutes=24),
+                metadata={"outcome_name": "BOS"},
+                velocity=0.021,
+                acceleration=0.002,
+                time_bucket="LATE",
+                composite_score=59,
+                minutes_to_tip=220,
+                computed_at=now - timedelta(minutes=23),
+            ),
+            _signal(
+                event_id=other_event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=90,
+                created_at=now - timedelta(minutes=18),
+                metadata={"outcome_name": "BOS"},
+                velocity=0.009,
+                acceleration=0.001,
+                time_bucket="PRETIP",
+                composite_score=92,
+                minutes_to_tip=35,
+                computed_at=now - timedelta(minutes=17),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality-enriched@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/quality",
+        params={
+            "days": 7,
+            "signal_type": "MOVE",
+            "market": "spreads",
+            "min_score": 70,
+            "time_bucket": "PRETIP",
+            "velocity_gt": 0.01,
+            "game_id": event_id,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    row = payload[0]
+    assert row["event_id"] == event_id
+    assert row["composite_score"] == 83
+    assert row["time_bucket"] == "PRETIP"
+    assert row["velocity"] == pytest.approx(0.025)
+    assert row["acceleration"] == pytest.approx(0.004)
+    assert row["minutes_to_tip"] == 42
+    assert row["computed_at"] is not None
+
+
+async def test_signal_quality_endpoint_since_overrides_created_after(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_quality_since"
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="MOVE",
+            strength=86,
+            created_at=now - timedelta(days=5),
+            metadata={"outcome_name": "BOS"},
+            composite_score=77,
+            time_bucket="MID",
+            velocity=0.014,
+            minutes_to_tip=700,
+            computed_at=now - timedelta(days=5),
+        )
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality-since@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    without_since = await async_client.get(
+        "/api/v1/intel/signals/quality",
+        params={
+            "days": 1,
+            "created_after": (now - timedelta(days=1)).isoformat(),
+            "game_id": event_id,
+            "signal_type": "MOVE",
+            "market": "spreads",
+        },
+        headers=headers,
+    )
+    assert without_since.status_code == 200
+    assert without_since.json() == []
+
+    with_since = await async_client.get(
+        "/api/v1/intel/signals/quality",
+        params={
+            "days": 1,
+            "created_after": (now - timedelta(days=1)).isoformat(),
+            "since": (now - timedelta(days=7)).isoformat(),
+            "game_id": event_id,
+            "signal_type": "MOVE",
+            "market": "spreads",
+        },
+        headers=headers,
+    )
+    assert with_since.status_code == 200
+    payload = with_since.json()
+    assert len(payload) == 1
+    assert payload[0]["event_id"] == event_id
+
+
+async def test_signal_quality_endpoint_type_alias_and_nullable_enrichment_fields(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_quality_type_alias"
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="MOVE",
+            strength=80,
+            created_at=now - timedelta(minutes=15),
+            metadata={"outcome_name": "BOS"},
+        )
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality-type-alias@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/quality",
+        params={"days": 7, "type": "MOVE", "market": "spreads", "game_id": event_id},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    row = payload[0]
+    for field in (
+        "velocity",
+        "acceleration",
+        "time_bucket",
+        "composite_score",
+        "minutes_to_tip",
+        "computed_at",
+    ):
+        assert field in row
+    assert row["velocity"] is None
+    assert row["composite_score"] is None
 
 
 async def test_signal_quality_weekly_summary_endpoint(

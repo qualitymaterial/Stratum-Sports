@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime
 from time import perf_counter
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -539,12 +540,18 @@ async def post_teaser_interaction_event(
 async def get_signal_quality(
     sport_key: str | None = Query(None),
     signal_type: str | None = Query(None),
+    type_: str | None = Query(None, alias="type"),
     market: str | None = Query(None),
     min_strength: int | None = Query(None, ge=1, le=100),
     min_books_affected: int | None = Query(None, ge=1, le=100),
     max_dispersion: float | None = Query(None, ge=0),
     window_minutes_max: int | None = Query(None, ge=1, le=240),
+    min_score: int | None = Query(None, ge=0, le=100, examples=[75]),
+    time_bucket: Literal["OPEN", "MID", "LATE", "PRETIP"] | None = Query(None, examples=["PRETIP"]),
+    velocity_gt: float | None = Query(None, ge=0, examples=[0.01]),
     created_after: datetime | None = Query(None),
+    since: datetime | None = Query(None),
+    game_id: str | None = Query(None),
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
@@ -557,7 +564,7 @@ async def get_signal_quality(
     start = perf_counter()
     resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
-    resolved_signal_type = _resolve_signal_type(signal_type)
+    resolved_signal_type = _resolve_signal_type(signal_type or type_)
     connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
     rows = await get_signal_quality_rows(
         db,
@@ -568,7 +575,12 @@ async def get_signal_quality(
         min_books_affected=min_books_affected,
         max_dispersion=max_dispersion,
         window_minutes_max=window_minutes_max,
+        min_score=min_score,
+        time_bucket=time_bucket,
+        velocity_gt=velocity_gt,
         created_after=created_after,
+        since=since,
+        game_id=game_id,
         days=days,
         limit=limit,
         offset=offset,
@@ -584,6 +596,10 @@ async def get_signal_quality(
             "market": resolved_market,
             "days": days,
             "min_strength": min_strength,
+            "min_score": min_score,
+            "time_bucket": time_bucket,
+            "velocity_gt": velocity_gt,
+            "game_id": game_id,
             "apply_alert_rules": apply_alert_rules,
             "include_hidden": include_hidden,
             "rows": len(rows),

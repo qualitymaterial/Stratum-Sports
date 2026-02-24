@@ -578,7 +578,12 @@ async def get_signal_quality_rows(
     min_books_affected: int | None = None,
     max_dispersion: float | None = None,
     window_minutes_max: int | None = None,
+    min_score: int | None = None,
+    time_bucket: str | None = None,
+    velocity_gt: float | None = None,
+    game_id: str | None = None,
     created_after: datetime | None = None,
+    since: datetime | None = None,
     days: int = 30,
     limit: int = 100,
     offset: int = 0,
@@ -586,7 +591,7 @@ async def get_signal_quality_rows(
     include_hidden: bool = True,
     connection: DiscordConnection | None = None,
 ) -> list[dict[str, Any]]:
-    cutoff = created_after or (datetime.now(UTC) - timedelta(days=days))
+    cutoff = since or created_after or (datetime.now(UTC) - timedelta(days=days))
     effective_min_strength = (
         int(min_strength)
         if min_strength is not None
@@ -610,10 +615,18 @@ async def get_signal_quality_rows(
         stmt = stmt.where(Signal.signal_type == signal_type)
     if market:
         stmt = stmt.where(Signal.market == market)
+    if game_id:
+        stmt = stmt.where(Signal.event_id == game_id)
     if min_books_affected is not None:
         stmt = stmt.where(Signal.books_affected >= int(min_books_affected))
     if window_minutes_max is not None:
         stmt = stmt.where(Signal.window_minutes <= int(window_minutes_max))
+    if min_score is not None:
+        stmt = stmt.where(Signal.composite_score >= int(min_score))
+    if time_bucket is not None:
+        stmt = stmt.where(Signal.time_bucket == time_bucket)
+    if velocity_gt is not None:
+        stmt = stmt.where(Signal.velocity > float(velocity_gt))
     if max_dispersion is not None:
         dispersion_expr = cast(Signal.metadata_json["dispersion"].astext, Float)
         stmt = stmt.where(
@@ -680,6 +693,12 @@ async def get_signal_quality_rows(
                 "lifecycle_reason": lifecycle_reason,
                 "alert_decision": alert_decision,
                 "alert_reason": alert_reason,
+                "velocity": signal.velocity,
+                "acceleration": signal.acceleration,
+                "time_bucket": signal.time_bucket,
+                "composite_score": signal.composite_score,
+                "minutes_to_tip": signal.minutes_to_tip,
+                "computed_at": signal.computed_at,
                 "metadata": metadata,
             }
         )

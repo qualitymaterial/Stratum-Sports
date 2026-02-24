@@ -102,6 +102,12 @@ class SignalQualityPoint(BaseModel):
     lifecycle_reason: str
     alert_decision: str
     alert_reason: str
+    velocity: float | None
+    acceleration: float | None
+    time_bucket: str | None
+    composite_score: int | None
+    minutes_to_tip: int | None
+    computed_at: datetime | None
     metadata: dict
 
 
