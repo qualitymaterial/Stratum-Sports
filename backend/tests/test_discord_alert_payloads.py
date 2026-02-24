@@ -80,6 +80,24 @@ def _steam_signal(market: str = "spreads") -> Signal:
     )
 
 
+def _move_signal() -> Signal:
+    return Signal(
+        event_id="event_discord_move",
+        market="spreads",
+        signal_type="MOVE",
+        direction="UP",
+        from_value=-3.5,
+        to_value=-2.5,
+        from_price=-110,
+        to_price=-108,
+        window_minutes=10,
+        books_affected=8,
+        velocity_minutes=2.5,
+        strength_score=78,
+        metadata_json={"outcome_name": "BOS"},
+    )
+
+
 def test_dislocation_alert_format_has_required_fields() -> None:
     signal = _dislocation_signal("totals")
     game = Game(
@@ -100,6 +118,70 @@ def test_dislocation_alert_format_has_required_fields() -> None:
     assert "Books: 6" in message
     assert "Dispersion: 0.45" in message
     assert "Strength: 82" in message
+
+
+def test_enriched_move_alert_includes_intelligence_block() -> None:
+    signal = _move_signal()
+    signal.composite_score = 83
+    signal.time_bucket = "PRETIP"
+    signal.minutes_to_tip = 42
+    signal.velocity = 0.025
+    signal.acceleration = 0.004
+
+    game = Game(
+        event_id=signal.event_id,
+        sport_key="basketball_nba",
+        commence_time=datetime.now(UTC) + timedelta(hours=2),
+        home_team="NYK",
+        away_team="BOS",
+    )
+
+    message = _format_alert(signal, game)
+
+    assert "Composite Score: 83 (High)" in message
+    assert "Timing: PRETIP (42m to tip)" in message
+    assert "Velocity: 0.025" in message
+    assert "Acceleration: 0.004" in message
+    assert "— Intelligence —" in message
+
+
+def test_non_enriched_alert_excludes_intelligence_block_even_with_optional_fields() -> None:
+    signal = _move_signal()
+    signal.composite_score = None
+    signal.time_bucket = "LATE"
+    signal.minutes_to_tip = 180
+    signal.velocity = 0.033
+    signal.acceleration = 0.006
+
+    game = Game(
+        event_id=signal.event_id,
+        sport_key="basketball_nba",
+        commence_time=datetime.now(UTC) + timedelta(hours=2),
+        home_team="NYK",
+        away_team="BOS",
+    )
+    message = _format_alert(signal, game)
+
+    assert "Composite Score:" not in message
+    assert "Timing:" not in message
+    assert "\nVelocity: 0.033" not in message
+    assert "Acceleration:" not in message
+    assert "— Intelligence —" not in message
+
+
+def test_enriched_alert_omits_acceleration_when_missing() -> None:
+    signal = _move_signal()
+    signal.composite_score = 60
+    signal.time_bucket = "LATE"
+    signal.minutes_to_tip = 180
+    signal.velocity = 0.031
+    signal.acceleration = None
+
+    message = _format_alert(signal, None)
+    assert "Composite Score: 60 (Medium)" in message
+    assert "Timing: LATE (180m to tip)" in message
+    assert "Velocity: 0.031" in message
+    assert "Acceleration:" not in message
 
 
 def test_dislocation_connection_filtering_respects_existing_toggles() -> None:

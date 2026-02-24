@@ -34,6 +34,46 @@ def _alert_cooldown_key(user_id: str, signal: Signal) -> str:
     )
 
 
+def _score_tier(score: int) -> str:
+    if score >= 75:
+        return "High"
+    if score >= 55:
+        return "Medium"
+    return "Low"
+
+
+def _format_metric(value: float) -> str:
+    return f"{float(value):.3f}"
+
+
+def _format_timing_line(time_bucket: str | None, minutes_to_tip: int | None) -> str | None:
+    if time_bucket and minutes_to_tip is not None:
+        return f"{time_bucket} ({minutes_to_tip}m to tip)"
+    if time_bucket:
+        return time_bucket
+    if minutes_to_tip is not None:
+        return f"{minutes_to_tip}m to tip"
+    return None
+
+
+def _enrichment_block(signal: Signal) -> str:
+    if signal.composite_score is None:
+        return ""
+
+    lines = [
+        "— Intelligence —",
+        f"Composite Score: {signal.composite_score} ({_score_tier(int(signal.composite_score))})",
+    ]
+    timing_line = _format_timing_line(signal.time_bucket, signal.minutes_to_tip)
+    if timing_line:
+        lines.append(f"Timing: {timing_line}")
+    if signal.velocity is not None:
+        lines.append(f"Velocity: {_format_metric(signal.velocity)}")
+    if signal.acceleration is not None:
+        lines.append(f"Acceleration: {_format_metric(signal.acceleration)}")
+    return "\n" + "\n".join(lines)
+
+
 def _format_alert(signal: Signal, game: Game | None) -> str:
     game_line = "Unknown game"
     if game is not None:
@@ -61,7 +101,7 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
         else:
             comparison = f"{book_key}: {book_line} vs CONS: {consensus_line} (Δ {delta_display})"
 
-        return (
+        base_message = (
             "**STRATUM SIGNAL - NBA**\n"
             "Title: DISLOCATION\n"
             f"Game: {game_line}\n"
@@ -72,11 +112,12 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
             f"Dispersion: {dispersion}\n"
             f"Strength: {signal.strength_score}"
         )
+        return base_message + _enrichment_block(signal)
 
     market_label = signal.market.replace("h2h", "Moneyline").title()
     move = f"{signal.from_value} -> {signal.to_value}"
 
-    return (
+    base_message = (
         "**STRATUM SIGNAL - NBA**\n"
         f"Game: {game_line}\n"
         f"Market: {market_label}\n"
@@ -85,6 +126,7 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
         f"Books: {signal.books_affected}\n"
         f"Strength: {signal.strength_score}"
     )
+    return base_message + _enrichment_block(signal)
 
 
 async def dispatch_discord_alerts_for_signals(
