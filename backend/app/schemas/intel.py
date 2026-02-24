@@ -185,6 +185,9 @@ class OpportunityPoint(BaseModel):
     consensus_line: float | None
     consensus_price: float | None
     best_delta: float | None
+    best_edge_line: float | None
+    best_edge_prob: float | None
+    market_width: float | None
     delta_type: str
     books_considered: int
     freshness_seconds: int | None

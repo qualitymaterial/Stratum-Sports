@@ -158,6 +158,64 @@ function formatOpportunityQuote(line: number | null, price: number | null): stri
   return line != null ? `${formatLine(line)} (${formatAmerican(price)})` : formatAmerican(price);
 }
 
+function parseOptionalNumber(value: string | null): number | null {
+  if (value == null || value === "") {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function resolveOpportunityEdge(row: OpportunityPoint): {
+  value: number | null;
+  label: "line" | "prob";
+} {
+  if (row.best_edge_line != null) {
+    return { value: row.best_edge_line, label: "line" };
+  }
+  if (row.best_edge_prob != null) {
+    return { value: row.best_edge_prob, label: "prob" };
+  }
+  return { value: null, label: "line" };
+}
+
+function formatOpportunityEdge(row: OpportunityPoint): string {
+  const edge = resolveOpportunityEdge(row);
+  if (edge.value == null) {
+    return "-";
+  }
+  return edge.label === "prob" ? `${edge.value.toFixed(3)}p` : edge.value.toFixed(3);
+}
+
+function classifyMarketWidth(row: OpportunityPoint): "tight" | "balanced" | "wide" | "n/a" {
+  if (row.market_width == null) {
+    return "n/a";
+  }
+  if (row.market === "h2h") {
+    if (row.market_width <= 0.02) {
+      return "tight";
+    }
+    if (row.market_width >= 0.05) {
+      return "wide";
+    }
+    return "balanced";
+  }
+  if (row.market_width <= 1.0) {
+    return "tight";
+  }
+  if (row.market_width >= 2.5) {
+    return "wide";
+  }
+  return "balanced";
+}
+
+function formatOpportunityWidth(row: OpportunityPoint): string {
+  if (row.market_width == null) {
+    return "-";
+  }
+  return row.market === "h2h" ? `${row.market_width.toFixed(3)}p` : row.market_width.toFixed(3);
+}
+
 function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; nextStep: string } {
   const bestBook = row.best_book_key ?? "Best book";
   const delta =
@@ -310,6 +368,8 @@ export default function PerformancePage() {
   const [minBooksAffected, setMinBooksAffected] = useState(1);
   const [maxDispersion, setMaxDispersion] = useState<number | null>(null);
   const [windowMinutesMax, setWindowMinutesMax] = useState<number | null>(null);
+  const [minEdge, setMinEdge] = useState<number | null>(null);
+  const [maxWidth, setMaxWidth] = useState<number | null>(null);
   const [includeStaleOpportunities, setIncludeStaleOpportunities] = useState(false);
   const [recapGrain, setRecapGrain] = useState<RecapGrain>("day");
   const [summaryRows, setSummaryRows] = useState<ClvPerformanceRow[]>([]);
@@ -372,6 +432,8 @@ export default function PerformancePage() {
       "min_books_affected",
       "max_dispersion",
       "window_minutes_max",
+      "min_edge",
+      "max_width",
       "include_stale",
       "recap_grain",
     ].some((key) => searchParams.has(key));
@@ -428,6 +490,10 @@ export default function PerformancePage() {
             setWindowMinutesMax(Math.max(1, Math.min(240, parsed)));
           }
         }
+        const minEdgeParam = parseOptionalNumber(searchParams.get("min_edge"));
+        setMinEdge(minEdgeParam == null ? null : Math.max(0, minEdgeParam));
+        const maxWidthParam = parseOptionalNumber(searchParams.get("max_width"));
+        setMaxWidth(maxWidthParam == null ? null : Math.max(0, maxWidthParam));
         const includeStaleParam = searchParams.get("include_stale");
         if (includeStaleParam != null) {
           setIncludeStaleOpportunities(includeStaleParam === "1" || includeStaleParam === "true");
@@ -450,6 +516,8 @@ export default function PerformancePage() {
             minBooksAffected?: number;
             maxDispersion?: number | null;
             windowMinutesMax?: number | null;
+            minEdge?: number | null;
+            maxWidth?: number | null;
             includeStaleOpportunities?: boolean;
             recapGrain?: RecapGrain;
           };
@@ -491,6 +559,16 @@ export default function PerformancePage() {
           } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
             setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
           }
+          if (parsed.minEdge == null) {
+            setMinEdge(null);
+          } else if (typeof parsed.minEdge === "number" && Number.isFinite(parsed.minEdge)) {
+            setMinEdge(Math.max(0, parsed.minEdge));
+          }
+          if (parsed.maxWidth == null) {
+            setMaxWidth(null);
+          } else if (typeof parsed.maxWidth === "number" && Number.isFinite(parsed.maxWidth)) {
+            setMaxWidth(Math.max(0, parsed.maxWidth));
+          }
           if (typeof parsed.includeStaleOpportunities === "boolean") {
             setIncludeStaleOpportunities(parsed.includeStaleOpportunities);
           }
@@ -525,6 +603,8 @@ export default function PerformancePage() {
         minBooksAffected,
         maxDispersion,
         windowMinutesMax,
+        minEdge,
+        maxWidth,
         includeStaleOpportunities,
         recapGrain,
       }),
@@ -541,6 +621,8 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    minEdge,
+    maxWidth,
     includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
@@ -561,6 +643,8 @@ export default function PerformancePage() {
     params.set("min_books_affected", String(minBooksAffected));
     params.set("max_dispersion", maxDispersion == null ? "" : String(maxDispersion));
     params.set("window_minutes_max", windowMinutesMax == null ? "" : String(windowMinutesMax));
+    params.set("min_edge", minEdge == null ? "" : String(minEdge));
+    params.set("max_width", maxWidth == null ? "" : String(maxWidth));
     params.set("include_stale", includeStaleOpportunities ? "1" : "0");
     params.set("recap_grain", recapGrain);
     const next = params.toString();
@@ -579,6 +663,8 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    minEdge,
+    maxWidth,
     includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
@@ -666,6 +752,8 @@ export default function PerformancePage() {
             signal_type: resolvedSignalType,
             market: resolvedMarket,
             min_strength: minStrength,
+            min_edge: minEdge ?? undefined,
+            max_width: maxWidth ?? undefined,
             include_stale: includeStaleOpportunities,
             limit: 10,
           }),
@@ -738,6 +826,8 @@ export default function PerformancePage() {
     minBooksAffected,
     maxDispersion,
     windowMinutesMax,
+    minEdge,
+    maxWidth,
     includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
@@ -1401,6 +1491,36 @@ export default function PerformancePage() {
                 <p className="text-xs text-textMute">
                   Ranked by signal strength, dislocation magnitude, quote freshness, and CLV prior.
                 </p>
+                <label className="text-xs text-textMute">
+                  Min Edge
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={minEdge ?? ""}
+                    onChange={(event) => {
+                      const parsed = parseOptionalNumber(event.target.value);
+                      setMinEdge(parsed == null ? null : Math.max(0, parsed));
+                    }}
+                    placeholder="off"
+                    className="ml-2 w-24 rounded border border-borderTone bg-panelSoft px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+                <label className="text-xs text-textMute">
+                  Max Width
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={maxWidth ?? ""}
+                    onChange={(event) => {
+                      const parsed = parseOptionalNumber(event.target.value);
+                      setMaxWidth(parsed == null ? null : Math.max(0, parsed));
+                    }}
+                    placeholder="off"
+                    className="ml-2 w-24 rounded border border-borderTone bg-panelSoft px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
                 <label className="flex items-center gap-2 text-xs text-textMute">
                   <input
                     type="checkbox"
@@ -1421,6 +1541,8 @@ export default function PerformancePage() {
                     <th className="border-b border-borderTone py-2">Game</th>
                     <th className="border-b border-borderTone py-2">Signal</th>
                     <th className="border-b border-borderTone py-2">Book vs Consensus</th>
+                    <th className="border-b border-borderTone py-2">Edge</th>
+                    <th className="border-b border-borderTone py-2">Width</th>
                     <th className="border-b border-borderTone py-2">Freshness</th>
                     <th className="border-b border-borderTone py-2">CLV Prior</th>
                     <th className="border-b border-borderTone py-2">Created</th>
@@ -1503,6 +1625,13 @@ export default function PerformancePage() {
                           • Δ {row.best_delta != null ? row.best_delta.toFixed(3) : "-"}
                         </p>
                       </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{formatOpportunityEdge(row)}</td>
+                      <td className="border-b border-borderTone/50 py-2">
+                        <p className="text-textMain">{formatOpportunityWidth(row)}</p>
+                        <p className="text-[11px] uppercase tracking-wider text-textMute">
+                          {classifyMarketWidth(row)}
+                        </p>
+                      </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p className="capitalize">{row.freshness_bucket}</p>
                         <p className="text-[11px] text-textMute">
@@ -1529,7 +1658,7 @@ export default function PerformancePage() {
                   ))}
                   {opportunities.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-3 text-xs text-textMute">
+                      <td colSpan={10} className="py-3 text-xs text-textMute">
                         No opportunities matched current filters. Relax min strength or widen the day window.
                       </td>
                     </tr>

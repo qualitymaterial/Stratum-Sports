@@ -395,6 +395,8 @@ export async function getBestOpportunities(
     signal_type?: string;
     market?: string;
     min_strength?: number;
+    min_edge?: number;
+    max_width?: number;
     include_stale?: boolean;
     limit?: number;
   } = {},
@@ -405,6 +407,8 @@ export async function getBestOpportunities(
   appendOptionalParam(params, "signal_type", options.signal_type);
   appendOptionalParam(params, "market", options.market);
   appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "min_edge", options.min_edge);
+  appendOptionalParam(params, "max_width", options.max_width);
   appendOptionalParam(params, "include_stale", options.include_stale);
   appendOptionalParam(params, "limit", options.limit);
 

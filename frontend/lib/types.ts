@@ -282,6 +282,9 @@ export type OpportunityPoint = {
   consensus_line: number | null;
   consensus_price: number | null;
   best_delta: number | null;
+  best_edge_line: number | null;
+  best_edge_prob: number | null;
+  market_width: number | null;
   delta_type: string;
   books_considered: number;
   freshness_seconds: number | null;

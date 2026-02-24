@@ -1318,6 +1318,30 @@ def _opportunity_reason_tags(
     return tags
 
 
+def _compute_market_width(market: str, quotes: list[dict[str, Any]]) -> float | None:
+    if not quotes:
+        return None
+    if market in {"spreads", "totals"}:
+        lines = [_safe_float(quote.get("line")) for quote in quotes]
+        line_values = [float(line) for line in lines if line is not None]
+        if len(line_values) < 2:
+            return None
+        return float(max(line_values) - min(line_values))
+
+    probs: list[float] = []
+    for quote in quotes:
+        price = _safe_float(quote.get("price"))
+        if price is None:
+            continue
+        implied = american_to_implied_prob(price)
+        if implied is None:
+            continue
+        probs.append(float(implied))
+    if len(probs) < 2:
+        return None
+    return float(max(probs) - min(probs))
+
+
 async def get_best_opportunities(
     db: AsyncSession,
     *,
@@ -1326,6 +1350,8 @@ async def get_best_opportunities(
     signal_type: str | None = None,
     market: str | None = None,
     min_strength: int | None = None,
+    min_edge: float | None = None,
+    max_width: float | None = None,
     limit: int = 10,
     include_stale: bool = False,
 ) -> list[dict[str, Any]]:
@@ -1377,6 +1403,19 @@ async def get_best_opportunities(
         if card is None or int(card.get("books_considered") or 0) <= 0:
             continue
 
+        best_delta = _safe_float(card.get("best_delta"))
+        edge_magnitude = abs(float(best_delta)) if best_delta is not None else 0.0
+        delta_type = str(card.get("delta_type") or "line")
+        best_edge_line = edge_magnitude if delta_type == "line" else None
+        best_edge_prob = edge_magnitude if delta_type == "implied_prob" else None
+        market_width = _compute_market_width(signal.market, card.get("quotes") or [])
+
+        if min_edge is not None and edge_magnitude < float(min_edge):
+            continue
+        if max_width is not None:
+            if market_width is None or market_width > float(max_width):
+                continue
+
         prior = clv_prior_map.get((signal.signal_type, signal.market))
         prior_samples = int(prior["samples"]) if prior is not None else None
         prior_pct = float(prior["pct_positive"]) if prior is not None else None
@@ -1384,7 +1423,7 @@ async def get_best_opportunities(
             market=signal.market,
             strength_score=int(signal.strength_score),
             execution_rank=int(card.get("execution_rank") or 1),
-            best_delta=_safe_float(card.get("best_delta")),
+            best_delta=best_delta,
             books_considered=int(card.get("books_considered") or 0),
             freshness_bucket=str(card.get("freshness_bucket") or "stale"),
             clv_prior_pct_positive=prior_pct,
@@ -1398,7 +1437,7 @@ async def get_best_opportunities(
         tags = _opportunity_reason_tags(
             signal_type=signal.signal_type,
             market=signal.market,
-            best_delta=_safe_float(card.get("best_delta")),
+            best_delta=best_delta,
             books_considered=int(card.get("books_considered") or 0),
             freshness_bucket=str(card.get("freshness_bucket") or "stale"),
             dispersion=_safe_float(card.get("dispersion")),
@@ -1428,8 +1467,11 @@ async def get_best_opportunities(
             ),
             "consensus_line": _safe_float(card.get("consensus_line")),
             "consensus_price": _safe_float(card.get("consensus_price")),
-            "best_delta": _safe_float(card.get("best_delta")),
-            "delta_type": str(card.get("delta_type") or "line"),
+            "best_delta": best_delta,
+            "best_edge_line": best_edge_line,
+            "best_edge_prob": best_edge_prob,
+            "market_width": market_width,
+            "delta_type": delta_type,
             "books_considered": int(card.get("books_considered") or 0),
             "freshness_seconds": (
                 int(card["freshness_seconds"])
