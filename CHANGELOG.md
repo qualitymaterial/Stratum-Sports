@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 2026-02-24
+
+### Added
+- Announced paid Intel API partner access ($99/month) with a ranked signal feed and quality filters for private integrations.
+- Confirmed nullable-safe, backward-compatible enriched fields for incremental client adoption.
+
 ## 2026-02-21
 
 ### Added

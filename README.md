@@ -485,6 +485,12 @@ Internal weekly digest posts the operator report to an internal Discord webhook.
 - `OPS_DIGEST_MINUTE_UTC` (default `0`)
 - `OPS_DIGEST_LOOKBACK_DAYS` (default `7`)
 
+## Paid Intel API Access
+
+Stratum Sports Intel API is available through paid partner access ($99/month).
+It includes a ranked signal feed with quality filters (`time_bucket`, `since`, `min_score`, velocity thresholds, and composite score) for private integrations.
+Enrichment fields are nullable-safe and backward compatible. Contact `api-access@yourdomain.com` for partner access.
+
 ## Core API Routes
 
 - Auth: `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/me`

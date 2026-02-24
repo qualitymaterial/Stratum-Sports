@@ -196,7 +196,7 @@ export default function HeroLandingPage() {
               Built for disciplined market operators.
             </p>
             <p className="mt-3 max-w-2xl text-sm text-textMute">
-              Execution quality and CLV process matter more than noise.
+              Execution quality and CLV process matter more than noise. Paid Intel API partner access starts at $99/month.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -240,7 +240,7 @@ export default function HeroLandingPage() {
                 Structured taxonomy: MOVE, KEY_CROSS, DISLOCATION, STEAM
               </li>
               <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Closing-line discipline tracked and reviewed
+                Paid partner API access for private integrations ($99/month)
               </li>
             </ul>
             <p className="mt-4 text-xs text-textMute">
@@ -417,6 +417,7 @@ export default function HeroLandingPage() {
               <li>Full real-time signal feed</li>
               <li>Performance intelligence and recap surfaces</li>
               <li>Deeper opportunity drilldown and prioritization</li>
+              <li>Intel API partner access ($99/month)</li>
             </ul>
           </article>
         </div>
@@ -426,6 +427,7 @@ export default function HeroLandingPage() {
         <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-10">
           <p className="max-w-3xl text-sm text-textMute">
             Stratum is market intelligence software, not a picks guarantee. Use disciplined bankroll and risk management.
+            Developers: request API access at api-access@yourdomain.com.
           </p>
           <Link
             href="/register"
