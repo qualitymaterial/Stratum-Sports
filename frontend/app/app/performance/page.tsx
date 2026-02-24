@@ -6,11 +6,13 @@ import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import {
+  createCheckoutSession,
   getBestOpportunities,
   getClvRecap,
   getClvSummary,
   getClvTeaser,
   getClvTrustScorecards,
+  getDashboardCards,
   getSignalQuality,
   getSignalQualityWeeklySummary,
 } from "@/lib/api";
@@ -22,9 +24,11 @@ import {
   ClvRecapRow,
   ClvTeaserResponse,
   ClvTrustScorecard,
+  DashboardCard,
   OpportunityPoint,
   SignalQualityRow,
   SignalQualityWeeklySummary,
+  Signal,
   SportKey,
 } from "@/lib/types";
 
@@ -39,6 +43,12 @@ const PERFORMANCE_SPORT_OPTIONS: Array<{ key: SportKey; label: string }> = [
   { key: "basketball_ncaab", label: "NCAA M" },
   { key: "americanfootball_nfl", label: "NFL" },
 ];
+
+type FreeSignalSampleRow = {
+  signal: Signal;
+  gameLabel: string;
+  commenceTime: string;
+};
 
 type PresetDefinition = {
   label: string;
@@ -297,8 +307,10 @@ export default function PerformancePage() {
   const [opportunities, setOpportunities] = useState<OpportunityPoint[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<SignalQualityWeeklySummary | null>(null);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
+  const [freeSampleCards, setFreeSampleCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [filtersHydrated, setFiltersHydrated] = useState(false);
 
   const proAccess = hasProAccess(user);
@@ -636,9 +648,14 @@ export default function PerformancePage() {
         setQualityRows(qualityData);
         setOpportunities(opportunitiesData);
         setTeaser(null);
+        setFreeSampleCards([]);
       } else {
-        const teaserData = await getClvTeaser(token, days, selectedSport);
+        const [teaserData, cardsData] = await Promise.all([
+          getClvTeaser(token, days, selectedSport),
+          getDashboardCards(token, { sport_key: selectedSport }),
+        ]);
         setTeaser(teaserData);
+        setFreeSampleCards(cardsData);
         setSummaryRows([]);
         setRecapRows([]);
         setWeeklySummary(null);
@@ -650,6 +667,22 @@ export default function PerformancePage() {
       setError(err instanceof Error ? err.message : "Failed to load performance intel");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleUpgrade = async () => {
+    if (!token) {
+      return;
+    }
+    setUpgrading(true);
+    setError(null);
+    try {
+      const { url } = await createCheckoutSession(token);
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start checkout");
+    } finally {
+      setUpgrading(false);
     }
   };
 
@@ -746,6 +779,22 @@ export default function PerformancePage() {
     () => buildOperatorSummary(weeklySummary, opportunities),
     [weeklySummary, opportunities],
   );
+
+  const freeSignalRows = useMemo<FreeSignalSampleRow[]>(() => {
+    const rows: FreeSignalSampleRow[] = [];
+    for (const card of freeSampleCards) {
+      const gameLabel = `${card.away_team} @ ${card.home_team}`;
+      for (const signal of card.signals) {
+        rows.push({
+          signal,
+          gameLabel,
+          commenceTime: card.commence_time,
+        });
+      }
+    }
+    rows.sort((a, b) => new Date(b.signal.created_at).getTime() - new Date(a.signal.created_at).getTime());
+    return rows.slice(0, 14);
+  }, [freeSampleCards]);
 
   if (loading || !user) {
     return <LoadingState label="Loading performance..." />;
@@ -999,6 +1048,15 @@ export default function PerformancePage() {
           <p className="mt-3 text-xs text-textMute">
             Upgrade to Pro for full CLV diagnostics, signal quality filters, and actionable book cards.
           </p>
+          <button
+            onClick={() => {
+              void handleUpgrade();
+            }}
+            disabled={upgrading}
+            className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
+          >
+            {upgrading ? "Opening Checkout..." : "Upgrade to Unlock Live + Full Intel"}
+          </button>
         </div>
       )}
       {!proAccess && (
@@ -1015,6 +1073,85 @@ export default function PerformancePage() {
           <p className="text-sm text-textMute">
             Pro users get ranked opportunities with best book vs consensus, freshness, and CLV prior context.
           </p>
+        </div>
+      )}
+      {!proAccess && (
+        <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+          <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Free Signal Sample (Delayed)</h2>
+          <p className="mb-3 text-xs text-textMute">
+            You can review recent delayed signals with core trust context (books and freshness). Pro unlocks full
+            CLV-grade diagnostics and actionable ranking.
+          </p>
+          <div className="overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                  <th className="border-b border-borderTone py-2">Game</th>
+                  <th className="border-b border-borderTone py-2">Signal</th>
+                  <th className="border-b border-borderTone py-2">Outcome</th>
+                  <th className="border-b border-borderTone py-2">Strength</th>
+                  <th className="border-b border-borderTone py-2">Books</th>
+                  <th className="border-b border-borderTone py-2">Freshness</th>
+                </tr>
+              </thead>
+              <tbody>
+                {freeSignalRows.map((row) => {
+                  const outcome =
+                    typeof row.signal.metadata?.outcome_name === "string" ? row.signal.metadata.outcome_name : "-";
+                  const booksSample = Array.isArray(row.signal.metadata?.books)
+                    ? (row.signal.metadata.books as unknown[]).filter((book) => typeof book === "string").slice(0, 3)
+                    : [];
+                  const freshnessMinutes = Math.max(0, Math.floor(row.signal.freshness_seconds / 60));
+                  return (
+                    <tr key={`free-sample-${row.signal.id}`}>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <div>{row.gameLabel}</div>
+                        <div className="text-xs text-textMute">
+                          {new Date(row.commenceTime).toLocaleString([], {
+                            month: "short",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </div>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        {row.signal.signal_type} {row.signal.direction}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{String(outcome)}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal.strength_score}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        {row.signal.books_affected}
+                        {booksSample.length > 0 && (
+                          <span className="text-xs text-textMute"> ({booksSample.join(", ")})</span>
+                        )}
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <span className="capitalize">{row.signal.freshness_bucket}</span>
+                        <span className="text-xs text-textMute"> ({freshnessMinutes}m)</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {freeSignalRows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-3 text-xs text-textMute">
+                      No delayed sample signals in the current sport/time window.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <button
+            onClick={() => {
+              void handleUpgrade();
+            }}
+            disabled={upgrading}
+            className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
+          >
+            {upgrading ? "Opening Checkout..." : "Upgrade for Realtime + Full Filters"}
+          </button>
         </div>
       )}
 

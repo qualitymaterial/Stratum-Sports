@@ -21,6 +21,8 @@ export type Signal = {
   window_minutes: number;
   books_affected: number;
   velocity_minutes: number | null;
+  freshness_seconds: number;
+  freshness_bucket: "fresh" | "aging" | "stale";
   strength_score: number;
   created_at: string;
   metadata: Record<string, unknown>;

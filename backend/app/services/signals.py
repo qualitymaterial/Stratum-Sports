@@ -190,9 +190,27 @@ def _direction(from_value: float, to_value: float) -> str:
 
 
 def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
-    metadata = signal.metadata_json or {}
+    metadata = dict(signal.metadata_json or {})
+    freshness_seconds = max(0, int((datetime.now(UTC) - signal.created_at).total_seconds()))
+    if freshness_seconds <= 5 * 60:
+        freshness_bucket = "fresh"
+    elif freshness_seconds <= 10 * 60:
+        freshness_bucket = "aging"
+    else:
+        freshness_bucket = "stale"
+
+    metadata["books_count"] = signal.books_affected
+    metadata["freshness_seconds"] = freshness_seconds
+    metadata["freshness_bucket"] = freshness_bucket
+
     if not pro_user:
-        metadata = {k: v for k, v in metadata.items() if k not in {"books", "components"}}
+        books = metadata.get("books")
+        books_involved = metadata.get("books_involved")
+        metadata = {k: v for k, v in metadata.items() if k not in {"books", "books_involved", "components"}}
+        if isinstance(books, list):
+            metadata["books"] = books[:3]
+        elif isinstance(books_involved, list):
+            metadata["books"] = books_involved[:3]
 
     return {
         "id": signal.id,
@@ -207,6 +225,8 @@ def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
         "window_minutes": signal.window_minutes,
         "books_affected": signal.books_affected,
         "velocity_minutes": signal.velocity_minutes if pro_user else None,
+        "freshness_seconds": freshness_seconds,
+        "freshness_bucket": freshness_bucket,
         "strength_score": signal.strength_score,
         "created_at": signal.created_at,
         "metadata": metadata,

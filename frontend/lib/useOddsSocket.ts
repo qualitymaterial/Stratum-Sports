@@ -34,13 +34,17 @@ function buildWebSocketUrl(): string {
     }
 }
 
-export function useOddsSocket(onMessage: (msg: WebSocketMessage) => void) {
+export function useOddsSocket(onMessage: (msg: WebSocketMessage) => void, enabled: boolean = true) {
     const socketRef = useRef<WebSocket | null>(null);
     const [connected, setConnected] = useState(false);
     const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
     const blockedReconnectRef = useRef(false);
 
     const connect = useCallback(() => {
+        if (!enabled) {
+            setConnected(false);
+            return;
+        }
         if (blockedReconnectRef.current) return;
 
         const token = getToken();
@@ -84,9 +88,21 @@ export function useOddsSocket(onMessage: (msg: WebSocketMessage) => void) {
         };
 
         socketRef.current = ws;
-    }, [onMessage]);
+    }, [enabled, onMessage]);
 
     useEffect(() => {
+        if (!enabled) {
+            if (socketRef.current) {
+                socketRef.current.close();
+                socketRef.current = null;
+            }
+            if (reconnectTimeoutRef.current) {
+                clearTimeout(reconnectTimeoutRef.current);
+            }
+            blockedReconnectRef.current = true;
+            setConnected(false);
+            return;
+        }
         blockedReconnectRef.current = false;
         connect();
         return () => {
@@ -98,7 +114,7 @@ export function useOddsSocket(onMessage: (msg: WebSocketMessage) => void) {
             }
             blockedReconnectRef.current = true;
         };
-    }, [connect]);
+    }, [connect, enabled]);
 
     return { connected };
 }

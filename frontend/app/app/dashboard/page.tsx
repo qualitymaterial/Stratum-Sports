@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import { MarketSparkline } from "@/components/MarketSparkline";
 import { SignalBadge } from "@/components/SignalBadge";
-import { getDashboardCards } from "@/lib/api";
+import { createCheckoutSession, getDashboardCards } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { getDashboardConsensusUpdate } from "@/lib/dashboardRealtime";
@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [cards, setCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
   const [selectedSport, setSelectedSport] = useState<DashboardSportKey>(getInitialSport);
 
   // Handle real-time updates
@@ -74,7 +75,8 @@ export default function DashboardPage() {
     );
   }, []);
 
-  const { connected } = useOddsSocket(handleUpdate);
+  const proAccess = !!user && hasProAccess(user);
+  const { connected } = useOddsSocket(handleUpdate, proAccess);
 
   const load = async () => {
     if (!token) {
@@ -89,6 +91,22 @@ export default function DashboardPage() {
       setError(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const handleUpgradeRealtime = async () => {
+    if (!token) {
+      return;
+    }
+    setUpgrading(true);
+    setError(null);
+    try {
+      const { url } = await createCheckoutSession(token);
+      window.location.href = url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to start checkout");
+    } finally {
+      setUpgrading(false);
     }
   };
 
@@ -123,7 +141,6 @@ export default function DashboardPage() {
   if (loading || !user) {
     return <LoadingState label="Loading dashboard..." />;
   }
-  const proAccess = hasProAccess(user);
 
   return (
     <section className="space-y-5">
@@ -131,13 +148,33 @@ export default function DashboardPage() {
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-semibold">Market Dashboard</h1>
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${connected
-                ? "bg-positive/10 text-positive border border-positive/20"
-                : "bg-textMute/10 text-textMute border border-textMute/20"
-              }`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-positive animate-pulse" : "bg-textMute"}`} />
-              {connected ? "Live Update Active" : "Stream Offline"}
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                !proAccess
+                  ? "bg-textMute/10 text-textMute border border-textMute/20"
+                  : connected
+                    ? "bg-positive/10 text-positive border border-positive/20"
+                    : "bg-textMute/10 text-textMute border border-textMute/20"
+              }`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${
+                  !proAccess ? "bg-textMute" : connected ? "bg-positive animate-pulse" : "bg-textMute"
+                }`}
+              />
+              {!proAccess ? "Realtime Pro Only" : connected ? "Live Update Active" : "Stream Offline"}
             </span>
+            {!proAccess && (
+              <button
+                onClick={() => {
+                  void handleUpgradeRealtime();
+                }}
+                disabled={upgrading}
+                className="rounded border border-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
+              >
+                {upgrading ? "Opening..." : "Upgrade to Realtime"}
+              </button>
+            )}
           </div>
           <p className="text-sm text-textMute">
             {!proAccess
