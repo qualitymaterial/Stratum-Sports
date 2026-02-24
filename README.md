@@ -458,11 +458,131 @@ The performance page includes Pro-only 1-click signal quality presets (`High Con
 - `CONTEXT_SCORE_WEIGHT_INJURIES` (default `0.5`)
 - `CONTEXT_SCORE_WEIGHT_PLAYER_PROPS` (default `0.3`)
 - `CONTEXT_SCORE_WEIGHT_PACE` (default `0.2`)
+- `MARKET_DYNAMICS_LOOKBACK_MINUTES` (default `60`; enrichment lookback for MOVE/KEY_CROSS)
 
 When context blend is enabled, opportunities expose all three scores:
 - `opportunity_score` (core signal/execution score)
 - `context_score` (injury + player-props + pace composite)
 - `blended_score` (weighted combination used for ranking when enabled)
+
+## Signal Enrichment Fields (MOVE/KEY_CROSS only)
+
+New signals in the MOVE family are enriched at detection time with additive fields:
+
+- `minutes_to_tip`:
+  - integer minutes from signal time to game commence time
+  - computed from `games.commence_time` (fallback to snapshot commence time)
+  - nullable when timing data is unavailable
+- `time_bucket`:
+  - one of `OPEN`, `MID`, `LATE`, `PRETIP`
+  - nullable on the signal when timing is unavailable
+  - downstream summaries map missing bucket to `UNKNOWN`
+- `velocity`:
+  - points-per-minute magnitude from recent line series
+  - distinct from legacy `velocity_minutes` (window-duration style metric)
+  - nullable if insufficient points/timing
+- `acceleration`:
+  - `v2 - v1` from a split-window velocity comparison
+  - nullable if insufficient points/timing
+- `composite_score`:
+  - normalized score in `[0, 100]`
+  - nullable if enrichment could not compute
+- `computed_at`:
+  - timezone-aware timestamp when enrichment fields were computed
+  - nullable if enrichment could not compute
+
+Reliability behavior:
+- Enrichment is fail-open. If enrichment fails, the signal is still persisted and normal alert flow continues.
+- CLV pipeline is unchanged by enrichment.
+
+## Composite Score Formula (v1 heuristic)
+
+Composite score is a deterministic heuristic (no ML) using:
+
+- Move strength normalization: `normalize(abs(line_delta), 0.25, 2.0)`
+- Velocity normalization: `normalize(velocity or 0, 0.005, 0.05)`
+- Weighted base:
+  - `0.55 * move_strength_norm`
+  - `0.30 * velocity_norm`
+- Bonuses:
+  - `+0.15` if `KEY_CROSS`
+  - time bonus:
+    - `PRETIP: +0.05`
+    - `LATE: +0.03`
+    - `MID: +0.01`
+    - `OPEN: +0.00`
+- Final score:
+  - `score = round(100 * clamp(raw, 0, 1))`
+
+This is v1 intentionally: transparent, bounded, and explainable.
+
+## Intel Signal Quality API Usage
+
+Endpoint:
+- `GET /api/v1/intel/signals/quality`
+
+Additional filters:
+- `min_score` (`0..100`)
+- `time_bucket` (`OPEN|MID|LATE|PRETIP`)
+- `velocity_gt` (float)
+- `since` (datetime, takes precedence over `created_after` and `days`)
+- `game_id` (maps to `event_id`)
+- `type` alias for `signal_type`
+
+Examples:
+
+```bash
+curl -sS "http://localhost:8000/api/v1/intel/signals/quality?days=30&signal_type=MOVE&market=spreads&min_score=75&time_bucket=PRETIP" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+```bash
+curl -sS "http://localhost:8000/api/v1/intel/signals/quality?type=KEY_CROSS&velocity_gt=0.01&game_id=<event_id>&since=2026-02-20T00:00:00Z" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+```bash
+curl -sS "http://localhost:8000/api/v1/intel/signals/quality?market=totals&min_strength=60&min_score=55&limit=50" \
+  -H "Authorization: Bearer <TOKEN>"
+```
+
+## Discord Alert Enrichment Format
+
+When `composite_score` is present, Discord payload appends:
+
+```text
+— Intelligence —
+Composite Score: 83 (High)
+Timing: PRETIP (42m to tip)
+Velocity: 0.025
+Acceleration: 0.004
+```
+
+Tier labels:
+- `High`: `>= 75`
+- `Medium`: `55-74`
+- `Low`: `< 55`
+
+If `composite_score` is null, the enrichment block is omitted.
+
+## Backtest Segmentation Additions
+
+Backtest summary now includes:
+- `segments_time_bucket`
+- `segments_score_band`
+
+Segment details:
+- Time buckets: `OPEN`, `MID`, `LATE`, `PRETIP`, `UNKNOWN`
+- Score bands: `0-54`, `55-74`, `75-100`
+- `score_source` per segment row:
+  - `composite` when a numeric `composite_score` exists
+  - `strength_fallback` otherwise (uses `strength_score`)
+- Metrics per row:
+  - `count`
+  - `positive_count`
+  - `positive_rate`
+
+CLV computation and CLV-positive semantics are unchanged.
 
 ## Cycle KPI Controls
 
@@ -492,7 +612,7 @@ Internal weekly digest posts the operator report to an internal Discord webhook.
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
 - Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
 - Intel CLV (Pro): `/api/v1/intel/clv?days=30&event_id=...&signal_type=...&market=...&min_strength=...&limit=...`, `/api/v1/intel/clv/summary?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`, `/api/v1/intel/clv/scorecards?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`
-- Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&market=...&min_strength=...`
+- Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&type=...&market=...&min_strength=...&min_score=...&time_bucket=...&velocity_gt=...&since=...&game_id=...`
 - Intel Actionable Books (Pro): `/api/v1/intel/books/actionable?event_id=...&signal_id=...`, `/api/v1/intel/books/actionable/batch?event_id=...&signal_ids=<uuid,uuid,...>`
 - Intel CLV Teaser (Authenticated Free/Pro): `/api/v1/intel/clv/teaser?days=30`
 - Ops KPIs (Internal token): `/api/v1/ops/cycles?days=7&limit=200`, `/api/v1/ops/cycles/summary?days=7`, `/api/v1/ops/report?days=7`
