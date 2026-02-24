@@ -10,9 +10,17 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
+from app.services.composite_score import compute_composite_score
+from app.services.market_dynamics import (
+    build_line_series_from_snapshots,
+    compute_acceleration,
+    compute_velocity,
+    get_time_bucket,
+)
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -249,6 +257,8 @@ async def _detect_line_move_signals(
 ) -> list[Signal]:
     now = datetime.now(UTC)
     start_ts = now - timedelta(minutes=window_minutes)
+    dynamics_lookback_minutes = max(1, int(settings.market_dynamics_lookback_minutes))
+    dynamics_start_ts = now - timedelta(minutes=max(window_minutes, dynamics_lookback_minutes))
 
     # Single query across all event_ids — was one query per event before
     stmt = (
@@ -256,13 +266,23 @@ async def _detect_line_move_signals(
         .where(
             OddsSnapshot.event_id.in_(event_ids),
             OddsSnapshot.market == market,
-            OddsSnapshot.fetched_at >= start_ts,
+            OddsSnapshot.fetched_at >= dynamics_start_ts,
         )
         .order_by(OddsSnapshot.event_id, OddsSnapshot.outcome_name, OddsSnapshot.fetched_at)
     )
     snapshots = (await db.execute(stmt)).scalars().all()
     if not snapshots:
         return []
+
+    game_stmt = select(Game.event_id, Game.commence_time).where(Game.event_id.in_(event_ids))
+    game_rows = (await db.execute(game_stmt)).all()
+    game_commence_times = {event_id: commence_time for event_id, commence_time in game_rows}
+
+    latest_snapshot_by_event: dict[str, OddsSnapshot] = {}
+    for snap in snapshots:
+        existing = latest_snapshot_by_event.get(snap.event_id)
+        if existing is None or snap.fetched_at > existing.fetched_at:
+            latest_snapshot_by_event[snap.event_id] = snap
 
     # Group by (event_id, outcome_name) across all events in one pass
     grouped: dict[tuple[str, str], list[OddsSnapshot]] = defaultdict(list)
@@ -274,11 +294,12 @@ async def _detect_line_move_signals(
     created: list[Signal] = []
 
     for (event_id, outcome_name), snaps in grouped.items():
-        if len(snaps) < 2:
+        window_snaps = [snap for snap in snaps if snap.fetched_at >= start_ts]
+        if len(window_snaps) < 2:
             continue
 
-        from_snap = snaps[0]
-        to_snap = snaps[-1]
+        from_snap = window_snaps[0]
+        to_snap = window_snaps[-1]
 
         from_value = float(from_snap.line)
         to_value = float(to_snap.line)
@@ -289,7 +310,7 @@ async def _detect_line_move_signals(
             (to_snap.fetched_at - from_snap.fetched_at).total_seconds() / 60.0,
         )
         direction = _direction(from_value, to_value)
-        books = sorted({snap.sportsbook_key for snap in snaps})
+        books = sorted({snap.sportsbook_key for snap in window_snaps})
 
         if market == "spreads":
             triggered, signal_type, crosses, magnitude = should_trigger_spread_move(
@@ -319,6 +340,57 @@ async def _detect_line_move_signals(
             books_affected=len(books),
         )
 
+        velocity: float | None = None
+        acceleration: float | None = None
+        minutes_to_tip: int | None = None
+        time_bucket: str | None = None
+        composite_score: int | None = None
+        computed_at: datetime | None = None
+        try:
+            dynamics_stream = [
+                snap
+                for snap in snaps
+                if snap.fetched_at >= dynamics_start_ts
+            ]
+            points = build_line_series_from_snapshots(
+                dynamics_stream,
+                line_attr_candidates=("line",),
+                ts_attr_candidates=("fetched_at",),
+            )
+            velocity = compute_velocity(points)
+            acceleration = compute_acceleration(points)
+
+            commence_time = game_commence_times.get(event_id)
+            if commence_time is None:
+                fallback_snap = latest_snapshot_by_event.get(event_id)
+                commence_time = fallback_snap.commence_time if fallback_snap is not None else None
+
+            if commence_time is not None:
+                if commence_time.tzinfo is None:
+                    commence_time = commence_time.replace(tzinfo=UTC)
+                else:
+                    commence_time = commence_time.astimezone(UTC)
+                minutes_to_tip_float = (commence_time - now).total_seconds() / 60.0
+                minutes_to_tip = int(round(minutes_to_tip_float))
+                time_bucket = get_time_bucket(minutes_to_tip_float)
+                composite_score = compute_composite_score(
+                    move_strength=magnitude,
+                    velocity=velocity,
+                    key_cross_flag=bool(crosses),
+                    minutes_to_tip=minutes_to_tip_float,
+                )
+            computed_at = now
+        except Exception as exc:
+            logger.warning(
+                "Signal enrichment failed",
+                extra={
+                    "event_id": event_id,
+                    "market": market,
+                    "outcome_name": outcome_name,
+                    "error_type": type(exc).__name__,
+                },
+            )
+
         signal = Signal(
             event_id=event_id,
             market=market,
@@ -331,6 +403,12 @@ async def _detect_line_move_signals(
             window_minutes=window_minutes,
             books_affected=len(books),
             velocity_minutes=velocity_minutes,
+            velocity=velocity,
+            acceleration=acceleration,
+            time_bucket=time_bucket,
+            composite_score=composite_score,
+            minutes_to_tip=minutes_to_tip,
+            computed_at=computed_at,
             strength_score=strength,
             metadata_json={
                 "outcome_name": outcome_name,

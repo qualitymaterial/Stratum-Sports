@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     stratum_close_capture_enabled: bool = True
     stratum_close_capture_max_events_per_cycle: int = 10
     nba_key_numbers: str = "2,3,4,5,6,7,8,10"
+    market_dynamics_lookback_minutes: int = 60
 
     free_delay_minutes: int = 10
     free_watchlist_limit: int = 3
