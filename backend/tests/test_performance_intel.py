@@ -11,6 +11,7 @@ from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
+from app.models.teaser_interaction_event import TeaserInteractionEvent
 from app.models.user import User
 
 
@@ -91,6 +92,15 @@ async def _register_pro_user(async_client: AsyncClient, db_session: AsyncSession
     user.tier = "pro"
     await db_session.commit()
     return token
+
+
+async def _ensure_teaser_events_table(db_session: AsyncSession) -> None:
+    await db_session.run_sync(
+        lambda sync_session: TeaserInteractionEvent.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -1305,6 +1315,7 @@ async def test_teaser_interaction_event_endpoint_accepts_valid_payload(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
+    await _ensure_teaser_events_table(db_session)
     free_token = await _register(async_client, "perf-teaser-event-free@example.com")
     headers = {"Authorization": f"Bearer {free_token}"}
     response = await async_client.post(

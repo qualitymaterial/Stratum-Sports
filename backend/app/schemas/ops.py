@@ -92,6 +92,26 @@ class OperatorReport(BaseModel):
     reliability: OperatorReliabilityMetrics
 
 
+class ConversionBySportOut(BaseModel):
+    sport_key: str
+    teaser_views: int
+    teaser_clicks: int
+    click_through_rate: float
+
+
+class ConversionFunnelOut(BaseModel):
+    days: int
+    period_start: datetime
+    period_end: datetime
+    teaser_views: int
+    teaser_clicks: int
+    click_through_rate: float
+    unique_viewers: int
+    unique_clickers: int
+    by_sport: list[ConversionBySportOut]
+
+
 class AdminOverviewOut(BaseModel):
     report: OperatorReport
     recent_cycles: list[CycleKpiOut]
+    conversion: ConversionFunnelOut

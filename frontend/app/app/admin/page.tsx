@@ -66,6 +66,7 @@ export default function AdminPage() {
   const report = overview?.report ?? null;
   const ops = report?.ops;
   const reliability = report?.reliability;
+  const conversion = overview?.conversion ?? null;
   const recentCycles = overview?.recent_cycles ?? [];
   const topSignalTypes = Object.entries(ops?.signals_created_by_type ?? {})
     .sort((a, b) => b[1] - a[1])
@@ -180,6 +181,67 @@ export default function AdminPage() {
                 {signalType}: {count}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {conversion && (
+        <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
+          <p className="text-xs uppercase tracking-wider text-textMute">Conversion Funnel (Free Teaser)</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <div className="rounded border border-borderTone bg-panelSoft p-3">
+              <p className="text-[11px] uppercase tracking-wider text-textMute">Teaser Views</p>
+              <p className="mt-1 text-lg font-semibold text-textMain">{conversion.teaser_views}</p>
+            </div>
+            <div className="rounded border border-borderTone bg-panelSoft p-3">
+              <p className="text-[11px] uppercase tracking-wider text-textMute">Upgrade Clicks</p>
+              <p className="mt-1 text-lg font-semibold text-textMain">{conversion.teaser_clicks}</p>
+            </div>
+            <div className="rounded border border-borderTone bg-panelSoft p-3">
+              <p className="text-[11px] uppercase tracking-wider text-textMute">CTR</p>
+              <p className="mt-1 text-lg font-semibold text-textMain">
+                {(conversion.click_through_rate * 100).toFixed(1)}%
+              </p>
+            </div>
+            <div className="rounded border border-borderTone bg-panelSoft p-3">
+              <p className="text-[11px] uppercase tracking-wider text-textMute">Unique Users</p>
+              <p className="mt-1 text-lg font-semibold text-textMain">
+                {conversion.unique_viewers} / {conversion.unique_clickers}
+              </p>
+              <p className="mt-1 text-xs text-textMute">viewers / clickers</p>
+            </div>
+          </div>
+
+          <div className="mt-4 overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                  <th className="border-b border-borderTone py-2">Sport</th>
+                  <th className="border-b border-borderTone py-2">Views</th>
+                  <th className="border-b border-borderTone py-2">Clicks</th>
+                  <th className="border-b border-borderTone py-2">CTR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {conversion.by_sport.map((row) => (
+                  <tr key={`conv-${row.sport_key}`}>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.sport_key}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.teaser_views}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.teaser_clicks}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">
+                      {(row.click_through_rate * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+                {conversion.by_sport.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-3 text-xs text-textMute">
+                      No teaser interactions recorded in this window.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

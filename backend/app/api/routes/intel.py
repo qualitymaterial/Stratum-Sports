@@ -44,6 +44,7 @@ from app.services.performance_intel import (
     get_signal_quality_rows,
     get_signal_quality_weekly_summary,
 )
+from app.services.teaser_analytics import persist_teaser_interaction_event
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -508,10 +509,18 @@ async def get_opportunities_teaser(
 @router.post("/teaser/events", response_model=TeaserInteractionEventOut)
 async def post_teaser_interaction_event(
     payload: TeaserInteractionEventIn,
+    db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> TeaserInteractionEventOut:
     _ensure_performance_enabled()
     resolved_sport_key = _resolve_sport_key(payload.sport_key) if payload.sport_key else None
+    await persist_teaser_interaction_event(
+        db,
+        user=user,
+        event_name=payload.event_name,
+        source=payload.source,
+        sport_key=resolved_sport_key,
+    )
     logger.info(
         "Intel teaser interaction event",
         extra={

@@ -391,4 +391,20 @@ export type AdminCycleKpi = {
 export type AdminOverview = {
   report: AdminOperatorReport;
   recent_cycles: AdminCycleKpi[];
+  conversion: {
+    days: number;
+    period_start: string;
+    period_end: string;
+    teaser_views: number;
+    teaser_clicks: number;
+    click_through_rate: number;
+    unique_viewers: number;
+    unique_clickers: number;
+    by_sport: Array<{
+      sport_key: string;
+      teaser_views: number;
+      teaser_clicks: number;
+      click_through_rate: number;
+    }>;
+  };
 };
