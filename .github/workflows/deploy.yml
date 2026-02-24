@@ -2,11 +2,11 @@ name: Deploy to DigitalOcean
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches:
-      - main
+    inputs:
+      deploy_sha:
+        description: "Optional commit SHA to deploy (defaults to the selected branch HEAD)."
+        required: false
+        type: string
 
 permissions:
   actions: read
@@ -22,39 +22,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      should_deploy: ${{ steps.prepare.outputs.should_deploy }}
       deploy_sha: ${{ steps.prepare.outputs.deploy_sha }}
-      ci_run_url: ${{ steps.prepare.outputs.ci_run_url }}
     steps:
-      - name: Resolve deploy context
+      - name: Resolve deploy SHA
         id: prepare
         run: |
           set -eu
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            if [ "${{ github.event.workflow_run.conclusion }}" != "success" ]; then
-              echo "CI conclusion=${{ github.event.workflow_run.conclusion }}; skipping deploy."
-              echo "should_deploy=false" >> "$GITHUB_OUTPUT"
-              echo "deploy_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-              echo "ci_run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-            echo "deploy_sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-            echo "ci_run_url=${{ github.event.workflow_run.html_url }}" >> "$GITHUB_OUTPUT"
-            exit 0
+          SHA_INPUT="${{ inputs.deploy_sha }}"
+          if [ -n "$SHA_INPUT" ]; then
+            echo "deploy_sha=$SHA_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
-
-          echo "should_deploy=true" >> "$GITHUB_OUTPUT"
-          echo "deploy_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          echo "ci_run_url=" >> "$GITHUB_OUTPUT"
 
   verify-ci:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: prepare
-    if: needs.prepare.outputs.should_deploy == 'true'
-    outputs:
-      ci_run_url: ${{ steps.verify.outputs.ci_run_url }}
     steps:
       - name: Verify CI passed for this commit
         id: verify
@@ -79,7 +63,6 @@ jobs:
               return;
             }
             const latest = completed[0];
-            core.setOutput("ci_run_url", latest.html_url);
             if (latest.conclusion !== "success") {
               core.setFailed(`CI run failed for commit ${headSha}: ${latest.html_url}`);
               return;
@@ -90,7 +73,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: [prepare, verify-ci]
-    if: needs.prepare.outputs.should_deploy == 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -131,7 +113,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [prepare, build-images]
-    if: needs.prepare.outputs.should_deploy == 'true'
     steps:
       - name: Validate deploy secrets
         run: |
