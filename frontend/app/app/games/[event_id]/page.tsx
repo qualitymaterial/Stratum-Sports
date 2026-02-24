@@ -62,6 +62,100 @@ function buildPlainEnglishInsight(actionable: ActionableBookCard): {
   return { whatChanged, whyItMatters, nextAction };
 }
 
+type RankedQuoteRow = {
+  rank: number;
+  sportsbook_key: string;
+  line: number | null;
+  price: number;
+  delta: number | null;
+  absDelta: number;
+  freshnessMinutes: number | null;
+  freshnessLabel: "Fresh" | "Aging" | "Stale";
+  executionScore: number;
+};
+
+function getQuoteFreshnessLabel(minutes: number | null): "Fresh" | "Aging" | "Stale" {
+  if (minutes == null) {
+    return "Stale";
+  }
+  if (minutes <= 5) {
+    return "Fresh";
+  }
+  if (minutes <= 10) {
+    return "Aging";
+  }
+  return "Stale";
+}
+
+function getFreshnessScore(minutes: number | null): number {
+  if (minutes == null) {
+    return 0;
+  }
+  if (minutes <= 2) {
+    return 30;
+  }
+  if (minutes <= 5) {
+    return 24;
+  }
+  if (minutes <= 10) {
+    return 14;
+  }
+  if (minutes <= 20) {
+    return 6;
+  }
+  return 0;
+}
+
+function buildExecutionQuoteLadder(actionable: ActionableBookCard): RankedQuoteRow[] {
+  if (!actionable.quotes.length) {
+    return [];
+  }
+  const nowMs = Date.now();
+  const maxAbsDelta = Math.max(
+    0.0001,
+    ...actionable.quotes.map((quote) => Math.abs(quote.delta ?? 0)),
+  );
+
+  const rows = actionable.quotes.map((quote) => {
+    const fetchedAtMs = new Date(quote.fetched_at).getTime();
+    const freshnessMinutes = Number.isFinite(fetchedAtMs)
+      ? Math.max(0, Math.floor((nowMs - fetchedAtMs) / 60000))
+      : null;
+    const absDelta = Math.abs(quote.delta ?? 0);
+    const deltaScore = Math.round((absDelta / maxAbsDelta) * 70);
+    const freshnessScore = getFreshnessScore(freshnessMinutes);
+
+    return {
+      rank: 0,
+      sportsbook_key: quote.sportsbook_key,
+      line: quote.line,
+      price: quote.price,
+      delta: quote.delta,
+      absDelta,
+      freshnessMinutes,
+      freshnessLabel: getQuoteFreshnessLabel(freshnessMinutes),
+      executionScore: deltaScore + freshnessScore,
+    };
+  });
+
+  rows.sort((a, b) => {
+    if (b.executionScore !== a.executionScore) {
+      return b.executionScore - a.executionScore;
+    }
+    if (b.absDelta !== a.absDelta) {
+      return b.absDelta - a.absDelta;
+    }
+    const freshnessA = a.freshnessMinutes ?? Number.POSITIVE_INFINITY;
+    const freshnessB = b.freshnessMinutes ?? Number.POSITIVE_INFINITY;
+    if (freshnessA !== freshnessB) {
+      return freshnessA - freshnessB;
+    }
+    return a.sportsbook_key.localeCompare(b.sportsbook_key);
+  });
+
+  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
 function getSignalOutcomeName(signal: Signal): string | null {
   const raw = signal.metadata?.outcome_name;
   return typeof raw === "string" ? raw : null;
@@ -209,6 +303,10 @@ export default function GameDetailPage() {
   const actionableSignalIdSet = useMemo(() => new Set(actionableSignalIds), [actionableSignalIds]);
   const focusedActionable = focusedSignal ? actionableCards[focusedSignal.id] ?? null : null;
   const focusedExecution = focusedSignal ? classifyExecutionState(focusedSignal, focusedActionable) : null;
+  const focusedQuoteLadder = useMemo(
+    () => (focusedActionable ? buildExecutionQuoteLadder(focusedActionable).slice(0, 8) : []),
+    [focusedActionable],
+  );
 
   useEffect(() => {
     if (!proAccess || !token || !eventId || actionableSignalIds.length === 0) {
@@ -377,19 +475,56 @@ export default function GameDetailPage() {
             </div>
           </div>
 
-          {proAccess && focusedActionable && focusedActionable.top_books.length > 0 && (
+          {proAccess && focusedActionable && focusedQuoteLadder.length > 0 && (
             <div className="mt-3 rounded border border-borderTone bg-panelSoft p-3 text-sm">
-              <p className="text-xs uppercase tracking-wider text-textMute">Top Books For This Side</p>
-              <p className="mt-1 text-textMain">
-                {focusedActionable.top_books.map((book) => (
-                  <span key={`focus-${focusedSignal.id}-${book.sportsbook_key}`} className="mr-3 inline-block">
-                    {book.sportsbook_key}:{" "}
-                    {book.line != null
-                      ? `${formatLine(book.line, 1)} (${formatMoneyline(book.price)})`
-                      : formatMoneyline(book.price)}
-                  </span>
-                ))}
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs uppercase tracking-wider text-textMute">Best Book Ladder</p>
+                <p className="text-[11px] text-textMute">Execution-first rank using edge and freshness.</p>
+              </div>
+              <div className="mt-2 overflow-auto">
+                <table className="w-full border-collapse text-xs">
+                  <thead>
+                    <tr className="text-left uppercase tracking-wider text-textMute">
+                      <th className="border-b border-borderTone py-1 pr-2">Rank</th>
+                      <th className="border-b border-borderTone py-1 pr-2">Book</th>
+                      <th className="border-b border-borderTone py-1 pr-2">Quote</th>
+                      <th className="border-b border-borderTone py-1 pr-2">Delta</th>
+                      <th className="border-b border-borderTone py-1 pr-2">Freshness</th>
+                      <th className="border-b border-borderTone py-1">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {focusedQuoteLadder.map((row) => (
+                      <tr key={`focus-${focusedSignal.id}-${row.sportsbook_key}`}>
+                        <td className="border-b border-borderTone/60 py-1 pr-2 text-textMain">#{row.rank}</td>
+                        <td className="border-b border-borderTone/60 py-1 pr-2 text-textMain">{row.sportsbook_key}</td>
+                        <td className="border-b border-borderTone/60 py-1 pr-2 text-textMain">
+                          {row.line != null
+                            ? `${formatLine(row.line, 1)} (${formatMoneyline(row.price)})`
+                            : formatMoneyline(row.price)}
+                        </td>
+                        <td className="border-b border-borderTone/60 py-1 pr-2 text-textMain">
+                          {formatSigned(row.delta, 3)}
+                        </td>
+                        <td className="border-b border-borderTone/60 py-1 pr-2">
+                          <span
+                            className={
+                              row.freshnessLabel === "Fresh"
+                                ? "text-positive"
+                                : row.freshnessLabel === "Aging"
+                                  ? "text-accent"
+                                  : "text-negative"
+                            }
+                          >
+                            {row.freshnessMinutes != null ? `${row.freshnessMinutes}m` : "-"} • {row.freshnessLabel}
+                          </span>
+                        </td>
+                        <td className="border-b border-borderTone/60 py-1 text-textMain">{row.executionScore}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </div>
