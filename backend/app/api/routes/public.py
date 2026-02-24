@@ -69,6 +69,7 @@ async def get_public_teaser_opportunities(
         min_strength=max(1, int(get_settings().signal_filter_default_min_strength)),
         limit=normalized_limit,
         delay_minutes=delay_minutes,
+        include_stale=False,
     )
 
     status_map = {"actionable": "ACTIONABLE", "monitor": "MONITOR", "stale": "STALE"}

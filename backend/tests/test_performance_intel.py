@@ -88,7 +88,10 @@ async def _seed_public_teaser_signal(
     commence_time: datetime,
     created_at: datetime,
     strength: int = 90,
+    quote_fetched_at: datetime | None = None,
 ) -> None:
+    if quote_fetched_at is None:
+        quote_fetched_at = datetime.now(UTC) - timedelta(minutes=1)
     game = Game(
         event_id=event_id,
         sport_key=sport_key,
@@ -120,7 +123,7 @@ async def _seed_public_teaser_signal(
                 outcome_name=home_team,
                 line=-2.5,
                 price=-110,
-                fetched_at=created_at + timedelta(minutes=1),
+                fetched_at=quote_fetched_at,
             ),
             OddsSnapshot(
                 event_id=event_id,
@@ -133,7 +136,7 @@ async def _seed_public_teaser_signal(
                 outcome_name=home_team,
                 line=-3.0,
                 price=-108,
-                fetched_at=created_at + timedelta(minutes=2),
+                fetched_at=quote_fetched_at,
             ),
         ]
     )
@@ -1598,6 +1601,43 @@ async def test_public_teaser_limit_capped(
     assert response.status_code == 200
     payload = response.json()
     assert len(payload) <= 8
+
+
+async def test_public_teaser_excludes_stale_rows(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_fresh_only",
+        sport_key="basketball_nba",
+        home_team="Phoenix Suns",
+        away_team="Denver Nuggets",
+        commence_time=now + timedelta(hours=2),
+        created_at=now - timedelta(minutes=35),
+        quote_fetched_at=now - timedelta(minutes=1),
+    )
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_stale_only",
+        sport_key="basketball_nba",
+        home_team="Golden State Warriors",
+        away_team="Los Angeles Clippers",
+        commence_time=now + timedelta(hours=2),
+        created_at=now - timedelta(minutes=35),
+        quote_fetched_at=now - timedelta(minutes=40),
+    )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/opportunities?sport_key=basketball_nba&limit=8")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    labels = [row["game_label"] for row in payload]
+    assert "Denver Nuggets @ Phoenix Suns" in labels
+    assert "Los Angeles Clippers @ Golden State Warriors" not in labels
+    assert all(row["freshness_label"] != "Stale" for row in payload)
 
 
 async def test_public_teaser_redaction_no_internal_ids(

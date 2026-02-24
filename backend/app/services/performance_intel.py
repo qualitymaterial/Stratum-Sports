@@ -1638,6 +1638,7 @@ async def get_delayed_opportunity_teaser(
     min_strength: int | None = None,
     limit: int = 3,
     delay_minutes: int | None = None,
+    include_stale: bool = True,
 ) -> list[dict[str, Any]]:
     normalized_limit = max(1, min(int(limit), 20))
     candidate_limit = max(50, min(150, normalized_limit * 10))
@@ -1656,7 +1657,7 @@ async def get_delayed_opportunity_teaser(
         market=market,
         min_strength=min_strength,
         limit=candidate_limit,
-        include_stale=True,
+        include_stale=include_stale,
     )
     delayed = [row for row in opportunities if row.get("created_at") is not None and row["created_at"] <= delay_cutoff]
     delayed.sort(
