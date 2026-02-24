@@ -197,6 +197,10 @@ class OpportunityPoint(BaseModel):
     clv_prior_samples: int | None
     clv_prior_pct_positive: float | None
     opportunity_score: int
+    context_score: int | None
+    blended_score: int | None
+    ranking_score: int
+    score_basis: Literal["opportunity", "blended"]
     score_components: dict[str, int]
     score_summary: str
     opportunity_status: str

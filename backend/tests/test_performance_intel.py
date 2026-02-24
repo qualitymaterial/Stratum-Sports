@@ -13,6 +13,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 from app.models.user import User
+from app.services import performance_intel
 
 
 def _signal(
@@ -1065,6 +1066,10 @@ async def test_opportunities_endpoint_returns_ranked_opportunities(
     assert payload[0]["event_id"] == event_a
     assert payload[0]["game_label"] == "NYK @ BOS"
     assert payload[0]["opportunity_score"] >= payload[1]["opportunity_score"]
+    assert payload[0]["score_basis"] == "opportunity"
+    assert payload[0]["ranking_score"] == payload[0]["opportunity_score"]
+    assert "context_score" in payload[0]
+    assert "blended_score" in payload[0]
     assert isinstance(payload[0]["score_summary"], str) and payload[0]["score_summary"]
     assert "strength" in payload[0]["score_components"]
     assert "delta" in payload[0]["score_components"]
@@ -1200,6 +1205,135 @@ async def test_opportunities_dedupe_and_stale_filter_toggle(
     assert len(stale_rows) == 1, include_stale_payload
     assert stale_rows[0]["opportunity_status"] == "stale"
     assert stale_rows[0]["opportunity_score"] <= 69
+
+
+async def test_opportunities_can_rank_by_blended_score_when_enabled(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    now = datetime.now(UTC)
+    event_low_context = "event_perf_opportunity_blend_low_context"
+    event_high_context = "event_perf_opportunity_blend_high_context"
+    commence = now + timedelta(hours=2)
+
+    # Keep core opportunity score similar so context blend decides ordering.
+    signal_low = _signal(
+        event_id=event_low_context,
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(minutes=8),
+        metadata={"outcome_name": "BOS"},
+    )
+    signal_high = _signal(
+        event_id=event_high_context,
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(minutes=7),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all(
+        [
+            _game(event_id=event_low_context, commence_time=commence),
+            _game(event_id=event_high_context, commence_time=commence + timedelta(minutes=20)),
+            signal_low,
+            signal_high,
+        ]
+    )
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            _snapshot(
+                event_id=event_low_context,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.5,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=event_low_context,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            _snapshot(
+                event_id=event_high_context,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="draftkings",
+                line=-2.5,
+                price=-110,
+                fetched_at=now - timedelta(minutes=2),
+            ),
+            _snapshot(
+                event_id=event_high_context,
+                market="spreads",
+                outcome_name="BOS",
+                sportsbook_key="fanduel",
+                line=-3.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=event_low_context,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.5,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+            MarketConsensusSnapshot(
+                event_id=event_high_context,
+                market="spreads",
+                outcome_name="BOS",
+                consensus_line=-3.5,
+                consensus_price=-110.0,
+                dispersion=0.5,
+                books_count=6,
+                fetched_at=now - timedelta(minutes=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    async def _fake_context(_db: AsyncSession, event_id: str) -> dict:
+        score = 20 if event_id == event_low_context else 95
+        return {
+            "event_id": event_id,
+            "components": [
+                {"component": "injuries", "status": "computed", "score": score},
+                {"component": "player_props", "status": "computed", "score": score},
+                {"component": "pace", "status": "computed", "score": score},
+            ],
+        }
+
+    monkeypatch.setattr(performance_intel, "build_context_score", _fake_context)
+    monkeypatch.setattr(performance_intel.settings, "context_score_blend_enabled", True)
+    monkeypatch.setattr(performance_intel.settings, "context_score_blend_weight_opportunity", 0.8)
+    monkeypatch.setattr(performance_intel.settings, "context_score_blend_weight_context", 0.2)
+
+    token = await _register_pro_user(async_client, db_session, "perf-opportunities-blend@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/opportunities?days=7&signal_type=MOVE&market=spreads&min_strength=60&limit=10",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 2
+    assert payload[0]["score_basis"] == "blended"
+    assert payload[0]["event_id"] == event_high_context
+    assert payload[0]["blended_score"] >= payload[1]["blended_score"]
 
 
 async def test_opportunities_teaser_endpoint_returns_delayed_free_rows(

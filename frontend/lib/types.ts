@@ -293,6 +293,10 @@ export type OpportunityPoint = {
   clv_prior_samples: number | null;
   clv_prior_pct_positive: number | null;
   opportunity_score: number;
+  context_score?: number | null;
+  blended_score?: number | null;
+  ranking_score?: number;
+  score_basis?: "opportunity" | "blended";
   score_components: {
     strength: number;
     execution: number;

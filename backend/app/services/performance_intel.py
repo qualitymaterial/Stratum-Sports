@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections import Counter
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,7 @@ from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.services.alert_rules import evaluate_signal_for_connection
+from app.services.context_score import build_context_score
 from app.services.signals import american_to_implied_prob
 
 logger = logging.getLogger(__name__)
@@ -1268,6 +1270,66 @@ def _compute_opportunity_score(
     return normalized, score_components, score_summary
 
 
+def _compute_context_score(context_scaffold: dict[str, Any] | None) -> int | None:
+    if not isinstance(context_scaffold, dict):
+        return None
+    components = context_scaffold.get("components")
+    if not isinstance(components, list):
+        return None
+
+    by_name: dict[str, int] = {}
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        name = str(component.get("component") or "").strip().lower()
+        if not name:
+            continue
+        raw_score = component.get("score")
+        if raw_score is None:
+            continue
+        parsed = _safe_float(raw_score)
+        if parsed is None:
+            continue
+        by_name[name] = max(0, min(100, int(round(parsed))))
+
+    weighted_inputs = [
+        ("injuries", float(settings.context_score_weight_injuries)),
+        ("player_props", float(settings.context_score_weight_player_props)),
+        ("pace", float(settings.context_score_weight_pace)),
+    ]
+    available: list[tuple[int, float]] = []
+    for name, weight in weighted_inputs:
+        score = by_name.get(name)
+        if score is None:
+            continue
+        available.append((score, max(0.0, weight)))
+
+    if not available:
+        return None
+
+    weight_total = sum(weight for _score, weight in available)
+    if weight_total <= 0:
+        return int(round(sum(score for score, _weight in available) / len(available)))
+
+    weighted_score = sum(score * weight for score, weight in available) / weight_total
+    return max(1, min(100, int(round(weighted_score))))
+
+
+def _compute_blended_score(*, opportunity_score: int, context_score: int | None) -> int | None:
+    if context_score is None:
+        return None
+    opp_weight = max(0.0, float(settings.context_score_blend_weight_opportunity))
+    ctx_weight = max(0.0, float(settings.context_score_blend_weight_context))
+    if opp_weight <= 0 and ctx_weight <= 0:
+        opp_weight = 0.8
+        ctx_weight = 0.2
+    weight_total = opp_weight + ctx_weight
+    if weight_total <= 0:
+        return opportunity_score
+    blended = ((float(opportunity_score) * opp_weight) + (float(context_score) * ctx_weight)) / weight_total
+    return max(1, min(100, int(round(blended))))
+
+
 def _opportunity_status(*, score: int, freshness_bucket: str) -> str:
     if freshness_bucket == "stale":
         return "stale"
@@ -1391,6 +1453,22 @@ async def get_best_opportunities(
         games = (await db.execute(games_stmt)).scalars().all()
         game_map = {game.event_id: game for game in games}
 
+    context_scaffold_by_event: dict[str, dict[str, Any] | None] = {}
+    if event_ids:
+        async def _fetch_context(event_id: str) -> tuple[str, dict[str, Any] | None]:
+            try:
+                return event_id, await build_context_score(db, event_id)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "Context score build failed; proceeding without context blend for event",
+                    exc_info=True,
+                    extra={"event_id": event_id},
+                )
+                return event_id, None
+
+        context_pairs = await asyncio.gather(*(_fetch_context(event_id) for event_id in event_ids))
+        context_scaffold_by_event = {event_id: payload for event_id, payload in context_pairs}
+
     clv_prior_map = await _clv_prior_by_signal_market(db, days=max(days, 30), sport_key=sport_key)
     deduped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for signal in signals:
@@ -1419,7 +1497,7 @@ async def get_best_opportunities(
         prior = clv_prior_map.get((signal.signal_type, signal.market))
         prior_samples = int(prior["samples"]) if prior is not None else None
         prior_pct = float(prior["pct_positive"]) if prior is not None else None
-        score, score_components, score_summary = _compute_opportunity_score(
+        opportunity_score, score_components, score_summary = _compute_opportunity_score(
             market=signal.market,
             strength_score=int(signal.strength_score),
             execution_rank=int(card.get("execution_rank") or 1),
@@ -1430,16 +1508,27 @@ async def get_best_opportunities(
             clv_prior_samples=prior_samples,
             dispersion=_safe_float(card.get("dispersion")),
         )
+        context_score = _compute_context_score(context_scaffold_by_event.get(signal.event_id))
+        blended_score = _compute_blended_score(
+            opportunity_score=opportunity_score,
+            context_score=context_score,
+        )
+        use_blended = bool(settings.context_score_blend_enabled and blended_score is not None)
+        freshness_bucket = str(card.get("freshness_bucket") or "stale")
+        ranking_score = int(blended_score if use_blended else opportunity_score)
+        if freshness_bucket == "stale":
+            ranking_score = min(69, ranking_score)
+        score_basis = "blended" if use_blended else "opportunity"
         status = _opportunity_status(
-            score=score,
-            freshness_bucket=str(card.get("freshness_bucket") or "stale"),
+            score=ranking_score,
+            freshness_bucket=freshness_bucket,
         )
         tags = _opportunity_reason_tags(
             signal_type=signal.signal_type,
             market=signal.market,
             best_delta=best_delta,
             books_considered=int(card.get("books_considered") or 0),
-            freshness_bucket=str(card.get("freshness_bucket") or "stale"),
+            freshness_bucket=freshness_bucket,
             dispersion=_safe_float(card.get("dispersion")),
             clv_prior_pct_positive=prior_pct,
             clv_prior_samples=prior_samples,
@@ -1482,7 +1571,11 @@ async def get_best_opportunities(
             "execution_rank": int(card.get("execution_rank") or 1),
             "clv_prior_samples": prior_samples,
             "clv_prior_pct_positive": prior_pct,
-            "opportunity_score": score,
+            "opportunity_score": opportunity_score,
+            "context_score": context_score,
+            "blended_score": blended_score,
+            "ranking_score": ranking_score,
+            "score_basis": score_basis,
             "score_components": score_components,
             "score_summary": score_summary,
             "opportunity_status": status,
@@ -1502,14 +1595,14 @@ async def get_best_opportunities(
         else:
             incoming_rank = (
                 _opportunity_status_priority(str(row["opportunity_status"])),
-                int(row["opportunity_score"]),
+                int(row["ranking_score"]),
                 int(row["strength_score"]),
                 int(row["execution_rank"]),
                 row["created_at"],
             )
             existing_rank = (
                 _opportunity_status_priority(str(existing["opportunity_status"])),
-                int(existing["opportunity_score"]),
+                int(existing["ranking_score"]),
                 int(existing["strength_score"]),
                 int(existing["execution_rank"]),
                 existing["created_at"],
@@ -1524,7 +1617,7 @@ async def get_best_opportunities(
     opportunities.sort(
         key=lambda item: (
             _opportunity_status_priority(str(item["opportunity_status"])),
-            int(item["opportunity_score"]),
+            int(item["ranking_score"]),
             int(item["strength_score"]),
             int(item["execution_rank"]),
             item["created_at"],

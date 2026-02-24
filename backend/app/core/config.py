@@ -164,6 +164,12 @@ class Settings(BaseSettings):
     signal_filter_default_min_strength: int = 60
     actionable_book_max_books: int = 8
     free_teaser_enabled: bool = True
+    context_score_blend_enabled: bool = False
+    context_score_blend_weight_opportunity: float = 0.8
+    context_score_blend_weight_context: float = 0.2
+    context_score_weight_injuries: float = 0.5
+    context_score_weight_player_props: float = 0.3
+    context_score_weight_pace: float = 0.2
     ops_internal_token: str = "dev-ops-token"
     ops_digest_enabled: bool = False
     ops_digest_webhook_url: str = ""

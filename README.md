@@ -448,6 +448,17 @@ The performance page includes Pro-only 1-click signal quality presets (`High Con
 - `SIGNAL_FILTER_DEFAULT_MIN_STRENGTH` (default `60`)
 - `ACTIONABLE_BOOK_MAX_BOOKS` (default `8`)
 - `FREE_TEASER_ENABLED` (default `true`)
+- `CONTEXT_SCORE_BLEND_ENABLED` (default `false`; when enabled, opportunities rank by `blended_score`)
+- `CONTEXT_SCORE_BLEND_WEIGHT_OPPORTUNITY` (default `0.8`)
+- `CONTEXT_SCORE_BLEND_WEIGHT_CONTEXT` (default `0.2`)
+- `CONTEXT_SCORE_WEIGHT_INJURIES` (default `0.5`)
+- `CONTEXT_SCORE_WEIGHT_PLAYER_PROPS` (default `0.3`)
+- `CONTEXT_SCORE_WEIGHT_PACE` (default `0.2`)
+
+When context blend is enabled, opportunities expose all three scores:
+- `opportunity_score` (core signal/execution score)
+- `context_score` (injury + player-props + pace composite)
+- `blended_score` (weighted combination used for ranking when enabled)
 
 ## Cycle KPI Controls
 

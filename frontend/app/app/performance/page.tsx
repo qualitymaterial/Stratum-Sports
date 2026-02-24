@@ -301,7 +301,13 @@ function buildQualityHoverText(row: SignalQualityRow): string {
 
 function buildOpportunityScoreHoverText(row: OpportunityPoint): string {
   const components = row.score_components;
+  const rankingScore = typeof row.ranking_score === "number" ? row.ranking_score : row.opportunity_score;
+  const contextScore = typeof row.context_score === "number" ? row.context_score : null;
+  const blendedScore = typeof row.blended_score === "number" ? row.blended_score : null;
+  const scoreBasis = row.score_basis === "blended" ? "blended" : "opportunity";
   return [
+    `Ranking score (${scoreBasis}) = ${rankingScore}`,
+    `Opportunity score = ${row.opportunity_score}, Context score = ${contextScore ?? "-"}, Blended score = ${blendedScore ?? "-"}`,
     row.score_summary,
     `Strength=${components.strength}, Execution=${components.execution}, Delta=${components.delta}, Books=${components.books}`,
     `Freshness=${components.freshness}, CLV=${components.clv_prior}, Dispersion=${components.dispersion_penalty}, StaleCap=${components.stale_cap_penalty}`,
@@ -1688,7 +1694,7 @@ export default function PerformancePage() {
               <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="text-left text-xs uppercase tracking-wider text-textMute">
-                    <th className="border-b border-borderTone py-2">Score</th>
+                    <th className="border-b border-borderTone py-2">Scores</th>
                     <th className="border-b border-borderTone py-2">Status</th>
                     <th className="border-b border-borderTone py-2">Game</th>
                     <th className="border-b border-borderTone py-2">Signal</th>
@@ -1718,18 +1724,35 @@ export default function PerformancePage() {
                       className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
                     >
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <p className="inline-flex items-center gap-1">
-                          <span>{row.opportunity_score}</span>
-                          <span
-                            className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
-                            title={buildOpportunityScoreHoverText(row)}
-                            aria-label="Score breakdown"
-                            onClick={(event) => event.stopPropagation()}
-                          >
-                            ?
-                          </span>
-                        </p>
-                        <p className="text-[11px] text-textMute">{row.score_summary}</p>
+                        {(() => {
+                          const rankingScore =
+                            typeof row.ranking_score === "number" ? row.ranking_score : row.opportunity_score;
+                          const contextScore = typeof row.context_score === "number" ? row.context_score : null;
+                          const blendedScore = typeof row.blended_score === "number" ? row.blended_score : null;
+                          const scoreBasis = row.score_basis === "blended" ? "blended" : "opportunity";
+                          return (
+                            <>
+                              <p className="inline-flex items-center gap-1">
+                                <span>{rankingScore}</span>
+                                <span className="rounded border border-borderTone px-1 text-[10px] uppercase text-textMute">
+                                  {scoreBasis}
+                                </span>
+                                <span
+                                  className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                                  title={buildOpportunityScoreHoverText(row)}
+                                  aria-label="Score breakdown"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  ?
+                                </span>
+                              </p>
+                              <p className="text-[11px] text-textMute">
+                                Opp {row.opportunity_score} • Ctx {contextScore ?? "-"} • Blend {blendedScore ?? "-"}
+                              </p>
+                              <p className="text-[11px] text-textMute">{row.score_summary}</p>
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <span
