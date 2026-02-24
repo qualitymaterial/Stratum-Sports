@@ -1,4 +1,13 @@
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserOut
+from app.schemas.auth import (
+    LoginRequest,
+    MessageResponse,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    PasswordResetRequestResponse,
+    RegisterRequest,
+    TokenResponse,
+    UserOut,
+)
 from app.schemas.billing import CheckoutSessionResponse
 from app.schemas.discord import DiscordConnectionOut, DiscordConnectionUpsert
 from app.schemas.game import DashboardCard, GameDetailOut
@@ -33,6 +42,10 @@ from app.schemas.watchlist import WatchlistOut
 
 __all__ = [
     "LoginRequest",
+    "PasswordResetRequest",
+    "PasswordResetConfirmRequest",
+    "PasswordResetRequestResponse",
+    "MessageResponse",
     "RegisterRequest",
     "TokenResponse",
     "UserOut",

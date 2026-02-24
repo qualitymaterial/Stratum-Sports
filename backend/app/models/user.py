@@ -27,3 +27,4 @@ class User(Base, TimestampMixin):
         uselist=False,
         lazy="noload",
     )
+    password_reset_tokens = relationship("PasswordResetToken", back_populates="user", lazy="noload")

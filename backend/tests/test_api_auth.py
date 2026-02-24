@@ -3,6 +3,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 
 
@@ -52,3 +53,67 @@ async def test_register_and_login_flow(async_client: AsyncClient, db_session: As
     assert me_resp.status_code == 200
     me_data = me_resp.json()
     assert me_data["email"] == test_email
+
+
+@pytest.mark.asyncio
+async def test_password_reset_request_and_confirm(async_client: AsyncClient, db_session: AsyncSession):
+    test_email = "password-reset@example.com"
+    old_password = "SecurePassword123!"
+    new_password = "UpdatedPassword456!"
+
+    reg_resp = await async_client.post(
+        "/api/v1/auth/register",
+        json={"email": test_email, "password": old_password},
+    )
+    assert reg_resp.status_code == 200
+
+    request_resp = await async_client.post(
+        "/api/v1/auth/password-reset/request",
+        json={"email": test_email},
+    )
+    assert request_resp.status_code == 200, request_resp.text
+    request_payload = request_resp.json()
+    assert "message" in request_payload
+    assert request_payload.get("reset_token")
+
+    token_stmt = select(PasswordResetToken).order_by(PasswordResetToken.created_at.desc())
+    token_row = (await db_session.execute(token_stmt)).scalars().first()
+    assert token_row is not None
+    assert token_row.used_at is None
+
+    reset_token = request_payload["reset_token"]
+    confirm_resp = await async_client.post(
+        "/api/v1/auth/password-reset/confirm",
+        json={"token": reset_token, "new_password": new_password},
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+
+    old_login = await async_client.post(
+        "/api/v1/auth/login",
+        json={"email": test_email, "password": old_password},
+    )
+    assert old_login.status_code == 401
+
+    new_login = await async_client.post(
+        "/api/v1/auth/login",
+        json={"email": test_email, "password": new_password},
+    )
+    assert new_login.status_code == 200
+
+    reuse_resp = await async_client.post(
+        "/api/v1/auth/password-reset/confirm",
+        json={"token": reset_token, "new_password": "AnotherPass789!"},
+    )
+    assert reuse_resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_password_reset_request_unknown_email_returns_generic(async_client: AsyncClient):
+    response = await async_client.post(
+        "/api/v1/auth/password-reset/request",
+        json={"email": "unknown-user@example.com"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert "message" in payload
+    assert payload.get("reset_token") is None

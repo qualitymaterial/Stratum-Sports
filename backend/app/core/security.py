@@ -1,4 +1,5 @@
 import secrets
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -67,3 +68,11 @@ def decode_oauth_state_token(token: str, provider: str) -> dict[str, Any] | None
     if not isinstance(nonce, str) or len(nonce) < 16:
         return None
     return payload
+
+
+def generate_password_reset_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_password_reset_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

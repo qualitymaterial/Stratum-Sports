@@ -458,6 +458,7 @@ Internal weekly digest posts the operator report to an internal Discord webhook.
 ## Core API Routes
 
 - Auth: `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/me`
+- Auth Password Reset: `/api/v1/auth/password-reset/request`, `/api/v1/auth/password-reset/confirm`
 - Dashboard: `/api/v1/dashboard/cards`
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
 - Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
@@ -494,3 +495,4 @@ docker-compose --env-file .env.example run --rm --no-deps backend pytest -q
 - Polling worker runs as separate container (`worker`) and executes every 60 seconds.
 - Free-tier delayed enforcement happens in backend query layer; UI hiding is not the only control.
 - Local Postgres is mapped to host port `5433` by default (`POSTGRES_HOST_PORT`) to avoid common `5432` conflicts.
+- Password reset request returns a generic response in all environments. In non-production, a temporary `reset_token` is included to support local/dev testing.

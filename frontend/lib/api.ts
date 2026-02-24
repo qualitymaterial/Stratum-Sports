@@ -33,6 +33,23 @@ export async function login(email: string, password: string) {
   });
 }
 
+export async function requestPasswordReset(email: string) {
+  return apiRequest<{ message: string; reset_token?: string; expires_in_minutes?: number }>(
+    "/auth/password-reset/request",
+    {
+      method: "POST",
+      body: { email },
+    },
+  );
+}
+
+export async function confirmPasswordReset(token: string, new_password: string) {
+  return apiRequest<{ message: string }>("/auth/password-reset/confirm", {
+    method: "POST",
+    body: { token, new_password },
+  });
+}
+
 export async function getMe(token: string) {
   return apiRequest<User>("/auth/me", { token });
 }

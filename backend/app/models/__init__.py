@@ -11,6 +11,7 @@ from app.models.signal import Signal
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.models.watchlist import Watchlist
+from app.models.password_reset_token import PasswordResetToken
 
 __all__ = [
     "Base",
@@ -26,4 +27,5 @@ __all__ = [
     "Signal",
     "Watchlist",
     "DiscordConnection",
+    "PasswordResetToken",
 ]

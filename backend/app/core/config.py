@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
+    password_reset_token_expire_minutes: int = 30
 
     database_url: str = ""
     postgres_user: str = "stratum"
