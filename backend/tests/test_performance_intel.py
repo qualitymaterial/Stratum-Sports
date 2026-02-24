@@ -1301,6 +1301,28 @@ async def test_opportunities_teaser_endpoint_returns_delayed_free_rows(
     assert "best_book_key" not in payload[0]
 
 
+async def test_teaser_interaction_event_endpoint_accepts_valid_payload(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    free_token = await _register(async_client, "perf-teaser-event-free@example.com")
+    headers = {"Authorization": f"Bearer {free_token}"}
+    response = await async_client.post(
+        "/api/v1/intel/teaser/events",
+        headers=headers,
+        json={"event_name": "viewed_teaser", "source": "performance_page", "sport_key": "basketball_nba"},
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+    invalid = await async_client.post(
+        "/api/v1/intel/teaser/events",
+        headers=headers,
+        json={"event_name": "invalid_event"},
+    )
+    assert invalid.status_code == 422
+
+
 async def test_new_intel_endpoints_gate_free_vs_pro(
     async_client: AsyncClient,
     db_session: AsyncSession,

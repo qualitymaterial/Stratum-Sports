@@ -27,6 +27,8 @@ from app.schemas.intel import (
     SignalLifecycleSummary,
     SignalQualityPoint,
     SignalQualityWeeklySummary,
+    TeaserInteractionEventIn,
+    TeaserInteractionEventOut,
 )
 from app.services.performance_intel import (
     get_best_opportunities,
@@ -501,6 +503,27 @@ async def get_opportunities_teaser(
         },
     )
     return [OpportunityTeaserPoint(**row) for row in rows]
+
+
+@router.post("/teaser/events", response_model=TeaserInteractionEventOut)
+async def post_teaser_interaction_event(
+    payload: TeaserInteractionEventIn,
+    user: User = Depends(get_current_user),
+) -> TeaserInteractionEventOut:
+    _ensure_performance_enabled()
+    resolved_sport_key = _resolve_sport_key(payload.sport_key) if payload.sport_key else None
+    logger.info(
+        "Intel teaser interaction event",
+        extra={
+            "event_name": payload.event_name,
+            "source": payload.source,
+            "sport_key": resolved_sport_key,
+            "user_id": str(user.id),
+            "tier": user.tier,
+            "is_admin": user.is_admin,
+        },
+    )
+    return TeaserInteractionEventOut(status="ok")
 
 
 @router.get("/signals/quality", response_model=list[SignalQualityPoint])

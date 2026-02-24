@@ -437,3 +437,18 @@ export async function getOpportunityTeaser(
 
   return apiRequest<OpportunityTeaserPoint[]>(`/intel/opportunities/teaser?${params.toString()}`, { token });
 }
+
+export async function trackTeaserInteraction(
+  token: string,
+  payload: {
+    event_name: "viewed_teaser" | "clicked_upgrade_from_teaser";
+    source?: string;
+    sport_key?: SportKey;
+  },
+) {
+  return apiRequest<{ status: string }>("/intel/teaser/events", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}

@@ -17,6 +17,7 @@ import {
   getSignalQuality,
   getSignalLifecycleSummary,
   getSignalQualityWeeklySummary,
+  trackTeaserInteraction,
 } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
@@ -821,13 +822,33 @@ export default function PerformancePage() {
     }
   };
 
-  const handleUpgrade = async () => {
+  const handleUpgrade = async (source = "performance_upgrade_cta") => {
     if (!token) {
       return;
     }
+    const trackTeaserEvent = async (
+      eventName: "viewed_teaser" | "clicked_upgrade_from_teaser",
+      source: string,
+    ) => {
+      if (!token) {
+        return;
+      }
+      try {
+        await trackTeaserInteraction(token, {
+          event_name: eventName,
+          source,
+          sport_key: selectedSport,
+        });
+      } catch {
+        // non-blocking
+      }
+    };
     setUpgrading(true);
     setError(null);
     try {
+      if (!proAccess) {
+        await trackTeaserEvent("clicked_upgrade_from_teaser", source);
+      }
       const { url } = await createCheckoutSession(token);
       window.location.href = url;
     } catch (err) {
@@ -836,6 +857,22 @@ export default function PerformancePage() {
       setUpgrading(false);
     }
   };
+
+  useEffect(() => {
+    if (!filtersHydrated || !token || proAccess || typeof window === "undefined") {
+      return;
+    }
+    const key = `stratum_teaser_viewed:${selectedSport}`;
+    if (window.sessionStorage.getItem(key) === "1") {
+      return;
+    }
+    window.sessionStorage.setItem(key, "1");
+    void trackTeaserInteraction(token, {
+      event_name: "viewed_teaser",
+      source: "performance_page",
+      sport_key: selectedSport,
+    }).catch(() => {});
+  }, [filtersHydrated, token, proAccess, selectedSport]);
 
   useEffect(() => {
     if (!filtersHydrated) {
@@ -1203,7 +1240,7 @@ export default function PerformancePage() {
           </p>
           <button
             onClick={() => {
-              void handleUpgrade();
+              void handleUpgrade("free_clv_teaser");
             }}
             disabled={upgrading}
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
@@ -1286,7 +1323,7 @@ export default function PerformancePage() {
           </div>
           <button
             onClick={() => {
-              void handleUpgrade();
+              void handleUpgrade("free_delayed_opportunities");
             }}
             disabled={upgrading}
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
@@ -1381,7 +1418,7 @@ export default function PerformancePage() {
           </div>
           <button
             onClick={() => {
-              void handleUpgrade();
+              void handleUpgrade("free_signal_sample");
             }}
             disabled={upgrading}
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"

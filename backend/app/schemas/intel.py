@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -216,3 +217,13 @@ class OpportunityTeaserPoint(BaseModel):
     freshness_bucket: str
     books_considered: int
     opportunity_status: str
+
+
+class TeaserInteractionEventIn(BaseModel):
+    event_name: Literal["viewed_teaser", "clicked_upgrade_from_teaser"]
+    source: str | None = None
+    sport_key: str | None = None
+
+
+class TeaserInteractionEventOut(BaseModel):
+    status: str
