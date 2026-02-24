@@ -192,9 +192,29 @@ export type SignalQualityRow = {
   book_key: string | null;
   delta: number | null;
   dispersion: number | null;
+  freshness_seconds: number;
+  freshness_bucket: "fresh" | "aging" | "stale" | string;
+  lifecycle_stage: "sent" | "filtered" | "stale" | "eligible" | string;
+  lifecycle_reason: string;
   alert_decision: "sent" | "hidden" | string;
   alert_reason: string;
   metadata: Record<string, unknown>;
+};
+
+export type SignalLifecycleReasonCount = {
+  reason: string;
+  count: number;
+};
+
+export type SignalLifecycleSummary = {
+  days: number;
+  total_detected: number;
+  eligible_signals: number;
+  sent_signals: number;
+  filtered_signals: number;
+  stale_signals: number;
+  not_sent_signals: number;
+  top_filtered_reasons: SignalLifecycleReasonCount[];
 };
 
 export type SignalQualityWeeklySummary = {
@@ -270,6 +290,17 @@ export type OpportunityPoint = {
   clv_prior_samples: number | null;
   clv_prior_pct_positive: number | null;
   opportunity_score: number;
+  score_components: {
+    strength: number;
+    execution: number;
+    delta: number;
+    books: number;
+    freshness: number;
+    clv_prior: number;
+    dispersion_penalty: number;
+    stale_cap_penalty: number;
+  };
+  score_summary: string;
   opportunity_status: "actionable" | "monitor" | "stale" | string;
   reason_tags: string[];
   actionable_reason: string;

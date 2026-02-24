@@ -23,6 +23,7 @@ from app.schemas.intel import (
     ClvTeaserResponse,
     ConsensusPoint,
     OpportunityPoint,
+    SignalLifecycleSummary,
     SignalQualityPoint,
     SignalQualityWeeklySummary,
 )
@@ -35,6 +36,7 @@ from app.services.performance_intel import (
     get_clv_records_filtered,
     get_clv_trust_scorecards,
     get_clv_teaser,
+    get_signal_lifecycle_summary,
     get_signal_quality_rows,
     get_signal_quality_weekly_summary,
 )
@@ -543,6 +545,47 @@ async def get_signal_quality_weekly(
         },
     )
     return SignalQualityWeeklySummary(**payload)
+
+
+@router.get("/signals/lifecycle", response_model=SignalLifecycleSummary)
+async def get_signal_lifecycle(
+    days: int = Query(7, ge=1, le=30),
+    sport_key: str | None = Query(None),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    apply_alert_rules: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_pro_user),
+) -> SignalLifecycleSummary:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+    connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
+    payload = await get_signal_lifecycle_summary(
+        db,
+        days=days,
+        sport_key=resolved_sport_key,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        apply_alert_rules=apply_alert_rules,
+        connection=connection,
+    )
+    logger.info(
+        "Intel signal lifecycle summary served",
+        extra={
+            "days": days,
+            "sport_key": resolved_sport_key,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "apply_alert_rules": apply_alert_rules,
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return SignalLifecycleSummary(**payload)
 
 
 @router.get("/books/actionable", response_model=ActionableBookCard)

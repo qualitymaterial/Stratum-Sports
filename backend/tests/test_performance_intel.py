@@ -103,6 +103,7 @@ async def _register_pro_user(async_client: AsyncClient, db_session: AsyncSession
         "/api/v1/intel/clv/teaser?days=7",
         "/api/v1/intel/signals/quality?days=7",
         "/api/v1/intel/signals/weekly-summary?days=7",
+        "/api/v1/intel/signals/lifecycle?days=7",
     ],
 )
 async def test_intel_endpoints_reject_invalid_sport_key(
@@ -704,6 +705,73 @@ async def test_signal_quality_weekly_summary_endpoint(
     assert 0.0 <= payload["sent_rate_pct"] <= 100.0
 
 
+async def test_signal_lifecycle_summary_endpoint_counts_states(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    email = "perf-lifecycle@example.com"
+    token = await _register_pro_user(async_client, db_session, email)
+    user = (await db_session.execute(select(User).where(User.email == email))).scalar_one()
+    db_session.add(
+        DiscordConnection(
+            user_id=user.id,
+            webhook_url="https://discord.example/webhook",
+            is_enabled=True,
+            alert_spreads=True,
+            alert_totals=True,
+            alert_multibook=True,
+            min_strength=60,
+            thresholds_json={"min_books_affected": 4, "cooldown_minutes": 10},
+        )
+    )
+
+    sent_signal = _signal(
+        event_id="event_perf_lifecycle_sent",
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(minutes=1),
+        metadata={"outcome_name": "BOS"},
+    )
+    filtered_signal = _signal(
+        event_id="event_perf_lifecycle_filtered",
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(minutes=1),
+        metadata={"outcome_name": "BOS"},
+    )
+    stale_signal = _signal(
+        event_id="event_perf_lifecycle_stale",
+        market="spreads",
+        signal_type="MOVE",
+        strength=80,
+        created_at=now - timedelta(minutes=12),
+        metadata={"outcome_name": "BOS"},
+    )
+    db_session.add_all([sent_signal, filtered_signal, stale_signal])
+    await db_session.flush()
+    sent_signal.books_affected = 5
+    filtered_signal.books_affected = 1
+    stale_signal.books_affected = 5
+    await db_session.commit()
+
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(
+        "/api/v1/intel/signals/lifecycle?days=7&signal_type=MOVE&market=spreads&apply_alert_rules=true",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_detected"] >= 3
+    assert payload["sent_signals"] >= 1
+    assert payload["filtered_signals"] >= 1
+    assert payload["stale_signals"] >= 1
+    assert payload["not_sent_signals"] >= 2
+    assert isinstance(payload["top_filtered_reasons"], list)
+
+
 async def test_actionable_book_card_uses_latest_per_book(
     async_client: AsyncClient,
     db_session: AsyncSession,
@@ -986,6 +1054,9 @@ async def test_opportunities_endpoint_returns_ranked_opportunities(
     assert payload[0]["event_id"] == event_a
     assert payload[0]["game_label"] == "NYK @ BOS"
     assert payload[0]["opportunity_score"] >= payload[1]["opportunity_score"]
+    assert isinstance(payload[0]["score_summary"], str) and payload[0]["score_summary"]
+    assert "strength" in payload[0]["score_components"]
+    assert "delta" in payload[0]["score_components"]
 
 
 async def test_opportunities_dedupe_and_stale_filter_toggle(
@@ -1141,6 +1212,12 @@ async def test_new_intel_endpoints_gate_free_vs_pro(
 
     pro_weekly = await async_client.get("/api/v1/intel/signals/weekly-summary?days=7", headers=pro_headers)
     assert pro_weekly.status_code == 200
+
+    free_lifecycle = await async_client.get("/api/v1/intel/signals/lifecycle?days=7", headers=free_headers)
+    assert free_lifecycle.status_code == 403
+
+    pro_lifecycle = await async_client.get("/api/v1/intel/signals/lifecycle?days=7", headers=pro_headers)
+    assert pro_lifecycle.status_code == 200
 
     teaser = await async_client.get("/api/v1/intel/clv/teaser?days=30", headers=free_headers)
     assert teaser.status_code == 200

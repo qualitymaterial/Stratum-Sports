@@ -95,9 +95,29 @@ class SignalQualityPoint(BaseModel):
     book_key: str | None
     delta: float | None
     dispersion: float | None
+    freshness_seconds: int
+    freshness_bucket: str
+    lifecycle_stage: str
+    lifecycle_reason: str
     alert_decision: str
     alert_reason: str
     metadata: dict
+
+
+class SignalLifecycleReasonCount(BaseModel):
+    reason: str
+    count: int
+
+
+class SignalLifecycleSummary(BaseModel):
+    days: int
+    total_detected: int
+    eligible_signals: int
+    sent_signals: int
+    filtered_signals: int
+    stale_signals: int
+    not_sent_signals: int
+    top_filtered_reasons: list[SignalLifecycleReasonCount]
 
 
 class SignalQualityWeeklySummary(BaseModel):
@@ -173,6 +193,8 @@ class OpportunityPoint(BaseModel):
     clv_prior_samples: int | None
     clv_prior_pct_positive: float | None
     opportunity_score: int
+    score_components: dict[str, int]
+    score_summary: str
     opportunity_status: str
     reason_tags: list[str]
     actionable_reason: str

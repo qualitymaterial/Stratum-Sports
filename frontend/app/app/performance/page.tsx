@@ -14,6 +14,7 @@ import {
   getClvTrustScorecards,
   getDashboardCards,
   getSignalQuality,
+  getSignalLifecycleSummary,
   getSignalQualityWeeklySummary,
 } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
@@ -28,6 +29,7 @@ import {
   OpportunityPoint,
   SignalQualityRow,
   SignalQualityWeeklySummary,
+  SignalLifecycleSummary,
   Signal,
   SportKey,
 } from "@/lib/types";
@@ -212,7 +214,17 @@ function buildQualityHoverText(row: SignalQualityRow): string {
     `Signal: ${row.signal_type} on ${row.market} ${row.outcome_name ?? "-"}`,
     `Strength=${row.strength_score}, books=${row.books_affected}, dispersion=${dispersion}`,
     `Decision: ${decision}`,
+    `Lifecycle: ${row.lifecycle_stage} (${row.lifecycle_reason})`,
     `What to do: ${action}`,
+  ].join("\n");
+}
+
+function buildOpportunityScoreHoverText(row: OpportunityPoint): string {
+  const components = row.score_components;
+  return [
+    row.score_summary,
+    `Strength=${components.strength}, Execution=${components.execution}, Delta=${components.delta}, Books=${components.books}`,
+    `Freshness=${components.freshness}, CLV=${components.clv_prior}, Dispersion=${components.dispersion_penalty}, StaleCap=${components.stale_cap_penalty}`,
   ].join("\n");
 }
 
@@ -306,6 +318,7 @@ export default function PerformancePage() {
   const [qualityRows, setQualityRows] = useState<SignalQualityRow[]>([]);
   const [opportunities, setOpportunities] = useState<OpportunityPoint[]>([]);
   const [weeklySummary, setWeeklySummary] = useState<SignalQualityWeeklySummary | null>(null);
+  const [lifecycleSummary, setLifecycleSummary] = useState<SignalLifecycleSummary | null>(null);
   const [teaser, setTeaser] = useState<ClvTeaserResponse | null>(null);
   const [freeSampleCards, setFreeSampleCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -582,7 +595,15 @@ export default function PerformancePage() {
     setError(null);
     try {
       if (proAccess) {
-        const [scorecardsData, summaryData, recapData, weeklySummaryData, qualityData, opportunitiesData] =
+        const [
+          scorecardsData,
+          summaryData,
+          recapData,
+          weeklySummaryData,
+          lifecycleSummaryData,
+          qualityData,
+          opportunitiesData,
+        ] =
           await Promise.all([
           getClvTrustScorecards(token, {
             days,
@@ -610,6 +631,14 @@ export default function PerformancePage() {
             min_strength: minStrength,
           }),
           getSignalQualityWeeklySummary(token, {
+            days: Math.min(30, Math.max(7, days)),
+            sport_key: selectedSport,
+            signal_type: resolvedSignalType,
+            market: resolvedMarket,
+            min_strength: minStrength,
+            apply_alert_rules: true,
+          }),
+          getSignalLifecycleSummary(token, {
             days: Math.min(30, Math.max(7, days)),
             sport_key: selectedSport,
             signal_type: resolvedSignalType,
@@ -645,6 +674,7 @@ export default function PerformancePage() {
         setSummaryRows(summaryData);
         setRecapRows(recapData.rows);
         setWeeklySummary(weeklySummaryData);
+        setLifecycleSummary(lifecycleSummaryData);
         setQualityRows(qualityData);
         setOpportunities(opportunitiesData);
         setTeaser(null);
@@ -659,6 +689,7 @@ export default function PerformancePage() {
         setSummaryRows([]);
         setRecapRows([]);
         setWeeklySummary(null);
+        setLifecycleSummary(null);
         setScorecards([]);
         setQualityRows([]);
         setOpportunities([]);
@@ -1315,6 +1346,55 @@ export default function PerformancePage() {
           </div>
 
           <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+            <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Alert Lifecycle</h2>
+            {!lifecycleSummary && <p className="text-xs text-textMute">No lifecycle summary available yet.</p>}
+            {lifecycleSummary && (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Detected</p>
+                    <p className="mt-1 text-lg font-semibold text-textMain">{lifecycleSummary.total_detected}</p>
+                  </div>
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Eligible</p>
+                    <p className="mt-1 text-lg font-semibold text-textMain">{lifecycleSummary.eligible_signals}</p>
+                  </div>
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Sent</p>
+                    <p className="mt-1 text-lg font-semibold text-positive">{lifecycleSummary.sent_signals}</p>
+                  </div>
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Filtered</p>
+                    <p className="mt-1 text-lg font-semibold text-negative">{lifecycleSummary.filtered_signals}</p>
+                  </div>
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Stale</p>
+                    <p className="mt-1 text-lg font-semibold text-accent">{lifecycleSummary.stale_signals}</p>
+                  </div>
+                  <div className="rounded border border-borderTone bg-panelSoft p-3">
+                    <p className="text-[11px] uppercase tracking-wider text-textMute">Not Sent</p>
+                    <p className="mt-1 text-lg font-semibold text-textMain">{lifecycleSummary.not_sent_signals}</p>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <p className="text-xs uppercase tracking-wider text-textMute">Top Filter Reasons</p>
+                  {lifecycleSummary.top_filtered_reasons.length === 0 ? (
+                    <p className="mt-1 text-xs text-textMute">No filtered signals in the selected window.</p>
+                  ) : (
+                    <ul className="mt-1 space-y-1 text-xs text-textMain">
+                      {lifecycleSummary.top_filtered_reasons.map((item) => (
+                        <li key={`${item.reason}-${item.count}`}>
+                          {item.reason} <span className="text-textMute">({item.count})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm uppercase tracking-wider text-textMute">Best Opportunities Now</h2>
               <div className="flex flex-wrap items-center gap-3">
@@ -1349,7 +1429,19 @@ export default function PerformancePage() {
                 <tbody>
                   {opportunities.map((row) => (
                     <tr key={row.signal_id}>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.opportunity_score}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">
+                        <p className="inline-flex items-center gap-1">
+                          <span>{row.opportunity_score}</span>
+                          <span
+                            className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                            title={buildOpportunityScoreHoverText(row)}
+                            aria-label="Score breakdown"
+                          >
+                            ?
+                          </span>
+                        </p>
+                        <p className="text-[11px] text-textMute">{row.score_summary}</p>
+                      </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <span
                           className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
@@ -1529,6 +1621,7 @@ export default function PerformancePage() {
                     <th className="border-b border-borderTone py-2">Strength</th>
                     <th className="border-b border-borderTone py-2">Books</th>
                     <th className="border-b border-borderTone py-2">Dispersion</th>
+                    <th className="border-b border-borderTone py-2">Lifecycle</th>
                     <th className="border-b border-borderTone py-2">Alert Decision</th>
                     <th className="border-b border-borderTone py-2">Created</th>
                   </tr>
@@ -1585,6 +1678,22 @@ export default function PerformancePage() {
                       <td className="border-b border-borderTone/50 py-2">
                         <p
                           className={`text-xs font-semibold uppercase tracking-wider ${
+                            row.lifecycle_stage === "sent"
+                              ? "text-positive"
+                              : row.lifecycle_stage === "filtered"
+                                ? "text-negative"
+                                : row.lifecycle_stage === "stale"
+                                  ? "text-accent"
+                                  : "text-textMain"
+                          }`}
+                        >
+                          {row.lifecycle_stage}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-textMute">{row.lifecycle_reason}</p>
+                      </td>
+                      <td className="border-b border-borderTone/50 py-2">
+                        <p
+                          className={`text-xs font-semibold uppercase tracking-wider ${
                             row.alert_decision === "sent" ? "text-positive" : "text-negative"
                           }`}
                         >
@@ -1604,7 +1713,7 @@ export default function PerformancePage() {
                   ))}
                   {qualityRows.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-3 text-xs text-textMute">
+                      <td colSpan={10} className="py-3 text-xs text-textMute">
                         No signals matched the selected quality filters.
                       </td>
                     </tr>

@@ -11,6 +11,7 @@ import {
   GameDetail,
   GameListItem,
   OpportunityPoint,
+  SignalLifecycleSummary,
   SignalQualityWeeklySummary,
   SignalQualityRow,
   SportKey,
@@ -333,6 +334,27 @@ export async function getSignalQualityWeeklySummary(
   appendOptionalParam(params, "apply_alert_rules", options.apply_alert_rules);
 
   return apiRequest<SignalQualityWeeklySummary>(`/intel/signals/weekly-summary?${params.toString()}`, { token });
+}
+
+export async function getSignalLifecycleSummary(
+  token: string,
+  options: {
+    days?: number;
+    sport_key?: SportKey;
+    signal_type?: string;
+    market?: string;
+    min_strength?: number;
+    apply_alert_rules?: boolean;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "apply_alert_rules", options.apply_alert_rules);
+  return apiRequest<SignalLifecycleSummary>(`/intel/signals/lifecycle?${params.toString()}`, { token });
 }
 
 export async function getActionableBookCard(token: string, eventId: string, signalId: string) {

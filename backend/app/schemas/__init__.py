@@ -22,6 +22,8 @@ from app.schemas.intel import (
     ClvTeaserResponse,
     ConsensusPoint,
     OpportunityPoint,
+    SignalLifecycleReasonCount,
+    SignalLifecycleSummary,
     SignalQualityPoint,
     SignalQualityWeeklySummary,
 )
@@ -63,6 +65,8 @@ __all__ = [
     "ClvTrustScorecard",
     "ClvTeaserResponse",
     "SignalQualityPoint",
+    "SignalLifecycleReasonCount",
+    "SignalLifecycleSummary",
     "SignalQualityWeeklySummary",
     "ActionableBookQuote",
     "ActionableBookCard",

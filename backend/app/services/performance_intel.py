@@ -57,6 +57,37 @@ def _resolve_signal_alert_decision(
     return ("sent", reason) if allowed else ("hidden", reason)
 
 
+def _signal_freshness(signal: Signal) -> tuple[int, str, int]:
+    created_at = _as_utc_datetime(signal.created_at)
+    freshness_seconds = max(0, int((datetime.now(UTC) - created_at).total_seconds()))
+    stale_threshold = max(180, int(settings.odds_poll_interval_seconds) * 3)
+    freshness_bucket = _freshness_bucket(freshness_seconds, stale_threshold)
+    return freshness_seconds, freshness_bucket, stale_threshold
+
+
+def _resolve_signal_lifecycle(
+    *,
+    alert_decision: str,
+    alert_reason: str,
+    freshness_bucket: str,
+    freshness_seconds: int,
+    apply_alert_rules: bool,
+) -> tuple[str, str]:
+    if alert_decision == "hidden":
+        return "filtered", alert_reason
+
+    if freshness_bucket == "stale":
+        freshness_minutes = max(0, freshness_seconds // 60)
+        return "stale", f"Signal aged to stale freshness ({freshness_minutes}m old)."
+
+    if alert_decision == "sent":
+        return "sent", alert_reason
+
+    if apply_alert_rules:
+        return "eligible", "Eligible under alert rules."
+    return "eligible", "Eligible: alert rule evaluation disabled."
+
+
 def _as_utc_datetime(value: Any) -> datetime:
     if not isinstance(value, datetime):
         raise TypeError("Expected datetime value")
@@ -614,6 +645,14 @@ async def get_signal_quality_rows(
             connection=connection,
             apply_alert_rules=apply_alert_rules,
         )
+        freshness_seconds, freshness_bucket, _stale_threshold = _signal_freshness(signal)
+        lifecycle_stage, lifecycle_reason = _resolve_signal_lifecycle(
+            alert_decision=alert_decision,
+            alert_reason=alert_reason,
+            freshness_bucket=freshness_bucket,
+            freshness_seconds=freshness_seconds,
+            apply_alert_rules=apply_alert_rules,
+        )
         if not include_hidden and alert_decision == "hidden":
             continue
         payload.append(
@@ -633,12 +672,113 @@ async def get_signal_quality_rows(
                 "book_key": metadata.get("book_key"),
                 "delta": _safe_float(metadata.get("delta")),
                 "dispersion": _safe_float(metadata.get("dispersion")),
+                "freshness_seconds": freshness_seconds,
+                "freshness_bucket": freshness_bucket,
+                "lifecycle_stage": lifecycle_stage,
+                "lifecycle_reason": lifecycle_reason,
                 "alert_decision": alert_decision,
                 "alert_reason": alert_reason,
                 "metadata": metadata,
             }
         )
     return payload
+
+
+async def get_signal_lifecycle_summary(
+    db: AsyncSession,
+    *,
+    sport_key: str | None = None,
+    signal_type: str | None = None,
+    market: str | None = None,
+    min_strength: int | None = None,
+    created_after: datetime | None = None,
+    days: int = 7,
+    apply_alert_rules: bool = True,
+    connection: DiscordConnection | None = None,
+) -> dict[str, Any]:
+    cutoff = created_after or (datetime.now(UTC) - timedelta(days=days))
+    effective_min_strength = (
+        int(min_strength)
+        if min_strength is not None
+        else max(1, int(settings.signal_filter_default_min_strength))
+    )
+    stmt = (
+        select(Signal)
+        .where(
+            Signal.created_at >= cutoff,
+            Signal.strength_score >= effective_min_strength,
+        )
+        .order_by(Signal.created_at.desc())
+    )
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == Signal.event_id).where(Game.sport_key == sport_key)
+    if signal_type:
+        stmt = stmt.where(Signal.signal_type == signal_type)
+    if market:
+        stmt = stmt.where(Signal.market == market)
+
+    signals = (await db.execute(stmt)).scalars().all()
+    total_detected = len(signals)
+    if total_detected == 0:
+        return {
+            "days": int(days),
+            "total_detected": 0,
+            "eligible_signals": 0,
+            "sent_signals": 0,
+            "filtered_signals": 0,
+            "stale_signals": 0,
+            "not_sent_signals": 0,
+            "top_filtered_reasons": [],
+        }
+
+    eligible_signals = 0
+    sent_signals = 0
+    filtered_signals = 0
+    stale_signals = 0
+    not_sent_signals = 0
+    filtered_reasons: Counter[str] = Counter()
+
+    for signal in signals:
+        alert_decision, alert_reason = _resolve_signal_alert_decision(
+            signal,
+            connection=connection,
+            apply_alert_rules=apply_alert_rules,
+        )
+        freshness_seconds, freshness_bucket, _stale_threshold = _signal_freshness(signal)
+        lifecycle_stage, lifecycle_reason = _resolve_signal_lifecycle(
+            alert_decision=alert_decision,
+            alert_reason=alert_reason,
+            freshness_bucket=freshness_bucket,
+            freshness_seconds=freshness_seconds,
+            apply_alert_rules=apply_alert_rules,
+        )
+
+        if alert_decision != "hidden":
+            eligible_signals += 1
+        if lifecycle_stage == "sent":
+            sent_signals += 1
+        elif lifecycle_stage == "filtered":
+            filtered_signals += 1
+            filtered_reasons[lifecycle_reason] += 1
+            not_sent_signals += 1
+        elif lifecycle_stage == "stale":
+            stale_signals += 1
+            not_sent_signals += 1
+
+    top_filtered_reasons = [
+        {"reason": reason, "count": int(count)}
+        for reason, count in filtered_reasons.most_common(5)
+    ]
+    return {
+        "days": int(days),
+        "total_detected": total_detected,
+        "eligible_signals": eligible_signals,
+        "sent_signals": sent_signals,
+        "filtered_signals": filtered_signals,
+        "stale_signals": stale_signals,
+        "not_sent_signals": not_sent_signals,
+        "top_filtered_reasons": top_filtered_reasons,
+    }
 
 
 async def get_signal_quality_weekly_summary(
@@ -1065,7 +1205,7 @@ def _compute_opportunity_score(
     clv_prior_pct_positive: float | None,
     clv_prior_samples: int | None,
     dispersion: float | None,
-) -> int:
+) -> tuple[int, dict[str, int], str]:
     baseline = _delta_baseline_for_market(market)
     delta_ratio = abs(float(best_delta or 0.0)) / baseline if baseline > 0 else 0.0
     delta_component = min(20.0, delta_ratio * 8.0)
@@ -1102,10 +1242,30 @@ def _compute_opportunity_score(
         + dispersion_penalty
     )
     normalized = int(max(1, min(100, round(score))))
+    stale_cap_penalty = 0
     if freshness_bucket == "stale":
         # Keep stale quotes visible when requested, but prevent them from outranking live opportunities.
-        normalized = min(69, normalized)
-    return normalized
+        capped = min(69, normalized)
+        stale_cap_penalty = capped - normalized
+        normalized = capped
+
+    score_components = {
+        "strength": int(round(strength_component)),
+        "execution": int(round(execution_component)),
+        "delta": int(round(delta_component)),
+        "books": int(round(books_component)),
+        "freshness": int(round(freshness_component)),
+        "clv_prior": int(round(clv_component)),
+        "dispersion_penalty": int(round(dispersion_penalty)),
+        "stale_cap_penalty": int(stale_cap_penalty),
+    }
+    score_summary = (
+        f"Strength {score_components['strength']} + Execution {score_components['execution']} + "
+        f"Delta {score_components['delta']} + Books {score_components['books']} + "
+        f"Freshness {score_components['freshness']} + CLV {score_components['clv_prior']} + "
+        f"Dispersion {score_components['dispersion_penalty']} + StaleCap {score_components['stale_cap_penalty']}"
+    )
+    return normalized, score_components, score_summary
 
 
 def _opportunity_status(*, score: int, freshness_bucket: str) -> str:
@@ -1220,7 +1380,7 @@ async def get_best_opportunities(
         prior = clv_prior_map.get((signal.signal_type, signal.market))
         prior_samples = int(prior["samples"]) if prior is not None else None
         prior_pct = float(prior["pct_positive"]) if prior is not None else None
-        score = _compute_opportunity_score(
+        score, score_components, score_summary = _compute_opportunity_score(
             market=signal.market,
             strength_score=int(signal.strength_score),
             execution_rank=int(card.get("execution_rank") or 1),
@@ -1281,6 +1441,8 @@ async def get_best_opportunities(
             "clv_prior_samples": prior_samples,
             "clv_prior_pct_positive": prior_pct,
             "opportunity_score": score,
+            "score_components": score_components,
+            "score_summary": score_summary,
             "opportunity_status": status,
             "reason_tags": tags,
             "actionable_reason": str(card.get("actionable_reason") or "No rationale available."),
