@@ -23,6 +23,7 @@ class Signal(Base):
     window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     books_affected: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     velocity_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    # points-per-minute magnitude (distinct from legacy velocity_minutes)
     velocity: Mapped[float | None] = mapped_column(Float, nullable=True)
     acceleration: Mapped[float | None] = mapped_column(Float, nullable=True)
     time_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
