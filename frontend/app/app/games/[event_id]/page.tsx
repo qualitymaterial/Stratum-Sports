@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
@@ -11,7 +11,7 @@ import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
 import { formatLine, formatMoneyline, formatSigned } from "@/lib/oddsFormat";
-import { ActionableBookCard, GameDetail } from "@/lib/types";
+import { ActionableBookCard, GameDetail, Signal } from "@/lib/types";
 
 const API_BASE = getApiBaseUrl();
 
@@ -62,9 +62,40 @@ function buildPlainEnglishInsight(actionable: ActionableBookCard): {
   return { whatChanged, whyItMatters, nextAction };
 }
 
+function getSignalOutcomeName(signal: Signal): string | null {
+  const raw = signal.metadata?.outcome_name;
+  return typeof raw === "string" ? raw : null;
+}
+
+function classifyExecutionState(
+  signal: Signal,
+  actionable: ActionableBookCard | null | undefined,
+): {
+  label: "Execution Now" | "Monitor" | "Stale";
+  className: string;
+} {
+  if (actionable) {
+    if (actionable.freshness_bucket === "stale") {
+      return { label: "Stale", className: "bg-negative/15 text-negative" };
+    }
+    if (actionable.freshness_bucket === "fresh" && actionable.execution_rank >= 70) {
+      return { label: "Execution Now", className: "bg-positive/15 text-positive" };
+    }
+    return { label: "Monitor", className: "bg-accent/15 text-accent" };
+  }
+  if (signal.freshness_bucket === "stale") {
+    return { label: "Stale", className: "bg-negative/15 text-negative" };
+  }
+  return { label: "Monitor", className: "bg-accent/15 text-accent" };
+}
+
 export default function GameDetailPage() {
   const params = useParams<{ event_id: string }>();
+  const searchParams = useSearchParams();
   const eventId = params.event_id;
+  const focusSignalId = searchParams.get("focus_signal_id");
+  const focusMarket = searchParams.get("focus_market");
+  const focusOutcome = searchParams.get("focus_outcome");
   const { user, loading, token } = useCurrentUser(true);
 
   const [detail, setDetail] = useState<GameDetail | null>(null);
@@ -131,12 +162,53 @@ export default function GameDetailPage() {
     });
   }, [detail]);
 
+  const focusedSignal = useMemo(() => {
+    if (!detail) {
+      return null;
+    }
+    const orderedSignals = [...detail.signals].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    );
+
+    if (focusSignalId) {
+      const byId = orderedSignals.find((signal) => signal.id === focusSignalId);
+      if (byId) {
+        return byId;
+      }
+    }
+
+    if (!focusMarket) {
+      return null;
+    }
+    const normalizedOutcome = focusOutcome?.trim().toLowerCase() ?? null;
+    return (
+      orderedSignals.find((signal) => {
+        if (signal.market !== focusMarket) {
+          return false;
+        }
+        if (!normalizedOutcome) {
+          return true;
+        }
+        const outcomeName = getSignalOutcomeName(signal);
+        return outcomeName?.trim().toLowerCase() === normalizedOutcome;
+      }) ?? null
+    );
+  }, [detail, focusMarket, focusOutcome, focusSignalId]);
+
   const proAccess = hasProAccess(user);
   const actionableSignalIds = useMemo(
-    () => detail?.signals.slice(0, 6).map((signal) => signal.id) ?? [],
-    [detail],
+    () => {
+      const ids = detail?.signals.slice(0, 6).map((signal) => signal.id) ?? [];
+      if (focusedSignal && !ids.includes(focusedSignal.id)) {
+        ids.unshift(focusedSignal.id);
+      }
+      return ids;
+    },
+    [detail, focusedSignal],
   );
   const actionableSignalIdSet = useMemo(() => new Set(actionableSignalIds), [actionableSignalIds]);
+  const focusedActionable = focusedSignal ? actionableCards[focusedSignal.id] ?? null : null;
+  const focusedExecution = focusedSignal ? classifyExecutionState(focusedSignal, focusedActionable) : null;
 
   useEffect(() => {
     if (!proAccess || !token || !eventId || actionableSignalIds.length === 0) {
@@ -234,6 +306,95 @@ export default function GameDetailPage() {
 
       {error && <p className="text-sm text-negative">{error}</p>}
 
+      {focusedSignal && (
+        <div className="rounded-xl border border-accent/40 bg-panel p-4 shadow-terminal">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm uppercase tracking-wider text-textMute">Focused Opportunity Drilldown</h2>
+              <p className="text-xs text-textMute">
+                Selected from Performance opportunities for {focusedSignal.market} •{" "}
+                {getSignalOutcomeName(focusedSignal) ?? "-"}.
+              </p>
+            </div>
+            {focusedExecution && (
+              <span
+                className={`rounded px-2 py-1 text-xs font-semibold uppercase tracking-wider ${focusedExecution.className}`}
+              >
+                {focusedExecution.label}
+              </span>
+            )}
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <div className="rounded border border-borderTone bg-panelSoft p-3 text-sm">
+              <p className="text-xs uppercase tracking-wider text-textMute">Signal</p>
+              <p className="mt-1 text-textMain">
+                {focusedSignal.signal_type} {focusedSignal.direction} • {focusedSignal.market} •{" "}
+                {getSignalOutcomeName(focusedSignal) ?? "-"}
+              </p>
+              <p className="mt-1 text-xs text-textMute">
+                Created{" "}
+                {new Date(focusedSignal.created_at).toLocaleString([], {
+                  month: "short",
+                  day: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}{" "}
+                • Strength {focusedSignal.strength_score}
+              </p>
+            </div>
+
+            <div className="rounded border border-borderTone bg-panelSoft p-3 text-sm">
+              <p className="text-xs uppercase tracking-wider text-textMute">Execution Context</p>
+              {!proAccess && <p className="mt-1 text-textMute">Upgrade to Pro to unlock book-level execution detail.</p>}
+              {proAccess && actionableLoading && !focusedActionable && (
+                <p className="mt-1 text-textMute">Loading actionable book detail...</p>
+              )}
+              {proAccess && !actionableLoading && !focusedActionable && (
+                <p className="mt-1 text-textMute">No actionable card found for this signal.</p>
+              )}
+              {proAccess && focusedActionable && (
+                <>
+                  <p className="mt-1 text-textMain">
+                    {focusedActionable.best_book_key ?? "-"}{" "}
+                    {focusedActionable.best_line != null
+                      ? `${formatLine(focusedActionable.best_line, 1)} (${formatMoneyline(focusedActionable.best_price)})`
+                      : formatMoneyline(focusedActionable.best_price)}{" "}
+                    vs{" "}
+                    {focusedActionable.consensus_line != null
+                      ? `${formatLine(focusedActionable.consensus_line, 1)} (${formatMoneyline(focusedActionable.consensus_price)})`
+                      : formatMoneyline(focusedActionable.consensus_price)}
+                  </p>
+                  <p className="mt-1 text-xs text-textMute">
+                    Delta {formatSigned(focusedActionable.best_delta, 3)} • Freshness{" "}
+                    {focusedActionable.freshness_seconds != null
+                      ? `${Math.floor(focusedActionable.freshness_seconds / 60)}m`
+                      : "-"}{" "}
+                    • Books {focusedActionable.books_considered}
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+
+          {proAccess && focusedActionable && focusedActionable.top_books.length > 0 && (
+            <div className="mt-3 rounded border border-borderTone bg-panelSoft p-3 text-sm">
+              <p className="text-xs uppercase tracking-wider text-textMute">Top Books For This Side</p>
+              <p className="mt-1 text-textMain">
+                {focusedActionable.top_books.map((book) => (
+                  <span key={`focus-${focusedSignal.id}-${book.sportsbook_key}`} className="mr-3 inline-block">
+                    {book.sportsbook_key}:{" "}
+                    {book.line != null
+                      ? `${formatLine(book.line, 1)} (${formatMoneyline(book.price)})`
+                      : formatMoneyline(book.price)}
+                  </span>
+                ))}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       <MovementChart points={detail.chart_series} />
 
       <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
@@ -280,14 +441,24 @@ export default function GameDetailPage() {
               typeof signal.metadata?.outcome_name === "string" ? String(signal.metadata.outcome_name) : "-";
             const actionable = actionableCards[signal.id];
             const hasActionableSlot = actionableSignalIdSet.has(signal.id);
+            const isFocusedSignal = focusedSignal?.id === signal.id;
             return (
               <div
                 key={signal.id}
-                className="rounded border border-borderTone bg-panelSoft p-3"
+                className={`rounded border p-3 ${
+                  isFocusedSignal
+                    ? "border-accent bg-panelSoft/90 shadow-[0_0_0_1px_rgba(77,208,181,0.35)]"
+                    : "border-borderTone bg-panelSoft"
+                }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <SignalBadge signal={signal} />
+                    {isFocusedSignal && (
+                      <span className="rounded bg-accent/15 px-1.5 py-0.5 text-[11px] uppercase tracking-wider text-accent">
+                        focused
+                      </span>
+                    )}
                     <span className="text-xs text-textMute">
                       {signal.market} • {outcome}
                     </span>

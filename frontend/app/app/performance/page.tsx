@@ -216,6 +216,16 @@ function formatOpportunityWidth(row: OpportunityPoint): string {
   return row.market === "h2h" ? `${row.market_width.toFixed(3)}p` : row.market_width.toFixed(3);
 }
 
+function buildOpportunityDrilldownHref(row: OpportunityPoint): string {
+  const params = new URLSearchParams();
+  params.set("focus_signal_id", row.signal_id);
+  params.set("focus_market", row.market);
+  if (row.outcome_name) {
+    params.set("focus_outcome", row.outcome_name);
+  }
+  return `/app/games/${row.event_id}?${params.toString()}`;
+}
+
 function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; nextStep: string } {
   const bestBook = row.best_book_key ?? "Best book";
   const delta =
@@ -1549,8 +1559,22 @@ export default function PerformancePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {opportunities.map((row) => (
-                    <tr key={row.signal_id}>
+                  {opportunities.map((row) => {
+                    const drilldownHref = buildOpportunityDrilldownHref(row);
+                    return (
+                    <tr
+                      key={row.signal_id}
+                      role="link"
+                      tabIndex={0}
+                      onClick={() => router.push(drilldownHref)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          router.push(drilldownHref);
+                        }
+                      }}
+                      className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
+                    >
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p className="inline-flex items-center gap-1">
                           <span>{row.opportunity_score}</span>
@@ -1558,6 +1582,7 @@ export default function PerformancePage() {
                             className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
                             title={buildOpportunityScoreHoverText(row)}
                             aria-label="Score breakdown"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             ?
                           </span>
@@ -1579,7 +1604,7 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <Link
-                          href={`/app/games/${row.event_id}`}
+                          href={drilldownHref}
                           className="group inline-block cursor-pointer rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                         >
                           <p className="text-accent group-hover:underline">
@@ -1604,11 +1629,18 @@ export default function PerformancePage() {
                             className="ml-2 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
                             title={buildOpportunityHoverText(row)}
                             aria-label="What this means"
+                            onClick={(event) => event.stopPropagation()}
                           >
                             ?
                           </span>
                         </p>
-                        <p className="text-[11px] text-textMute">{row.reason_tags.join(" • ")}</p>
+                        <p className="text-[11px] text-textMute">
+                          {row.reason_tags.join(" • ")}
+                          <span className="mx-1">•</span>
+                          <Link href={drilldownHref} className="text-accent hover:underline">
+                            open drilldown
+                          </Link>
+                        </p>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>
@@ -1655,7 +1687,8 @@ export default function PerformancePage() {
                         })}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {opportunities.length === 0 && (
                     <tr>
                       <td colSpan={10} className="py-3 text-xs text-textMute">
