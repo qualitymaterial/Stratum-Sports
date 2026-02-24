@@ -78,6 +78,66 @@ def _game(*, event_id: str, commence_time: datetime, sport_key: str = "basketbal
     )
 
 
+async def _seed_public_teaser_signal(
+    db_session: AsyncSession,
+    *,
+    event_id: str,
+    sport_key: str,
+    home_team: str,
+    away_team: str,
+    commence_time: datetime,
+    created_at: datetime,
+    strength: int = 90,
+) -> None:
+    game = Game(
+        event_id=event_id,
+        sport_key=sport_key,
+        commence_time=commence_time,
+        home_team=home_team,
+        away_team=away_team,
+    )
+    signal = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=strength,
+        created_at=created_at,
+        metadata={"outcome_name": home_team},
+    )
+    db_session.add_all([game, signal])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key=sport_key,
+                commence_time=commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="draftkings",
+                market="spreads",
+                outcome_name=home_team,
+                line=-2.5,
+                price=-110,
+                fetched_at=created_at + timedelta(minutes=1),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key=sport_key,
+                commence_time=commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="fanduel",
+                market="spreads",
+                outcome_name=home_team,
+                line=-3.0,
+                price=-108,
+                fetched_at=created_at + timedelta(minutes=2),
+            ),
+        ]
+    )
+
 async def _register(async_client: AsyncClient, email: str) -> str:
     response = await async_client.post(
         "/api/v1/auth/register",
@@ -1443,6 +1503,171 @@ async def test_opportunities_teaser_endpoint_returns_delayed_free_rows(
     assert delayed_event in event_ids
     assert fresh_event not in event_ids
     assert "best_book_key" not in payload[0]
+
+
+async def test_public_teaser_opportunities_anonymous_ok(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_ok",
+        sport_key="basketball_nba",
+        home_team="Oklahoma City Thunder",
+        away_team="Cleveland Cavaliers",
+        commence_time=now + timedelta(hours=4),
+        created_at=now - timedelta(minutes=35),
+        strength=92,
+    )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/opportunities?sport_key=basketball_nba&limit=5")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    first = payload[0]
+    assert set(first.keys()) == {
+        "game_label",
+        "commence_time",
+        "signal_type",
+        "market",
+        "outcome_name",
+        "score_status",
+        "freshness_label",
+        "delta_display",
+    }
+    assert first["score_status"] in {"ACTIONABLE", "MONITOR", "STALE"}
+    assert first["freshness_label"] in {"Fresh", "Aging", "Stale"}
+    assert "event_id" not in first
+
+
+async def test_public_teaser_respects_sport_filter(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_nba",
+        sport_key="basketball_nba",
+        home_team="Los Angeles Lakers",
+        away_team="Boston Celtics",
+        commence_time=now + timedelta(hours=5),
+        created_at=now - timedelta(minutes=40),
+        strength=90,
+    )
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_ncaab",
+        sport_key="basketball_ncaab",
+        home_team="Duke Blue Devils",
+        away_team="North Carolina Tar Heels",
+        commence_time=now + timedelta(hours=5),
+        created_at=now - timedelta(minutes=40),
+        strength=90,
+    )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/opportunities?sport_key=basketball_ncaab&limit=5")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    assert all("North Carolina Tar Heels @ Duke Blue Devils" == row["game_label"] for row in payload)
+
+
+async def test_public_teaser_limit_capped(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    for idx in range(12):
+        await _seed_public_teaser_signal(
+            db_session,
+            event_id=f"event_public_teaser_limit_{idx}",
+            sport_key="basketball_nba",
+            home_team=f"Home {idx}",
+            away_team=f"Away {idx}",
+            commence_time=now + timedelta(hours=idx + 1),
+            created_at=now - timedelta(minutes=45 + idx),
+            strength=88,
+        )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/opportunities?sport_key=basketball_nba&limit=50")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) <= 8
+
+
+async def test_public_teaser_redaction_no_internal_ids(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_redaction",
+        sport_key="basketball_nba",
+        home_team="Memphis Grizzlies",
+        away_team="Sacramento Kings",
+        commence_time=now + timedelta(hours=3),
+        created_at=now - timedelta(minutes=50),
+        strength=86,
+    )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/opportunities?sport_key=basketball_nba")
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    for row in payload:
+        assert "event_id" not in row
+        assert "signal_id" not in row
+        assert "best_book_key" not in row
+
+
+async def test_public_teaser_kpis_anonymous_ok(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_kpi_a",
+        sport_key="basketball_nba",
+        home_team="Milwaukee Bucks",
+        away_team="Chicago Bulls",
+        commence_time=now + timedelta(hours=2),
+        created_at=now - timedelta(minutes=32),
+        strength=91,
+    )
+    await _seed_public_teaser_signal(
+        db_session,
+        event_id="event_public_teaser_kpi_b",
+        sport_key="basketball_nba",
+        home_team="Miami Heat",
+        away_team="Orlando Magic",
+        commence_time=now + timedelta(hours=2),
+        created_at=now - timedelta(minutes=28),
+        strength=84,
+    )
+    await db_session.commit()
+
+    response = await async_client.get("/api/v1/public/teaser/kpis?sport_key=basketball_nba&window_hours=24")
+    assert response.status_code == 200
+    payload = response.json()
+    assert set(payload.keys()) == {
+        "signals_in_window",
+        "books_tracked_estimate",
+        "pct_actionable",
+        "pct_fresh",
+        "updated_at",
+    }
+    assert payload["signals_in_window"] >= 2
+    assert payload["books_tracked_estimate"] >= 2
+    assert 0 <= payload["pct_actionable"] <= 100
+    assert 0 <= payload["pct_fresh"] <= 100
 
 
 async def test_teaser_interaction_event_endpoint_accepts_valid_payload(

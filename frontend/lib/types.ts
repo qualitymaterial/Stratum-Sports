@@ -328,6 +328,25 @@ export type OpportunityTeaserPoint = {
   opportunity_status: "actionable" | "monitor" | "stale" | string;
 };
 
+export type PublicTeaserOpportunity = {
+  game_label: string | null;
+  commence_time: string | null;
+  signal_type: string;
+  market: string;
+  outcome_name: string | null;
+  score_status: "ACTIONABLE" | "MONITOR" | "STALE";
+  freshness_label: "Fresh" | "Aging" | "Stale";
+  delta_display: string;
+};
+
+export type PublicTeaserKpisResponse = {
+  signals_in_window: number;
+  books_tracked_estimate: number;
+  pct_actionable: number;
+  pct_fresh: number;
+  updated_at: string;
+};
+
 export type AdminClvBySignalType = {
   signal_type: string;
   count: number;

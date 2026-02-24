@@ -223,6 +223,25 @@ class OpportunityTeaserPoint(BaseModel):
     opportunity_status: str
 
 
+class PublicTeaserOpportunityPoint(BaseModel):
+    game_label: str | None
+    commence_time: datetime | None
+    signal_type: str
+    market: str
+    outcome_name: str | None
+    score_status: Literal["ACTIONABLE", "MONITOR", "STALE"]
+    freshness_label: Literal["Fresh", "Aging", "Stale"]
+    delta_display: str
+
+
+class PublicTeaserKpis(BaseModel):
+    signals_in_window: int
+    books_tracked_estimate: int
+    pct_actionable: float
+    pct_fresh: float
+    updated_at: datetime
+
+
 class TeaserInteractionEventIn(BaseModel):
     event_name: Literal["viewed_teaser", "clicked_upgrade_from_teaser"]
     source: str | None = None

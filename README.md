@@ -115,6 +115,10 @@ If none are set:
 - Browser in development (`localhost`/`127.0.0.1`) uses `http://localhost:8000/api/v1`
 - Production browser uses `window.location.origin + /api/v1`
 
+Landing page rollout flag:
+- `NEXT_PUBLIC_LANDING_V1_ENABLED=true` enables the public hero page at `/`
+- `NEXT_PUBLIC_LANDING_V1_ENABLED=false` keeps legacy behavior (`/` redirects to `/login`)
+
 ## Product Guide
 
 - End-user + operator guide: `docs/user-guide.md`

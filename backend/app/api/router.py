@@ -11,6 +11,7 @@ from app.api.routes import (
     health,
     intel,
     ops,
+    public,
     watchlist,
     ws,
 )
@@ -24,6 +25,7 @@ api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(games.router, prefix="/games", tags=["games"])
 api_router.include_router(intel.router, prefix="/intel", tags=["intel"])
+api_router.include_router(public.router, prefix="/public", tags=["public"])
 api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
 api_router.include_router(discord.router, prefix="/discord", tags=["discord"])

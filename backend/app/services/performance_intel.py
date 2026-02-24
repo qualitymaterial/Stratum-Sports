@@ -1637,10 +1637,16 @@ async def get_delayed_opportunity_teaser(
     market: str | None = None,
     min_strength: int | None = None,
     limit: int = 3,
+    delay_minutes: int | None = None,
 ) -> list[dict[str, Any]]:
     normalized_limit = max(1, min(int(limit), 20))
     candidate_limit = max(50, min(150, normalized_limit * 10))
-    delay_cutoff = datetime.now(UTC) - timedelta(minutes=max(0, int(settings.free_delay_minutes)))
+    effective_delay_minutes = (
+        max(0, int(delay_minutes))
+        if delay_minutes is not None
+        else max(0, int(settings.free_delay_minutes))
+    )
+    delay_cutoff = datetime.now(UTC) - timedelta(minutes=effective_delay_minutes)
 
     opportunities = await get_best_opportunities(
         db,
@@ -1678,6 +1684,62 @@ async def get_delayed_opportunity_teaser(
                 "freshness_bucket": row["freshness_bucket"],
                 "books_considered": row["books_considered"],
                 "opportunity_status": row["opportunity_status"],
+                "best_delta": row.get("best_delta"),
+                "delta_type": row.get("delta_type"),
             }
         )
     return redacted_rows
+
+
+async def get_public_teaser_kpis(
+    db: AsyncSession,
+    *,
+    sport_key: str | None = None,
+    window_hours: int = 24,
+    delay_minutes: int = 15,
+) -> dict[str, Any]:
+    now = datetime.now(UTC)
+    normalized_window_hours = max(1, min(int(window_hours), 72))
+    cutoff = now - timedelta(hours=normalized_window_hours)
+    delay_cutoff = now - timedelta(minutes=max(0, int(delay_minutes)))
+
+    signal_count_stmt = select(func.count(Signal.id)).where(Signal.created_at >= cutoff)
+    if sport_key:
+        signal_count_stmt = signal_count_stmt.join(Game, Game.event_id == Signal.event_id).where(
+            Game.sport_key == sport_key
+        )
+    signals_in_window = int((await db.execute(signal_count_stmt)).scalar() or 0)
+
+    books_stmt = select(func.count(func.distinct(OddsSnapshot.sportsbook_key))).where(OddsSnapshot.fetched_at >= cutoff)
+    if sport_key:
+        books_stmt = books_stmt.where(OddsSnapshot.sport_key == sport_key)
+    books_tracked_estimate = int((await db.execute(books_stmt)).scalar() or 0)
+
+    window_days = max(1, (normalized_window_hours + 23) // 24)
+    opportunities = await get_best_opportunities(
+        db,
+        days=window_days,
+        sport_key=sport_key,
+        min_strength=max(1, int(settings.signal_filter_default_min_strength)),
+        limit=150,
+        include_stale=True,
+    )
+    window_opportunities = [
+        row
+        for row in opportunities
+        if row.get("created_at") is not None and cutoff <= row["created_at"] <= delay_cutoff
+    ]
+    sample_size = len(window_opportunities)
+    actionable_count = sum(1 for row in window_opportunities if str(row.get("opportunity_status")) == "actionable")
+    fresh_count = sum(1 for row in window_opportunities if str(row.get("freshness_bucket")) == "fresh")
+
+    pct_actionable = (actionable_count / sample_size * 100.0) if sample_size else 0.0
+    pct_fresh = (fresh_count / sample_size * 100.0) if sample_size else 0.0
+
+    return {
+        "signals_in_window": signals_in_window,
+        "books_tracked_estimate": books_tracked_estimate,
+        "pct_actionable": round(pct_actionable, 1),
+        "pct_fresh": round(pct_fresh, 1),
+        "updated_at": now,
+    }

@@ -74,3 +74,21 @@ textarea {
 .animate-flash-red {
   animation: flash-red 1.5s ease-out;
 }
+
+.hero-shell {
+  background:
+    linear-gradient(135deg, rgba(14, 26, 38, 0.92), rgba(8, 14, 23, 0.95)),
+    radial-gradient(circle at 90% 5%, rgba(71, 199, 166, 0.14), transparent 38%);
+}
+
+.hero-panel {
+  border: 1px solid rgba(38, 50, 68, 0.95);
+  border-radius: 0.9rem;
+  background:
+    linear-gradient(160deg, rgba(16, 24, 37, 0.95), rgba(9, 15, 24, 0.98)),
+    radial-gradient(circle at 20% 0%, rgba(71, 199, 166, 0.08), transparent 35%);
+  box-shadow:
+    0 0 0 1px rgba(109, 124, 146, 0.15),
+    0 18px 30px rgba(0, 0, 0, 0.32);
+  padding: 1rem;
+}

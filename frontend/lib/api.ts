@@ -12,6 +12,8 @@ import {
   GameListItem,
   OpportunityPoint,
   OpportunityTeaserPoint,
+  PublicTeaserKpisResponse,
+  PublicTeaserOpportunity,
   SignalLifecycleSummary,
   SignalQualityWeeklySummary,
   SignalQualityRow,
@@ -451,4 +453,26 @@ export async function trackTeaserInteraction(
     token,
     body: payload,
   });
+}
+
+export async function getPublicTeaserOpportunities(options: {
+  sport_key?: SportKey;
+  limit?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "limit", options.limit);
+  const query = params.toString();
+  return apiRequest<PublicTeaserOpportunity[]>(`/public/teaser/opportunities${query ? `?${query}` : ""}`);
+}
+
+export async function getPublicTeaserKpis(options: {
+  sport_key?: SportKey;
+  window_hours?: number;
+} = {}) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "window_hours", options.window_hours);
+  const query = params.toString();
+  return apiRequest<PublicTeaserKpisResponse>(`/public/teaser/kpis${query ? `?${query}` : ""}`);
 }
