@@ -74,6 +74,7 @@ export type WatchlistItem = {
   event_id: string;
   created_at: string;
   game: {
+    sport_key: SportKey;
     home_team: string;
     away_team: string;
     commence_time: string;

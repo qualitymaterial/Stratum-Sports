@@ -1,21 +1,71 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import { addWatchlist, getGames, getWatchlist, removeWatchlist } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
-import { GameListItem, WatchlistItem } from "@/lib/types";
+import { GameListItem, SportKey, WatchlistItem } from "@/lib/types";
+
+const WATCHLIST_SPORT_STORAGE_KEY = "stratum_watchlist_sport";
+const WATCHLIST_SPORT_OPTIONS: Array<{ key: SportKey; label: string }> = [
+  { key: "basketball_nba", label: "NBA" },
+  { key: "basketball_ncaab", label: "NCAA M" },
+  { key: "americanfootball_nfl", label: "NFL" },
+];
+
+function resolveSport(raw: string | null | undefined): SportKey | null {
+  if (raw === "basketball_nba" || raw === "basketball_ncaab" || raw === "americanfootball_nfl") {
+    return raw;
+  }
+  return null;
+}
 
 export default function WatchlistPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, loading, token } = useCurrentUser(true);
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
   const [games, setGames] = useState<GameListItem[]>([]);
+  const [selectedSport, setSelectedSport] = useState<SportKey>("basketball_nba");
+  const [sportHydrated, setSportHydrated] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const fromUrl = resolveSport(searchParams.get("sport_key"));
+    if (fromUrl) {
+      setSelectedSport(fromUrl);
+      setSportHydrated(true);
+      return;
+    }
+
+    if (typeof window !== "undefined") {
+      const fromStorage = resolveSport(window.localStorage.getItem(WATCHLIST_SPORT_STORAGE_KEY));
+      if (fromStorage) {
+        setSelectedSport(fromStorage);
+      }
+    }
+    setSportHydrated(true);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!sportHydrated || typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(WATCHLIST_SPORT_STORAGE_KEY, selectedSport);
+    const params = new URLSearchParams(searchParams.toString());
+    if (params.get("sport_key") !== selectedSport) {
+      params.set("sport_key", selectedSport);
+      const query = params.toString();
+      router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+    }
+  }, [selectedSport, sportHydrated, searchParams, router, pathname]);
 
   const load = async () => {
     if (!token) {
@@ -23,22 +73,32 @@ export default function WatchlistPage() {
     }
     setError(null);
     try {
-      const [watch, allGames] = await Promise.all([getWatchlist(token), getGames(token)]);
+      const [watch, allGames] = await Promise.all([
+        getWatchlist(token, { sport_key: selectedSport }),
+        getGames(token, { sport_key: selectedSport }),
+      ]);
       setWatchlist(watch);
       setGames(allGames);
-      if (!selectedEventId && allGames.length > 0) {
-        setSelectedEventId(allGames[0].event_id);
-      }
+      setSelectedEventId((current) => {
+        if (allGames.length === 0) {
+          return "";
+        }
+        const stillPresent = allGames.some((game) => game.event_id === current);
+        return stillPresent ? current : allGames[0].event_id;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load watchlist");
     }
   };
 
   useEffect(() => {
+    if (!sportHydrated) {
+      return;
+    }
     if (!loading && token) {
       void load();
     }
-  }, [loading, token]);
+  }, [loading, token, selectedSport, sportHydrated]);
 
   const options = useMemo(
     () => games.filter((game) => !watchlist.some((item) => item.event_id === game.event_id)),
@@ -91,6 +151,24 @@ export default function WatchlistPage() {
             ? "Unlimited tracking and Discord alerts enabled."
             : "Free tier max watchlist size: 3 games. Discord alerts are Pro only."}
         </p>
+        <div className="mt-3 inline-flex flex-wrap gap-2">
+          {WATCHLIST_SPORT_OPTIONS.map((option) => {
+            const active = option.key === selectedSport;
+            return (
+              <button
+                key={option.key}
+                onClick={() => setSelectedSport(option.key)}
+                className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
+                  active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                }`}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
       </header>
 
       {error && <p className="text-sm text-negative">{error}</p>}

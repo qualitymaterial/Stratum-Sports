@@ -78,12 +78,28 @@ export async function getGameDetail(eventId: string, token: string) {
   return apiRequest<GameDetail>(`/games/${eventId}`, { token });
 }
 
-export async function getGames(token: string) {
-  return apiRequest<GameListItem[]>("/games", { token });
+export async function getGames(
+  token: string,
+  options: {
+    sport_key?: SportKey;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  const query = params.toString();
+  return apiRequest<GameListItem[]>(`/games${query ? `?${query}` : ""}`, { token });
 }
 
-export async function getWatchlist(token: string) {
-  return apiRequest<WatchlistItem[]>("/watchlist", { token });
+export async function getWatchlist(
+  token: string,
+  options: {
+    sport_key?: SportKey;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  const query = params.toString();
+  return apiRequest<WatchlistItem[]>(`/watchlist${query ? `?${query}` : ""}`, { token });
 }
 
 export async function addWatchlist(eventId: string, token: string) {

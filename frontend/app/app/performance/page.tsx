@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
@@ -104,6 +104,13 @@ function getInitialPerformanceSport(): SportKey {
     return stored;
   }
   return "basketball_nba";
+}
+
+function resolvePerformanceSport(raw: string | null | undefined): SportKey | null {
+  if (raw === "basketball_nba" || raw === "basketball_ncaab" || raw === "americanfootball_nfl") {
+    return raw;
+  }
+  return null;
 }
 
 function formatRecapPeriod(periodStart: string, grain: RecapGrain): string {
@@ -268,6 +275,8 @@ function buildOperatorSummary(
 
 export default function PerformancePage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, loading, token } = useCurrentUser(true);
   const [selectedSport, setSelectedSport] = useState<SportKey>(getInitialPerformanceSport);
   const [days, setDays] = useState(30);
@@ -327,83 +336,152 @@ export default function PerformancePage() {
       setFiltersHydrated(true);
       return;
     }
+    const hasUrlFilters = [
+      "sport_key",
+      "days",
+      "signal_type",
+      "market",
+      "preset",
+      "min_strength",
+      "min_samples",
+      "min_books_affected",
+      "max_dispersion",
+      "window_minutes_max",
+      "include_stale",
+      "recap_grain",
+    ].some((key) => searchParams.has(key));
+
     try {
-      const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as {
-          days?: number;
-          selectedSport?: SportKey;
-          signalType?: (typeof SIGNAL_OPTIONS)[number];
-          market?: (typeof MARKET_OPTIONS)[number];
-          selectedPreset?: PresetOption;
-          minStrength?: number;
-          minSamples?: number;
-          minBooksAffected?: number;
-          maxDispersion?: number | null;
-          windowMinutesMax?: number | null;
-          includeStaleOpportunities?: boolean;
-          recapGrain?: RecapGrain;
-        };
-        if (typeof parsed.days === "number") {
-          setDays(Math.max(1, Math.min(90, parsed.days)));
+      if (hasUrlFilters) {
+        const sport = resolvePerformanceSport(searchParams.get("sport_key"));
+        if (sport) {
+          setSelectedSport(sport);
         }
-        if (
-          parsed.selectedSport === "basketball_nba" ||
-          parsed.selectedSport === "basketball_ncaab" ||
-          parsed.selectedSport === "americanfootball_nfl"
-        ) {
-          setSelectedSport(parsed.selectedSport);
+        const daysParam = Number(searchParams.get("days"));
+        if (Number.isFinite(daysParam) && daysParam > 0) {
+          setDays(Math.max(1, Math.min(90, daysParam)));
         }
-        if (parsed.signalType && SIGNAL_OPTIONS.includes(parsed.signalType)) {
-          setSignalType(parsed.signalType);
+        const signalParam = searchParams.get("signal_type");
+        if (signalParam && SIGNAL_OPTIONS.includes(signalParam as (typeof SIGNAL_OPTIONS)[number])) {
+          setSignalType(signalParam as (typeof SIGNAL_OPTIONS)[number]);
         }
-        if (parsed.market && MARKET_OPTIONS.includes(parsed.market)) {
-          setMarket(parsed.market);
+        const marketParam = searchParams.get("market");
+        if (marketParam && MARKET_OPTIONS.includes(marketParam as (typeof MARKET_OPTIONS)[number])) {
+          setMarket(marketParam as (typeof MARKET_OPTIONS)[number]);
         }
-        if (parsed.selectedPreset && PRESET_OPTIONS.includes(parsed.selectedPreset)) {
-          setSelectedPreset(parsed.selectedPreset);
+        const presetParam = searchParams.get("preset");
+        if (presetParam && PRESET_OPTIONS.includes(presetParam as PresetOption)) {
+          setSelectedPreset(presetParam as PresetOption);
         }
-        if (typeof parsed.minStrength === "number") {
-          setMinStrength(Math.max(1, Math.min(100, parsed.minStrength)));
+        const minStrengthParam = Number(searchParams.get("min_strength"));
+        if (Number.isFinite(minStrengthParam) && minStrengthParam > 0) {
+          setMinStrength(Math.max(1, Math.min(100, minStrengthParam)));
         }
-        if (typeof parsed.minSamples === "number") {
-          setMinSamples(Math.max(1, Math.min(1000, parsed.minSamples)));
+        const minSamplesParam = Number(searchParams.get("min_samples"));
+        if (Number.isFinite(minSamplesParam) && minSamplesParam > 0) {
+          setMinSamples(Math.max(1, Math.min(1000, minSamplesParam)));
         }
-        if (typeof parsed.minBooksAffected === "number") {
-          setMinBooksAffected(Math.max(1, Math.min(100, parsed.minBooksAffected)));
+        const minBooksParam = Number(searchParams.get("min_books_affected"));
+        if (Number.isFinite(minBooksParam) && minBooksParam > 0) {
+          setMinBooksAffected(Math.max(1, Math.min(100, minBooksParam)));
         }
-        if (parsed.maxDispersion == null) {
+        const maxDispersionParam = searchParams.get("max_dispersion");
+        if (maxDispersionParam == null || maxDispersionParam === "") {
           setMaxDispersion(null);
-        } else if (typeof parsed.maxDispersion === "number" && Number.isFinite(parsed.maxDispersion)) {
-          setMaxDispersion(Math.max(0, parsed.maxDispersion));
+        } else {
+          const parsed = Number(maxDispersionParam);
+          if (Number.isFinite(parsed)) {
+            setMaxDispersion(Math.max(0, parsed));
+          }
         }
-        if (parsed.windowMinutesMax == null) {
+        const windowParam = searchParams.get("window_minutes_max");
+        if (windowParam == null || windowParam === "") {
           setWindowMinutesMax(null);
-        } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
-          setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
+        } else {
+          const parsed = Number(windowParam);
+          if (Number.isFinite(parsed) && parsed > 0) {
+            setWindowMinutesMax(Math.max(1, Math.min(240, parsed)));
+          }
         }
-        if (typeof parsed.includeStaleOpportunities === "boolean") {
-          setIncludeStaleOpportunities(parsed.includeStaleOpportunities);
+        const includeStaleParam = searchParams.get("include_stale");
+        if (includeStaleParam != null) {
+          setIncludeStaleOpportunities(includeStaleParam === "1" || includeStaleParam === "true");
         }
-        if (parsed.recapGrain === "day" || parsed.recapGrain === "week") {
-          setRecapGrain(parsed.recapGrain);
+        const recapParam = searchParams.get("recap_grain");
+        if (recapParam === "day" || recapParam === "week") {
+          setRecapGrain(recapParam);
         }
       } else {
-        applyPreset("HIGH_CONFIDENCE");
+        const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            days?: number;
+            selectedSport?: SportKey;
+            signalType?: (typeof SIGNAL_OPTIONS)[number];
+            market?: (typeof MARKET_OPTIONS)[number];
+            selectedPreset?: PresetOption;
+            minStrength?: number;
+            minSamples?: number;
+            minBooksAffected?: number;
+            maxDispersion?: number | null;
+            windowMinutesMax?: number | null;
+            includeStaleOpportunities?: boolean;
+            recapGrain?: RecapGrain;
+          };
+          if (typeof parsed.days === "number") {
+            setDays(Math.max(1, Math.min(90, parsed.days)));
+          }
+          if (
+            parsed.selectedSport === "basketball_nba" ||
+            parsed.selectedSport === "basketball_ncaab" ||
+            parsed.selectedSport === "americanfootball_nfl"
+          ) {
+            setSelectedSport(parsed.selectedSport);
+          }
+          if (parsed.signalType && SIGNAL_OPTIONS.includes(parsed.signalType)) {
+            setSignalType(parsed.signalType);
+          }
+          if (parsed.market && MARKET_OPTIONS.includes(parsed.market)) {
+            setMarket(parsed.market);
+          }
+          if (parsed.selectedPreset && PRESET_OPTIONS.includes(parsed.selectedPreset)) {
+            setSelectedPreset(parsed.selectedPreset);
+          }
+          if (typeof parsed.minStrength === "number") {
+            setMinStrength(Math.max(1, Math.min(100, parsed.minStrength)));
+          }
+          if (typeof parsed.minSamples === "number") {
+            setMinSamples(Math.max(1, Math.min(1000, parsed.minSamples)));
+          }
+          if (typeof parsed.minBooksAffected === "number") {
+            setMinBooksAffected(Math.max(1, Math.min(100, parsed.minBooksAffected)));
+          }
+          if (parsed.maxDispersion == null) {
+            setMaxDispersion(null);
+          } else if (typeof parsed.maxDispersion === "number" && Number.isFinite(parsed.maxDispersion)) {
+            setMaxDispersion(Math.max(0, parsed.maxDispersion));
+          }
+          if (parsed.windowMinutesMax == null) {
+            setWindowMinutesMax(null);
+          } else if (typeof parsed.windowMinutesMax === "number" && Number.isFinite(parsed.windowMinutesMax)) {
+            setWindowMinutesMax(Math.max(1, Math.min(240, parsed.windowMinutesMax)));
+          }
+          if (typeof parsed.includeStaleOpportunities === "boolean") {
+            setIncludeStaleOpportunities(parsed.includeStaleOpportunities);
+          }
+          if (parsed.recapGrain === "day" || parsed.recapGrain === "week") {
+            setRecapGrain(parsed.recapGrain);
+          }
+        } else {
+          applyPreset("HIGH_CONFIDENCE");
+        }
       }
     } catch {
       applyPreset("HIGH_CONFIDENCE");
     } finally {
       setFiltersHydrated(true);
     }
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(PERFORMANCE_SPORT_STORAGE_KEY, selectedSport);
-  }, [selectedSport]);
+  }, [searchParams]);
 
   useEffect(() => {
     if (!filtersHydrated || typeof window === "undefined") {
@@ -426,6 +504,7 @@ export default function PerformancePage() {
         recapGrain,
       }),
     );
+    window.localStorage.setItem(PERFORMANCE_SPORT_STORAGE_KEY, selectedSport);
   }, [
     days,
     selectedSport,
@@ -440,6 +519,47 @@ export default function PerformancePage() {
     includeStaleOpportunities,
     recapGrain,
     filtersHydrated,
+  ]);
+
+  useEffect(() => {
+    if (!filtersHydrated) {
+      return;
+    }
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("sport_key", selectedSport);
+    params.set("days", String(days));
+    params.set("signal_type", signalType);
+    params.set("market", market);
+    params.set("preset", selectedPreset);
+    params.set("min_strength", String(minStrength));
+    params.set("min_samples", String(minSamples));
+    params.set("min_books_affected", String(minBooksAffected));
+    params.set("max_dispersion", maxDispersion == null ? "" : String(maxDispersion));
+    params.set("window_minutes_max", windowMinutesMax == null ? "" : String(windowMinutesMax));
+    params.set("include_stale", includeStaleOpportunities ? "1" : "0");
+    params.set("recap_grain", recapGrain);
+    const next = params.toString();
+    const current = searchParams.toString();
+    if (next !== current) {
+      router.replace(`${pathname}?${next}`, { scroll: false });
+    }
+  }, [
+    selectedSport,
+    days,
+    signalType,
+    market,
+    selectedPreset,
+    minStrength,
+    minSamples,
+    minBooksAffected,
+    maxDispersion,
+    windowMinutesMax,
+    includeStaleOpportunities,
+    recapGrain,
+    filtersHydrated,
+    searchParams,
+    router,
+    pathname,
   ]);
 
   const load = async () => {

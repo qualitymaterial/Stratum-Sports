@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +91,30 @@ async def _register_pro_user(async_client: AsyncClient, db_session: AsyncSession
     user.tier = "pro"
     await db_session.commit()
     return token
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/intel/clv?days=7",
+        "/api/v1/intel/clv/summary?days=7",
+        "/api/v1/intel/clv/recap?days=7&grain=day",
+        "/api/v1/intel/clv/scorecards?days=7",
+        "/api/v1/intel/clv/teaser?days=7",
+        "/api/v1/intel/signals/quality?days=7",
+        "/api/v1/intel/signals/weekly-summary?days=7",
+    ],
+)
+async def test_intel_endpoints_reject_invalid_sport_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+    path: str,
+) -> None:
+    token = await _register_pro_user(async_client, db_session, "perf-invalid-sport@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+    response = await async_client.get(f"{path}&sport_key=invalid_sport", headers=headers)
+    assert response.status_code == 400
+    assert "Unsupported sport_key" in response.json()["detail"]
 
 
 async def test_clv_summary_endpoint_supports_filters(

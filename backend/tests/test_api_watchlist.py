@@ -20,11 +20,15 @@ async def _register(async_client: AsyncClient, email: str = "watch-test@example.
     return resp.json()["access_token"]
 
 
-async def _seed_game(db_session: AsyncSession, event_id: str = "test_event_001") -> Game:
+async def _seed_game(
+    db_session: AsyncSession,
+    event_id: str = "test_event_001",
+    sport_key: str = "basketball_nba",
+) -> Game:
     """Insert a game row directly so watchlist tests have something to track."""
     game = Game(
         event_id=event_id,
-        sport_key="basketball_nba",
+        sport_key=sport_key,
         commence_time=datetime(2026, 3, 1, 20, 0, tzinfo=UTC),
         home_team="Lakers",
         away_team="Celtics",
@@ -89,6 +93,33 @@ async def test_add_and_list_watchlist_item(
     assert len(items) == 1
     assert items[0]["event_id"] == game.event_id
     assert items[0]["game"]["home_team"] == "Lakers"
+    assert items[0]["game"]["sport_key"] == "basketball_nba"
+
+
+async def test_list_watchlist_filters_by_sport_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+):
+    nba_game = await _seed_game(db_session, "event_watch_nba", sport_key="basketball_nba")
+    nfl_game = await _seed_game(db_session, "event_watch_nfl", sport_key="americanfootball_nfl")
+    token = await _register(async_client, "watch-sport-filter@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    for event_id in (nba_game.event_id, nfl_game.event_id):
+        add_resp = await async_client.post(f"/api/v1/watchlist/{event_id}", headers=headers)
+        assert add_resp.status_code == 200
+
+    nba_resp = await async_client.get("/api/v1/watchlist?sport_key=basketball_nba", headers=headers)
+    assert nba_resp.status_code == 200
+    nba_items = nba_resp.json()
+    assert len(nba_items) == 1
+    assert nba_items[0]["event_id"] == nba_game.event_id
+
+    nfl_resp = await async_client.get("/api/v1/watchlist?sport_key=americanfootball_nfl", headers=headers)
+    assert nfl_resp.status_code == 200
+    nfl_items = nfl_resp.json()
+    assert len(nfl_items) == 1
+    assert nfl_items[0]["event_id"] == nfl_game.event_id
 
 
 async def test_add_duplicate_returns_exists(

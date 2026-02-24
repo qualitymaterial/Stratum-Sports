@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,10 @@ settings = get_settings()
 
 @router.get("")
 async def list_watchlist(
+    sport_key: str | None = Query(
+        None,
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
@@ -25,26 +29,34 @@ async def list_watchlist(
 
     event_ids = [item.event_id for item in items]
     games_stmt = select(Game).where(Game.event_id.in_(event_ids)) if event_ids else None
+    if games_stmt is not None and sport_key:
+        games_stmt = games_stmt.where(Game.sport_key == sport_key)
     game_map = {}
     if games_stmt is not None:
         for game in (await db.execute(games_stmt)).scalars().all():
             game_map[game.event_id] = game
 
-    return [
-        {
-            "id": item.id,
-            "event_id": item.event_id,
-            "created_at": item.created_at,
-            "game": {
-                "home_team": game_map[item.event_id].home_team,
-                "away_team": game_map[item.event_id].away_team,
-                "commence_time": game_map[item.event_id].commence_time,
+    payload = []
+    for item in items:
+        game = game_map.get(item.event_id)
+        if sport_key and game is None:
+            continue
+        payload.append(
+            {
+                "id": item.id,
+                "event_id": item.event_id,
+                "created_at": item.created_at,
+                "game": {
+                    "sport_key": game.sport_key,
+                    "home_team": game.home_team,
+                    "away_team": game.away_team,
+                    "commence_time": game.commence_time,
+                }
+                if game is not None
+                else None,
             }
-            if item.event_id in game_map
-            else None,
-        }
-        for item in items
-    ]
+        )
+    return payload
 
 
 @router.post("/{event_id}")
