@@ -80,9 +80,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.production pull
 docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build --remove-orphans
 ```
 
-4. Full deployment runbook:
+4. Full deployment runbooks:
 
-- `docs/deployment-aws-ec2.md`
+- `docs/production-runbook.md` (primary, DigitalOcean + GitHub Actions)
+- `docs/deployment-aws-ec2.md` (legacy EC2-focused guide)
 
 ### GitHub Actions Production Deploy
 

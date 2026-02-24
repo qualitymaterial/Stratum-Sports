@@ -2,6 +2,8 @@
 
 This runbook deploys Stratum Sports on one Ubuntu EC2 host using Docker Compose.
 
+Note: for the current DigitalOcean + GitHub Actions production flow, use `docs/production-runbook.md`.
+
 ## 1) Prerequisites
 
 - AWS account and domain name
