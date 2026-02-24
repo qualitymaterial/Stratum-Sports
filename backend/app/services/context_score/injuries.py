@@ -11,10 +11,21 @@ from statistics import stdev
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.services.context_score.injury_feed import get_sportsdataio_injury_context
+from app.core.config import get_settings
+
+settings = get_settings()
 
 
-async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
+async def _heuristic_injury_context(
+    db: AsyncSession,
+    event_id: str,
+    *,
+    fallback_reason: str | None = None,
+) -> dict:
+    """Existing spread-velocity heuristic used as resilient fallback."""
     window_minutes = 30
     start_ts = datetime.now(UTC) - timedelta(minutes=window_minutes)
 
@@ -51,16 +62,35 @@ async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
     velocity_score = min(20.0, velocity * 40)
     score = int(round(move_score + book_score + velocity_score))
 
+    notes = "Derived from spread-line velocity. No live injury feed connected."
+    if fallback_reason:
+        notes = f"{notes} Live injury feed unavailable ({fallback_reason}); heuristic fallback used."
+
     return {
         "event_id": event_id,
         "component": "injuries",
         "status": "computed",
         "score": score,
         "details": {
+            "source": "heuristic",
             "spread_move_pts": round(total_move, 2),
             "spread_std": round(spread_std, 3),
             "velocity_pts_per_min": round(velocity, 4),
             "books_sampled": len(books),
         },
-        "notes": "Derived from spread-line velocity. No live injury feed connected.",
+        "notes": notes,
     }
+
+
+async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
+    provider = settings.injury_feed_provider.strip().lower()
+    if provider == "sportsdataio":
+        game_stmt = select(Game).where(Game.event_id == event_id)
+        game = (await db.execute(game_stmt)).scalar_one_or_none()
+        if game is not None:
+            live_context = await get_sportsdataio_injury_context(game)
+            if live_context is not None:
+                return live_context
+            return await _heuristic_injury_context(db, event_id, fallback_reason="sportsdataio_unavailable")
+
+    return await _heuristic_injury_context(db, event_id)

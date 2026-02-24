@@ -207,6 +207,18 @@ Auth failure debug checklist:
 - `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRO_PRICE_ID`
 - `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 
+Optional live injury context (SportsDataIO):
+- `INJURY_FEED_PROVIDER=heuristic|sportsdataio` (default `heuristic`)
+- `SPORTSDATAIO_API_KEY`
+- `SPORTSDATAIO_BASE_URL` (default `https://api.sportsdata.io/v3`)
+- `SPORTSDATAIO_INJURIES_ENDPOINT_NBA`
+- `SPORTSDATAIO_INJURIES_ENDPOINT_NCAAB`
+- `SPORTSDATAIO_INJURIES_ENDPOINT_NFL`
+
+Notes:
+- Endpoints are plan-specific at SportsDataIO. Leave endpoint vars blank to keep heuristic fallback behavior.
+- If live feed is unavailable for any reason, context scoring automatically falls back to spread-velocity heuristics.
+
 ## Discord OAuth Setup
 
 1. Create an application at [Discord Developer Portal](https://discord.com/developers/applications).

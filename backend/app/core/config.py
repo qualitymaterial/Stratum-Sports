@@ -115,6 +115,15 @@ class Settings(BaseSettings):
     free_delay_minutes: int = 10
     free_watchlist_limit: int = 3
 
+    injury_feed_provider: str = "heuristic"
+    sportsdataio_api_key: str = ""
+    sportsdataio_base_url: str = "https://api.sportsdata.io/v3"
+    sportsdataio_injuries_endpoint_nba: str = ""
+    sportsdataio_injuries_endpoint_ncaab: str = ""
+    sportsdataio_injuries_endpoint_nfl: str = ""
+    sportsdataio_timeout_seconds: float = 8.0
+    sportsdataio_cache_seconds: int = 180
+
     snapshot_retention_hours: int = 48
     signal_retention_days: int = 30
     consensus_enabled: bool = True
