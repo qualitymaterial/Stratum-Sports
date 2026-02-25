@@ -253,6 +253,81 @@ class AdminBillingMutationOut(BaseModel):
     subscription_id: str | None = None
 
 
+class AdminApiPartnerKeyOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    created_by_user_id: UUID | None
+    name: str
+    key_prefix: str
+    is_active: bool
+    last_used_at: datetime | None
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AdminApiPartnerKeyListOut(BaseModel):
+    user_id: UUID
+    email: str
+    tier: str
+    total_keys: int
+    active_keys: int
+    recently_used_30d: int
+    items: list[AdminApiPartnerKeyOut]
+
+
+class AdminApiPartnerKeyIssueRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=64)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminApiPartnerKeyRotateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=64)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminApiPartnerKeyMutationRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminApiPartnerKeyIssueOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    reason: str
+    operation: Literal["issue", "rotate"]
+    key: AdminApiPartnerKeyOut
+    api_key: str
+
+
+class AdminApiPartnerKeyRevokeOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    reason: str
+    operation: Literal["revoke"]
+    key_id: UUID
+    key_prefix: str
+    old_is_active: bool
+    new_is_active: bool
+    revoked_at: datetime | None
+
+
 class AdminAuditLogItemOut(BaseModel):
     id: UUID
     actor_user_id: UUID

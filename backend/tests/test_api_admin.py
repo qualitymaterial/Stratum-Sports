@@ -6,10 +6,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.api_partner_key import ApiPartnerKey
 from app.models.password_reset_token import PasswordResetToken
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.models.teaser_interaction_event import TeaserInteractionEvent
+from app.services.partner_api_keys import hash_partner_api_key
 
 STEP_UP_PASSWORD = "AdminRoutePass123!"
 CONFIRM_PHRASE = "CONFIRM"
@@ -45,6 +47,15 @@ async def _ensure_admin_audit_table(db_session: AsyncSession) -> None:
 async def _ensure_password_reset_table(db_session: AsyncSession) -> None:
     await db_session.run_sync(
         lambda sync_session: PasswordResetToken.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+
+
+async def _ensure_api_partner_keys_table(db_session: AsyncSession) -> None:
+    await db_session.run_sync(
+        lambda sync_session: ApiPartnerKey.__table__.create(
             bind=sync_session.connection(),
             checkfirst=True,
         )
@@ -862,6 +873,212 @@ async def test_admin_user_billing_resync_requires_stripe_customer_id(
 
     assert response.status_code == 400
     assert response.json()["detail"] == "User has no Stripe customer ID"
+
+
+async def test_admin_issue_partner_key_requires_permission(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_api_partner_keys_table(db_session)
+    token = await _register(async_client, "admin-partner-support@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-partner-support@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-partner-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-partner-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Primary Partner Key",
+            "expires_in_days": 90,
+            "reason": "Support role should not issue partner keys",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_issue_partner_key_and_list_keys(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    await _ensure_api_partner_keys_table(db_session)
+    token = await _register(async_client, "admin-partner-billing@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-partner-billing@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-partner-target-2@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-partner-target-2@example.com"))).scalar_one()
+    await db_session.commit()
+
+    issue_response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-partner-key-issue"},
+        json={
+            "name": "Primary Partner Key",
+            "expires_in_days": 90,
+            "reason": "Create partner key for private feed integration",
+            **_mutation_security_fields(),
+        },
+    )
+    assert issue_response.status_code == 200, issue_response.text
+    issue_payload = issue_response.json()
+    assert issue_payload["operation"] == "issue"
+    assert issue_payload["key"]["name"] == "Primary Partner Key"
+    assert issue_payload["api_key"].startswith("stratum_pk_")
+
+    key_stmt = select(ApiPartnerKey).where(ApiPartnerKey.id == issue_payload["key"]["id"])
+    key_row = (await db_session.execute(key_stmt)).scalar_one()
+    assert key_row.key_prefix == issue_payload["api_key"][:16]
+    assert key_row.key_hash == hash_partner_api_key(issue_payload["api_key"])
+    assert key_row.is_active is True
+
+    list_response = await async_client.get(
+        f"/api/v1/admin/users/{target_user.id}/api-keys",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_response.status_code == 200, list_response.text
+    list_payload = list_response.json()
+    assert list_payload["total_keys"] == 1
+    assert list_payload["active_keys"] == 1
+    assert list_payload["items"][0]["key_prefix"] == key_row.key_prefix
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.action_type == "admin.partner_api_key.issue",
+        AdminAuditLog.target_id == str(target_user.id),
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.request_id == "test-partner-key-issue"
+
+
+async def test_admin_revoke_partner_key_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    await _ensure_api_partner_keys_table(db_session)
+    token = await _register(async_client, "admin-partner-revoke@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-partner-revoke@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-partner-revoke-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-partner-revoke-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    issue_response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Revoke Test Key",
+            "expires_in_days": 30,
+            "reason": "Issue key before revoke test",
+            **_mutation_security_fields(),
+        },
+    )
+    key_id = issue_response.json()["key"]["id"]
+
+    revoke_response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys/{key_id}/revoke",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-partner-key-revoke"},
+        json={
+            "reason": "Credential rotation after integration changes",
+            **_mutation_security_fields(),
+        },
+    )
+    assert revoke_response.status_code == 200, revoke_response.text
+    revoke_payload = revoke_response.json()
+    assert revoke_payload["operation"] == "revoke"
+    assert revoke_payload["old_is_active"] is True
+    assert revoke_payload["new_is_active"] is False
+    assert revoke_payload["revoked_at"] is not None
+
+    key_stmt = select(ApiPartnerKey).where(ApiPartnerKey.id == key_id)
+    key_row = (await db_session.execute(key_stmt)).scalar_one()
+    assert key_row.is_active is False
+    assert key_row.revoked_at is not None
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.action_type == "admin.partner_api_key.revoke",
+        AdminAuditLog.target_id == key_id,
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.request_id == "test-partner-key-revoke"
+
+
+async def test_admin_rotate_partner_key_creates_new_active_key(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    await _ensure_api_partner_keys_table(db_session)
+    token = await _register(async_client, "admin-partner-rotate@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-partner-rotate@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-partner-rotate-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-partner-rotate-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    issue_response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "name": "Rotate Seed Key",
+            "expires_in_days": 60,
+            "reason": "Issue key before rotate test",
+            **_mutation_security_fields(),
+        },
+    )
+    original_key_id = issue_response.json()["key"]["id"]
+
+    rotate_response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/api-keys/{original_key_id}/rotate",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-partner-key-rotate"},
+        json={
+            "name": "Rotated Key",
+            "expires_in_days": 120,
+            "reason": "Rotate key after partner security request",
+            **_mutation_security_fields(),
+        },
+    )
+    assert rotate_response.status_code == 200, rotate_response.text
+    rotate_payload = rotate_response.json()
+    assert rotate_payload["operation"] == "rotate"
+    assert rotate_payload["api_key"].startswith("stratum_pk_")
+    assert rotate_payload["key"]["name"] == "Rotated Key"
+    assert rotate_payload["key"]["id"] != original_key_id
+
+    keys_stmt = select(ApiPartnerKey).where(ApiPartnerKey.user_id == target_user.id)
+    key_rows = list((await db_session.execute(keys_stmt)).scalars().all())
+    assert len(key_rows) == 2
+    assert sum(1 for key in key_rows if key.is_active) == 1
+    assert any(str(key.id) == original_key_id and not key.is_active for key in key_rows)
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.action_type == "admin.partner_api_key.rotate",
+        AdminAuditLog.request_id == "test-partner-key-rotate",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
 
 
 async def test_admin_user_search_requires_admin(

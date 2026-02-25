@@ -1,5 +1,6 @@
 from app.models.base import Base
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.api_partner_key import ApiPartnerKey
 from app.models.closing_consensus import ClosingConsensus
 from app.models.clv_record import ClvRecord
 from app.models.cycle_kpi import CycleKpi
@@ -18,6 +19,7 @@ from app.models.password_reset_token import PasswordResetToken
 __all__ = [
     "Base",
     "AdminAuditLog",
+    "ApiPartnerKey",
     "User",
     "Subscription",
     "Game",

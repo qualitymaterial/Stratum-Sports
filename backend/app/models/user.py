@@ -28,4 +28,10 @@ class User(Base, TimestampMixin):
         uselist=False,
         lazy="noload",
     )
+    api_partner_keys = relationship(
+        "ApiPartnerKey",
+        back_populates="user",
+        foreign_keys="ApiPartnerKey.user_id",
+        lazy="noload",
+    )
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", lazy="noload")

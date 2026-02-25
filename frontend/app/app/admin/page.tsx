@@ -8,9 +8,13 @@ import {
   cancelAdminUserBilling,
   getAdminAuditLogs,
   getAdminOverview,
+  getAdminUserApiPartnerKeys,
   getAdminUserBilling,
   getAdminUsers,
+  issueAdminUserApiPartnerKey,
+  revokeAdminUserApiPartnerKey,
   reactivateAdminUserBilling,
+  rotateAdminUserApiPartnerKey,
   resyncAdminUserBilling,
   requestAdminUserPasswordReset,
   updateAdminUserActive,
@@ -20,6 +24,7 @@ import {
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import {
+  AdminApiPartnerKeyList,
   AdminAuditLogList,
   AdminBillingOverview,
   AdminOverview,
@@ -50,6 +55,12 @@ export default function AdminPage() {
   const [billingSummary, setBillingSummary] = useState<AdminBillingOverview | null>(null);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingError, setBillingError] = useState<string | null>(null);
+  const [partnerKeysSummary, setPartnerKeysSummary] = useState<AdminApiPartnerKeyList | null>(null);
+  const [partnerKeysLoading, setPartnerKeysLoading] = useState(false);
+  const [partnerKeysError, setPartnerKeysError] = useState<string | null>(null);
+  const [partnerKeyName, setPartnerKeyName] = useState("Primary Partner Key");
+  const [partnerKeyExpiresDays, setPartnerKeyExpiresDays] = useState("90");
+  const [latestIssuedApiKey, setLatestIssuedApiKey] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<AdminUserSearchItem[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
@@ -100,6 +111,25 @@ export default function AdminPage() {
       setBillingError(err instanceof Error ? err.message : "Failed to load billing state");
     } finally {
       setBillingLoading(false);
+    }
+  };
+
+  const loadPartnerKeys = async (authToken: string, userId: string) => {
+    if (!authToken || !userId.trim()) {
+      setPartnerKeysSummary(null);
+      setPartnerKeysError(null);
+      return;
+    }
+    setPartnerKeysLoading(true);
+    setPartnerKeysError(null);
+    try {
+      const payload = await getAdminUserApiPartnerKeys(authToken, userId.trim());
+      setPartnerKeysSummary(payload);
+    } catch (err) {
+      setPartnerKeysSummary(null);
+      setPartnerKeysError(err instanceof Error ? err.message : "Failed to load API partner keys");
+    } finally {
+      setPartnerKeysLoading(false);
     }
   };
 
@@ -308,6 +338,104 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Billing reactivation failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const parseExpiresDays = (): number | undefined => {
+    const parsed = Number(partnerKeyExpiresDays);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return undefined;
+    }
+    return Math.floor(parsed);
+  };
+
+  const runIssuePartnerKey = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    if (partnerKeyName.trim().length < 3) {
+      setMutationError("API key name must be at least 3 characters.");
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await issueAdminUserApiPartnerKey(token, mutationUserId.trim(), {
+        name: partnerKeyName.trim(),
+        expires_in_days: parseExpiresDays(),
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setLatestIssuedApiKey(result.api_key);
+      setMutationResult(`Issued API key '${result.key.name}' for ${result.email}, action ${result.action_id}`);
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadPartnerKeys(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "API key issue failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runRevokePartnerKey = async (keyId: string) => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await revokeAdminUserApiPartnerKey(token, mutationUserId.trim(), keyId, {
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setMutationResult(
+        `Revoked API key ${result.key_prefix} for ${result.email}, action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadPartnerKeys(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "API key revoke failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runRotatePartnerKey = async (keyId: string, fallbackName: string) => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    const nextName = partnerKeyName.trim() || fallbackName;
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await rotateAdminUserApiPartnerKey(token, mutationUserId.trim(), keyId, {
+        name: nextName,
+        expires_in_days: parseExpiresDays(),
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setLatestIssuedApiKey(result.api_key);
+      setMutationResult(
+        `Rotated API key for ${result.email}. New key '${result.key.name}', action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadPartnerKeys(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "API key rotate failed");
     } finally {
       setMutationLoading(false);
     }
@@ -629,7 +757,8 @@ export default function AdminPage() {
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
           <p>2. Update user tier, role, and account status with reason + step-up confirmation.</p>
           <p>3. Manage billing state (resync, cancel, reactivate) with auditable controls.</p>
-          <p>4. Review immutable admin audit entries with action and target filters.</p>
+          <p>4. Issue, rotate, and revoke API partner keys for selected users.</p>
+          <p>5. Review immutable admin audit entries with action and target filters.</p>
         </div>
       </div>
 
@@ -667,10 +796,14 @@ export default function AdminPage() {
                 setMutationError(null);
                 if (token && nextUserId) {
                   void loadBilling(token, nextUserId);
+                  void loadPartnerKeys(token, nextUserId);
                 } else {
                   setBillingSummary(null);
                   setBillingError(null);
+                  setPartnerKeysSummary(null);
+                  setPartnerKeysError(null);
                 }
+                setLatestIssuedApiKey(null);
                 const selected = userSearchResults.find((item) => item.id === nextUserId);
                 if (selected) {
                   setUserSearchQuery(selected.email);
@@ -701,6 +834,9 @@ export default function AdminPage() {
                 setMutationUserId(event.target.value);
                 setBillingSummary(null);
                 setBillingError(null);
+                setPartnerKeysSummary(null);
+                setPartnerKeysError(null);
+                setLatestIssuedApiKey(null);
               }}
               placeholder="uuid"
               className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
@@ -815,6 +951,132 @@ export default function AdminPage() {
           )}
         </div>
 
+        <div className="mt-4 rounded border border-borderTone bg-panelSoft p-3 text-xs text-textMute">
+          <div className="flex items-center justify-between gap-3">
+            <p className="uppercase tracking-wider">API Partner Keys</p>
+            <button
+              onClick={() => {
+                if (token && mutationUserId.trim()) {
+                  void loadPartnerKeys(token, mutationUserId.trim());
+                }
+              }}
+              disabled={partnerKeysLoading || !mutationUserId.trim()}
+              className="rounded border border-borderTone px-2 py-1 text-[10px] uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {partnerKeysLoading ? "Loading..." : "Refresh Keys"}
+            </button>
+          </div>
+          {partnerKeysError && <p className="mt-2 text-negative">{partnerKeysError}</p>}
+          {!partnerKeysError && (
+            <>
+              <div className="mt-2 flex flex-wrap gap-3">
+                <p>
+                  Total: <span className="text-textMain">{partnerKeysSummary?.total_keys ?? 0}</span>
+                </p>
+                <p>
+                  Active: <span className="text-textMain">{partnerKeysSummary?.active_keys ?? 0}</span>
+                </p>
+                <p>
+                  Used 30d: <span className="text-textMain">{partnerKeysSummary?.recently_used_30d ?? 0}</span>
+                </p>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                <label className="text-[11px] text-textMute">
+                  Key Name
+                  <input
+                    value={partnerKeyName}
+                    onChange={(event) => setPartnerKeyName(event.target.value)}
+                    placeholder="Primary Partner Key"
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+                <label className="text-[11px] text-textMute">
+                  Expires in Days (optional)
+                  <input
+                    type="number"
+                    min={1}
+                    max={3650}
+                    value={partnerKeyExpiresDays}
+                    onChange={(event) => setPartnerKeyExpiresDays(event.target.value)}
+                    placeholder="90"
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+              </div>
+              {latestIssuedApiKey && (
+                <div className="mt-3 rounded border border-accent/40 bg-accent/5 p-2">
+                  <p className="text-[11px] uppercase tracking-wider text-accent">New API Key (shown once)</p>
+                  <p className="mt-1 break-all font-mono text-[11px] text-textMain">{latestIssuedApiKey}</p>
+                </div>
+              )}
+              <div className="mt-3 overflow-auto">
+                <table className="w-full border-collapse text-[11px]">
+                  <thead>
+                    <tr className="text-left uppercase tracking-wider text-textMute">
+                      <th className="border-b border-borderTone py-1.5">Prefix</th>
+                      <th className="border-b border-borderTone py-1.5">Name</th>
+                      <th className="border-b border-borderTone py-1.5">Status</th>
+                      <th className="border-b border-borderTone py-1.5">Expires</th>
+                      <th className="border-b border-borderTone py-1.5">Last Used</th>
+                      <th className="border-b border-borderTone py-1.5">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(partnerKeysSummary?.items ?? []).map((keyRow) => (
+                      <tr key={keyRow.id}>
+                        <td className="border-b border-borderTone/50 py-1.5 font-mono text-textMain">{keyRow.key_prefix}</td>
+                        <td className="border-b border-borderTone/50 py-1.5 text-textMain">{keyRow.name}</td>
+                        <td className="border-b border-borderTone/50 py-1.5 text-textMain">
+                          {keyRow.is_active ? "active" : "revoked"}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-1.5 text-textMain">
+                          {keyRow.expires_at
+                            ? new Date(keyRow.expires_at).toLocaleDateString()
+                            : "-"}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-1.5 text-textMain">
+                          {keyRow.last_used_at
+                            ? new Date(keyRow.last_used_at).toLocaleString()
+                            : "-"}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-1.5">
+                          <div className="flex flex-wrap gap-1">
+                            <button
+                              onClick={() => {
+                                void runRotatePartnerKey(keyRow.id, keyRow.name);
+                              }}
+                              disabled={mutationLoading || !keyRow.is_active}
+                              className="rounded border border-borderTone px-2 py-0.5 text-[10px] uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+                            >
+                              Rotate
+                            </button>
+                            <button
+                              onClick={() => {
+                                void runRevokePartnerKey(keyRow.id);
+                              }}
+                              disabled={mutationLoading || !keyRow.is_active}
+                              className="rounded border border-borderTone px-2 py-0.5 text-[10px] uppercase tracking-wider text-textMute transition hover:border-negative hover:text-negative disabled:opacity-60"
+                            >
+                              Revoke
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {(partnerKeysSummary?.items.length ?? 0) === 0 && (
+                      <tr>
+                        <td colSpan={6} className="py-2 text-textMute">
+                          No API partner keys for this user yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={() => {
@@ -878,6 +1140,15 @@ export default function AdminPage() {
             className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
           >
             {mutationLoading ? "Working..." : "Reactivate Subscription"}
+          </button>
+          <button
+            onClick={() => {
+              void runIssuePartnerKey();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Issue API Key"}
           </button>
         </div>
         {mutationError && <p className="mt-2 text-sm text-negative">{mutationError}</p>}
@@ -971,8 +1242,8 @@ export default function AdminPage() {
           <p>Admin UI currently focuses on access control mutations and audit visibility.</p>
           <p>Role changes require super-admin permission; tier updates allow broader admin roles.</p>
           <p>
-            Most operational actions (deploy, backfill, partner key lifecycle) remain script-driven or protected
-            internal endpoints.
+            Most operational actions (deploy, deep backfills, and ops break-glass flows) remain script-driven or
+            protected internal endpoints.
           </p>
         </div>
       </div>

@@ -9,6 +9,7 @@ from app.api.deps import require_admin_permission, require_admin_user
 from app.core.admin_roles import (
     PERMISSION_BILLING_WRITE,
     PERMISSION_ADMIN_READ,
+    PERMISSION_PARTNER_API_WRITE,
     PERMISSION_USER_PASSWORD_RESET_WRITE,
     PERMISSION_USER_ROLE_WRITE,
     PERMISSION_USER_STATUS_WRITE,
@@ -22,6 +23,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.api_partner_key import ApiPartnerKey
 from app.models.cycle_kpi import CycleKpi
 from app.models.password_reset_token import PasswordResetToken
 from app.models.subscription import Subscription
@@ -30,6 +32,13 @@ from app.schemas.ops import (
     AdminBillingMutationOut,
     AdminBillingMutationRequest,
     AdminBillingSubscriptionOut,
+    AdminApiPartnerKeyIssueOut,
+    AdminApiPartnerKeyIssueRequest,
+    AdminApiPartnerKeyListOut,
+    AdminApiPartnerKeyMutationRequest,
+    AdminApiPartnerKeyOut,
+    AdminApiPartnerKeyRevokeOut,
+    AdminApiPartnerKeyRotateRequest,
     AdminUserBillingOverviewOut,
     AdminUserActiveUpdateOut,
     AdminUserActiveUpdateRequest,
@@ -50,6 +59,13 @@ from app.schemas.ops import (
 )
 from app.services.admin_audit import write_admin_audit_log
 from app.services.operator_report import build_operator_report
+from app.services.partner_api_keys import (
+    issue_api_partner_key,
+    list_api_partner_keys_for_user,
+    revoke_api_partner_key,
+    rotate_api_partner_key,
+    serialize_api_partner_key_for_audit,
+)
 from app.services.stripe_service import (
     admin_cancel_user_subscription,
     admin_reactivate_user_subscription,
@@ -87,6 +103,20 @@ def _raise_billing_error(exc: Exception) -> None:
     if isinstance(exc, ValueError):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Billing operation failed: {exc}") from exc
+
+
+def _resolve_expires_at(expires_in_days: int | None) -> datetime | None:
+    if expires_in_days is None:
+        return None
+    return datetime.now(UTC) + timedelta(days=expires_in_days)
+
+
+async def _get_partner_key_for_user(db: AsyncSession, *, user_id: UUID, key_id: UUID) -> ApiPartnerKey:
+    stmt = select(ApiPartnerKey).where(ApiPartnerKey.id == key_id, ApiPartnerKey.user_id == user_id)
+    key = (await db.execute(stmt)).scalar_one_or_none()
+    if key is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API partner key not found")
+    return key
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -532,6 +562,208 @@ async def admin_user_billing_reactivate(
         previous_cancel_at_period_end=before_cancel,
         new_cancel_at_period_end=after_subscription.cancel_at_period_end,
         subscription_id=after_subscription.stripe_subscription_id,
+    )
+
+
+@router.get("/users/{user_id}/api-keys", response_model=AdminApiPartnerKeyListOut)
+async def admin_list_user_api_partner_keys(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminApiPartnerKeyListOut:
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    keys = await list_api_partner_keys_for_user(db, target_user.id)
+    now = datetime.now(UTC)
+    recently_used_cutoff = now - timedelta(days=30)
+    active_keys = sum(1 for key in keys if key.is_active)
+    recently_used = sum(
+        1 for key in keys if key.last_used_at is not None and key.last_used_at >= recently_used_cutoff
+    )
+    return AdminApiPartnerKeyListOut(
+        user_id=target_user.id,
+        email=target_user.email,
+        tier=target_user.tier,
+        total_keys=len(keys),
+        active_keys=active_keys,
+        recently_used_30d=recently_used,
+        items=[AdminApiPartnerKeyOut.model_validate(row) for row in keys],
+    )
+
+
+@router.post("/users/{user_id}/api-keys", response_model=AdminApiPartnerKeyIssueOut)
+async def admin_issue_user_api_partner_key(
+    user_id: UUID,
+    payload: AdminApiPartnerKeyIssueRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_PARTNER_API_WRITE)),
+) -> AdminApiPartnerKeyIssueOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    keys_before = await list_api_partner_keys_for_user(db, target_user.id)
+    active_before = sum(1 for row in keys_before if row.is_active)
+    key, raw_api_key = await issue_api_partner_key(
+        db,
+        user_id=target_user.id,
+        created_by_user_id=admin_user.id,
+        name=payload.name,
+        expires_at=_resolve_expires_at(payload.expires_in_days),
+    )
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.partner_api_key.issue",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={"active_keys": active_before},
+        after_payload={
+            "active_keys": active_before + 1,
+            "key": serialize_api_partner_key_for_audit(key),
+        },
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(key)
+
+    return AdminApiPartnerKeyIssueOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="issue",
+        key=AdminApiPartnerKeyOut.model_validate(key),
+        api_key=raw_api_key,
+    )
+
+
+@router.post("/users/{user_id}/api-keys/{key_id}/revoke", response_model=AdminApiPartnerKeyRevokeOut)
+async def admin_revoke_user_api_partner_key(
+    user_id: UUID,
+    key_id: UUID,
+    payload: AdminApiPartnerKeyMutationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_PARTNER_API_WRITE)),
+) -> AdminApiPartnerKeyRevokeOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    key = await _get_partner_key_for_user(db, user_id=target_user.id, key_id=key_id)
+    old_is_active = key.is_active
+    before_payload = serialize_api_partner_key_for_audit(key)
+    await revoke_api_partner_key(db, key=key)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.partner_api_key.revoke",
+        target_type="api_partner_key",
+        target_id=str(key.id),
+        reason=payload.reason.strip(),
+        before_payload=before_payload,
+        after_payload=serialize_api_partner_key_for_audit(key),
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(key)
+
+    return AdminApiPartnerKeyRevokeOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="revoke",
+        key_id=key.id,
+        key_prefix=key.key_prefix,
+        old_is_active=old_is_active,
+        new_is_active=key.is_active,
+        revoked_at=key.revoked_at,
+    )
+
+
+@router.post("/users/{user_id}/api-keys/{key_id}/rotate", response_model=AdminApiPartnerKeyIssueOut)
+async def admin_rotate_user_api_partner_key(
+    user_id: UUID,
+    key_id: UUID,
+    payload: AdminApiPartnerKeyRotateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_PARTNER_API_WRITE)),
+) -> AdminApiPartnerKeyIssueOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    key = await _get_partner_key_for_user(db, user_id=target_user.id, key_id=key_id)
+    if not key.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only active keys can be rotated")
+
+    before_payload = serialize_api_partner_key_for_audit(key)
+    rotated_key, raw_api_key = await rotate_api_partner_key(
+        db,
+        key=key,
+        created_by_user_id=admin_user.id,
+        name=payload.name,
+        expires_at=_resolve_expires_at(payload.expires_in_days),
+    )
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.partner_api_key.rotate",
+        target_type="api_partner_key",
+        target_id=str(key.id),
+        reason=payload.reason.strip(),
+        before_payload=before_payload,
+        after_payload={
+            "previous_key_id": str(key.id),
+            "new_key": serialize_api_partner_key_for_audit(rotated_key),
+        },
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(rotated_key)
+
+    return AdminApiPartnerKeyIssueOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="rotate",
+        key=AdminApiPartnerKeyOut.model_validate(rotated_key),
+        api_key=raw_api_key,
     )
 
 

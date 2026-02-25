@@ -1,4 +1,7 @@
 import {
+  AdminApiPartnerKeyIssue,
+  AdminApiPartnerKeyList,
+  AdminApiPartnerKeyRevoke,
   AdminOverview,
   AdminAuditLogList,
   AdminRole,
@@ -196,6 +199,67 @@ export async function reactivateAdminUserBilling(
   },
 ) {
   return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/reactivate`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getAdminUserApiPartnerKeys(
+  token: string,
+  userId: string,
+) {
+  return apiRequest<AdminApiPartnerKeyList>(`/admin/users/${userId}/api-keys`, { token });
+}
+
+export async function issueAdminUserApiPartnerKey(
+  token: string,
+  userId: string,
+  payload: {
+    name: string;
+    expires_in_days?: number;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminApiPartnerKeyIssue>(`/admin/users/${userId}/api-keys`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function revokeAdminUserApiPartnerKey(
+  token: string,
+  userId: string,
+  keyId: string,
+  payload: {
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminApiPartnerKeyRevoke>(`/admin/users/${userId}/api-keys/${keyId}/revoke`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function rotateAdminUserApiPartnerKey(
+  token: string,
+  userId: string,
+  keyId: string,
+  payload: {
+    name?: string;
+    expires_in_days?: number;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminApiPartnerKeyIssue>(`/admin/users/${userId}/api-keys/${keyId}/rotate`, {
     method: "POST",
     token,
     body: payload,

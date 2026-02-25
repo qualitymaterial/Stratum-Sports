@@ -530,6 +530,57 @@ export type AdminBillingMutation = {
   subscription_id: string | null;
 };
 
+export type AdminApiPartnerKey = {
+  id: string;
+  user_id: string;
+  created_by_user_id: string | null;
+  name: string;
+  key_prefix: string;
+  is_active: boolean;
+  last_used_at: string | null;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AdminApiPartnerKeyList = {
+  user_id: string;
+  email: string;
+  tier: string;
+  total_keys: number;
+  active_keys: number;
+  recently_used_30d: number;
+  items: AdminApiPartnerKey[];
+};
+
+export type AdminApiPartnerKeyIssue = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  reason: string;
+  operation: "issue" | "rotate";
+  key: AdminApiPartnerKey;
+  api_key: string;
+};
+
+export type AdminApiPartnerKeyRevoke = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  reason: string;
+  operation: "revoke";
+  key_id: string;
+  key_prefix: string;
+  old_is_active: boolean;
+  new_is_active: boolean;
+  revoked_at: string | null;
+};
+
 export type AdminAuditLogItem = {
   id: string;
   actor_user_id: string;
