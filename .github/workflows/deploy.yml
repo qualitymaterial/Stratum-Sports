@@ -37,7 +37,7 @@ jobs:
 
   verify-ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     needs: prepare
     steps:
       - name: Verify CI passed for this commit
@@ -48,26 +48,51 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const headSha = "${{ needs.prepare.outputs.deploy_sha }}";
-            const result = await github.rest.actions.listWorkflowRuns({
-              owner,
-              repo,
-              workflow_id: "ci.yml",
-              head_sha: headSha,
-              per_page: 20,
-            });
-            const completed = result.data.workflow_runs
-              .filter((run) => run.status === "completed")
-              .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-            if (completed.length === 0) {
-              core.setFailed(`No completed CI workflow run found for commit ${headSha}.`);
-              return;
+            const maxAttempts = 60; // 10 minutes at 10s cadence
+            const sleepMs = 10_000;
+
+            let latest = null;
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+              const result = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: "ci.yml",
+                head_sha: headSha,
+                per_page: 20,
+              });
+
+              const runs = result.data.workflow_runs
+                .filter((run) => run.head_sha === headSha)
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+              if (runs.length === 0) {
+                core.info(`Attempt ${attempt}/${maxAttempts}: waiting for CI run to appear for ${headSha}...`);
+              } else {
+                latest = runs[0];
+                core.info(
+                  `Attempt ${attempt}/${maxAttempts}: CI status=${latest.status}, conclusion=${latest.conclusion ?? "pending"} (${latest.html_url})`
+                );
+
+                if (latest.status === "completed") {
+                  if (latest.conclusion === "success") {
+                    core.info(`CI verified: ${latest.html_url}`);
+                    return;
+                  }
+                  core.setFailed(`CI run failed for commit ${headSha}: ${latest.html_url}`);
+                  return;
+                }
+              }
+
+              await new Promise((resolve) => setTimeout(resolve, sleepMs));
             }
-            const latest = completed[0];
-            if (latest.conclusion !== "success") {
-              core.setFailed(`CI run failed for commit ${headSha}: ${latest.html_url}`);
-              return;
+
+            if (latest) {
+              core.setFailed(
+                `Timed out waiting for completed CI run for commit ${headSha}. Latest run: ${latest.html_url}`
+              );
+            } else {
+              core.setFailed(`Timed out waiting for CI run to appear for commit ${headSha}.`);
             }
-            core.info(`CI verified: ${latest.html_url}`);
 
   build-images:
     runs-on: ubuntu-latest
