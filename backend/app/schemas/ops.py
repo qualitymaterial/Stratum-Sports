@@ -1,7 +1,8 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CycleKpiOut(BaseModel):
@@ -115,3 +116,19 @@ class AdminOverviewOut(BaseModel):
     report: OperatorReport
     recent_cycles: list[CycleKpiOut]
     conversion: ConversionFunnelOut
+
+
+class AdminUserTierUpdateRequest(BaseModel):
+    tier: Literal["free", "pro"]
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class AdminUserTierUpdateOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    old_tier: str
+    new_tier: str
+    reason: str

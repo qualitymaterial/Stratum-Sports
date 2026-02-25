@@ -36,6 +36,7 @@ async def upsert_admin(email: str, password: str) -> str:
 
         user.password_hash = get_password_hash(password)
         user.is_admin = True
+        user.admin_role = "super_admin"
         user.tier = "pro"
         user.is_active = True
 

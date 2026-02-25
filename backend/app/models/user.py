@@ -17,6 +17,7 @@ class User(Base, TimestampMixin):
     tier: Mapped[str] = mapped_column(String(20), default="free", nullable=False, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    admin_role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     subscriptions = relationship("Subscription", back_populates="user", lazy="noload")

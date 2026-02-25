@@ -5,6 +5,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.admin_roles import has_admin_permission, is_admin_user
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tier import is_pro
@@ -47,12 +48,24 @@ async def require_pro_user(user: User = Depends(get_current_user)) -> User:
 
 
 async def require_admin_user(user: User = Depends(get_current_user)) -> User:
-    if not user.is_admin:
+    if not is_admin_user(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
     return user
+
+
+def require_admin_permission(permission: str):
+    async def _dependency(user: User = Depends(get_current_user)) -> User:
+        if not has_admin_permission(user, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient admin permissions",
+            )
+        return user
+
+    return _dependency
 
 
 def require_ops_token(request: Request) -> None:
