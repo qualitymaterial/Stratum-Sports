@@ -431,3 +431,153 @@ Mitigation: metadata schema contracts for every signal type and docs/tests on pa
 6. If historical access is confirmed, merge PR5 and validate CLV summary consistency.
 7. Update docs/env templates after each PR and keep feature flags default-safe.
 8. Add cycle KPI alerts (log-based or Sentry-based) before enabling live/historical in production.
+
+---
+
+## Deliverable F — Admin Control Plane and SaaS Ops Roadmap
+
+## Summary
+The current admin surface is telemetry-focused (overview, conversion funnel, cycle tables).  
+To operate Stratum as a full SaaS, add a real admin control plane with auditable mutations, role-scoped permissions, billing controls, and partner API operations.
+
+## Current State (Verified)
+1. Admin API is read-only:
+- `GET /api/v1/admin/overview`
+- `GET /api/v1/admin/conversion/funnel`
+2. Ops API uses one shared internal token (`X-Stratum-Ops-Token`).
+3. Account promotion/admin grants are script-driven (`create_admin`, `promote_user`) rather than in-app workflows.
+4. UI explicitly states there is no full admin CRUD console.
+
+## Phase A (P0) — Admin Foundations
+1. Add role model beyond `is_admin`:
+- `super_admin`, `ops_admin`, `support_admin`, `billing_admin`
+2. Add permission checks per endpoint/action.
+3. Add immutable admin audit log table:
+- actor user id
+- action type
+- target entity/id
+- before/after payload
+- reason
+- request id
+- created at
+4. Require step-up authentication for sensitive admin writes (password re-check or short-lived action token).
+
+Acceptance criteria:
+1. Every admin write action creates an audit record.
+2. Role checks block unauthorized admin actions.
+3. Sensitive actions cannot execute without step-up auth.
+
+## Phase B (P0) — Core Admin Mutation APIs
+1. User management endpoints:
+- list/search users
+- update tier
+- grant/revoke admin role
+- activate/deactivate account
+- initiate password reset on behalf of user
+2. Billing admin endpoints:
+- view Stripe customer/subscription state
+- resync Stripe customer/subscription
+- apply temporary grace state
+- cancel/reactivate subscription actions with audit reasons
+3. API partner admin endpoints:
+- issue/revoke/rotate partner API keys
+- set plan and usage limits
+- inspect per-key usage and overage state
+
+Acceptance criteria:
+1. No CLI-only requirement for routine account/billing/admin actions.
+2. All mutation endpoints enforce role + audit + reason.
+3. UI can execute all required support actions without direct DB edits.
+
+## Phase C (P1) — Admin UI Expansion
+1. Replace read-only `/app/admin` with multi-tab console:
+- Overview
+- Users
+- Billing
+- API Partners
+- Operations
+- Audit Log
+2. Add safe UX guards:
+- explicit confirmation dialogs
+- typed confirmation for destructive actions
+- inline diff preview for role/tier changes
+3. Add action result receipts:
+- action id
+- actor
+- timestamp
+- rollback hint where applicable
+
+Acceptance criteria:
+1. Admin can complete end-to-end support workflows from UI.
+2. Every action links to an audit log entry.
+3. Error states are actionable and non-destructive.
+
+## Phase D (P1) — Ops and Reliability Controls
+1. Replace single ops token model with scoped service tokens.
+2. Add token rotation and revocation flow.
+3. Add run controls for operational jobs:
+- backfill trigger with bounded scope
+- poller health diagnostics
+- alert delivery replay tooling
+4. Add admin-visible operational dashboards:
+- webhook failures
+- deploy status
+- queue/backfill status
+- API usage anomaly alerts
+
+Acceptance criteria:
+1. Ops access is identity-scoped and revocable.
+2. Operational interventions are auditable and permission-gated.
+3. Admin dashboard shows current system risk signals in one place.
+
+## Phase E (P2) — Security and Compliance Hardening
+1. Add MFA for admin accounts.
+2. Add password strength policy and breach-resistant rules.
+3. Add session security controls for admins:
+- shorter admin session TTL
+- forced re-auth on privilege elevation
+4. Add periodic access review workflow:
+- stale admin role detection
+- last-used timestamps
+
+Acceptance criteria:
+1. Admin auth path meets baseline SaaS security expectations.
+2. Privileged sessions are time-bounded and reviewable.
+3. Admin role lifecycle is governed and visible.
+
+## Test Plan Additions
+1. API tests for all admin mutation endpoints:
+- success paths
+- forbidden paths by role
+- validation errors
+2. Audit tests:
+- record exists for every mutation
+- before/after payload integrity
+3. UI tests for critical admin flows:
+- tier change
+- admin grant/revoke
+- API key rotate
+- billing resync
+4. Security tests:
+- step-up enforcement
+- MFA enforcement on admin actions
+
+## Docs and Runbook Additions
+1. Add `docs/admin-control-plane.md`:
+- role matrix
+- action catalog
+- audit model
+- emergency lockout procedure
+2. Extend `docs/production-runbook.md`:
+- admin break-glass flow
+- ops token rotation
+- audit review cadence
+3. Update `README.md`:
+- admin feature set and limitations by phase
+
+## Execution Order (Recommended)
+1. Phase A foundations first.
+2. Phase B backend mutation APIs.
+3. Phase C admin UI.
+4. Phase D ops token and run controls.
+5. Phase E security/compliance hardening.
