@@ -23,6 +23,7 @@ class Signal(Base):
     window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     books_affected: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     velocity_minutes: Mapped[float] = mapped_column(Float, nullable=False)
+    time_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
     strength_score: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True

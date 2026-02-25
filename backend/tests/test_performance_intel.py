@@ -24,6 +24,7 @@ def _signal(
     strength: int,
     created_at: datetime,
     metadata: dict,
+    time_bucket: str | None = None,
 ) -> Signal:
     return Signal(
         event_id=event_id,
@@ -37,6 +38,7 @@ def _signal(
         window_minutes=10,
         books_affected=3,
         velocity_minutes=3.0,
+        time_bucket=time_bucket,
         strength_score=strength,
         created_at=created_at,
         metadata_json=metadata,
@@ -643,6 +645,68 @@ async def test_signal_quality_endpoint_filters_by_sport_key(
     payload = response.json()
     assert len(payload) == 1
     assert payload[0]["event_id"] == nfl_event
+
+
+async def test_signal_quality_endpoint_filters_by_time_bucket_and_time_bucket_in(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_signal_quality_time_bucket"
+    db_session.add(_game(event_id=event_id, commence_time=now + timedelta(hours=3)))
+    db_session.add_all(
+        [
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=80,
+                created_at=now - timedelta(minutes=12),
+                metadata={"outcome_name": "BOS", "minutes_to_tip": 20},
+                time_bucket="PRETIP",
+            ),
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=81,
+                created_at=now - timedelta(minutes=10),
+                metadata={"outcome_name": "BOS", "minutes_to_tip": 140},
+                time_bucket="MID",
+            ),
+            _signal(
+                event_id=event_id,
+                market="spreads",
+                signal_type="MOVE",
+                strength=82,
+                created_at=now - timedelta(minutes=8),
+                metadata={"outcome_name": "BOS"},
+                time_bucket="UNKNOWN",
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-quality-time-bucket@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    pretip_response = await async_client.get(
+        "/api/v1/intel/signals/quality?days=7&signal_type=MOVE&market=spreads&time_bucket=PRETIP",
+        headers=headers,
+    )
+    assert pretip_response.status_code == 200
+    pretip_payload = pretip_response.json()
+    assert len(pretip_payload) == 1
+    assert pretip_payload[0]["time_bucket"] == "PRETIP"
+
+    multi_response = await async_client.get(
+        "/api/v1/intel/signals/quality?days=7&signal_type=MOVE&market=spreads&time_bucket_in=PRETIP,MID",
+        headers=headers,
+    )
+    assert multi_response.status_code == 200
+    multi_payload = multi_response.json()
+    assert len(multi_payload) == 2
+    assert {row["time_bucket"] for row in multi_payload} == {"PRETIP", "MID"}
 
 
 async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(

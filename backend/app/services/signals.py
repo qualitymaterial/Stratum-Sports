@@ -10,9 +10,11 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
+from app.services.time_bucket import compute_time_bucket
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -189,6 +191,32 @@ def _direction(from_value: float, to_value: float) -> str:
     return "FLAT"
 
 
+async def _commence_time_by_event(
+    db: AsyncSession,
+    event_ids: list[str],
+) -> dict[str, datetime]:
+    if not event_ids:
+        return {}
+    stmt = select(Game.event_id, Game.commence_time).where(Game.event_id.in_(event_ids))
+    rows = (await db.execute(stmt)).all()
+    return {event_id: commence_time for event_id, commence_time in rows}
+
+
+def _minutes_to_tip(
+    *,
+    event_id: str,
+    commence_time_map: dict[str, datetime] | None,
+    now: datetime,
+) -> float | None:
+    if not commence_time_map:
+        return None
+    commence_time = commence_time_map.get(event_id)
+    if commence_time is None:
+        return None
+    commence_utc = commence_time if commence_time.tzinfo is not None else commence_time.replace(tzinfo=UTC)
+    return (commence_utc - now).total_seconds() / 60.0
+
+
 def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
     metadata = dict(signal.metadata_json or {})
     freshness_seconds = max(0, int((datetime.now(UTC) - signal.created_at).total_seconds()))
@@ -225,6 +253,7 @@ def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
         "window_minutes": signal.window_minutes,
         "books_affected": signal.books_affected,
         "velocity_minutes": signal.velocity_minutes if pro_user else None,
+        "time_bucket": signal.time_bucket,
         "freshness_seconds": freshness_seconds,
         "freshness_bucket": freshness_bucket,
         "strength_score": signal.strength_score,
@@ -246,6 +275,7 @@ async def _detect_line_move_signals(
     event_ids: list[str],
     market: str,
     window_minutes: int,
+    commence_time_map: dict[str, datetime] | None = None,
 ) -> list[Signal]:
     now = datetime.now(UTC)
     start_ts = now - timedelta(minutes=window_minutes)
@@ -319,6 +349,21 @@ async def _detect_line_move_signals(
             books_affected=len(books),
         )
 
+        minutes_to_tip: float | None = None
+        time_bucket = "UNKNOWN"
+        try:
+            minutes_to_tip = _minutes_to_tip(
+                event_id=event_id,
+                commence_time_map=commence_time_map,
+                now=now,
+            )
+            time_bucket = compute_time_bucket(minutes_to_tip)
+        except Exception:
+            logger.warning(
+                "Signal time bucket computation failed",
+                extra={"event_id": event_id, "market": market, "signal_type": signal_type},
+            )
+
         signal = Signal(
             event_id=event_id,
             market=market,
@@ -331,12 +376,14 @@ async def _detect_line_move_signals(
             window_minutes=window_minutes,
             books_affected=len(books),
             velocity_minutes=velocity_minutes,
+            time_bucket=time_bucket,
             strength_score=strength,
             metadata_json={
                 "outcome_name": outcome_name,
                 "magnitude": round(magnitude, 3),
                 "key_cross": crosses,
                 "books": books,
+                "minutes_to_tip": round(minutes_to_tip, 2) if minutes_to_tip is not None else None,
                 "components": components,
             },
         )
@@ -548,6 +595,7 @@ async def detect_dislocations(
     event_ids: list[str],
     db: AsyncSession,
     redis: Redis | None = None,
+    commence_time_map: dict[str, datetime] | None = None,
 ) -> list[Signal]:
     if not settings.dislocation_enabled or not event_ids:
         return []
@@ -558,6 +606,7 @@ async def detect_dislocations(
 
     min_books = max(settings.dislocation_min_books, settings.consensus_min_books)
     lookback_minutes = max(1, settings.dislocation_lookback_minutes)
+    now = datetime.now(UTC)
     consensus_rows = await _latest_consensus_rows_for_events(
         db,
         event_ids=event_ids,
@@ -626,6 +675,20 @@ async def detect_dislocations(
                 market=consensus.market,
             )
             direction = _direction(from_value, to_value)
+            minutes_to_tip: float | None = None
+            time_bucket = "UNKNOWN"
+            try:
+                minutes_to_tip = _minutes_to_tip(
+                    event_id=consensus.event_id,
+                    commence_time_map=commence_time_map,
+                    now=now,
+                )
+                time_bucket = compute_time_bucket(minutes_to_tip)
+            except Exception:
+                logger.warning(
+                    "Signal time bucket computation failed",
+                    extra={"event_id": consensus.event_id, "market": consensus.market, "signal_type": "DISLOCATION"},
+                )
             dedupe_key = (
                 f"signal:dislocation:{consensus.event_id}:{consensus.market}:"
                 f"{consensus.outcome_name}:{snapshot.sportsbook_key}"
@@ -642,6 +705,7 @@ async def detect_dislocations(
                 window_minutes=lookback_minutes,
                 books_affected=1,
                 velocity_minutes=0.1,
+                time_bucket=time_bucket,
                 strength_score=strength,
                 metadata_json={
                     "book_key": snapshot.sportsbook_key,
@@ -658,6 +722,7 @@ async def detect_dislocations(
                     "delta": float(round(delta, 6)),
                     "delta_type": delta_type,
                     "lookback_minutes": lookback_minutes,
+                    "minutes_to_tip": round(minutes_to_tip, 2) if minutes_to_tip is not None else None,
                 },
             )
             candidate_by_event[consensus.event_id].append(
@@ -718,12 +783,14 @@ async def detect_steam_v2(
     event_ids: list[str],
     db: AsyncSession,
     redis: Redis | None = None,
+    commence_time_map: dict[str, datetime] | None = None,
 ) -> list[Signal]:
     if not settings.steam_enabled or not event_ids:
         return []
 
     window_minutes = max(1, settings.steam_window_minutes)
-    cutoff = datetime.now(UTC) - timedelta(minutes=window_minutes)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=window_minutes)
     markets = ["spreads", "totals"]
 
     stmt = (
@@ -805,6 +872,20 @@ async def detect_steam_v2(
             market=market,
         )
         dedupe_key = f"signal:steam:{event_id}:{market}:{outcome_name}:{direction_lower}"
+        minutes_to_tip: float | None = None
+        time_bucket = "UNKNOWN"
+        try:
+            minutes_to_tip = _minutes_to_tip(
+                event_id=event_id,
+                commence_time_map=commence_time_map,
+                now=now,
+            )
+            time_bucket = compute_time_bucket(minutes_to_tip)
+        except Exception:
+            logger.warning(
+                "Signal time bucket computation failed",
+                extra={"event_id": event_id, "market": market, "signal_type": "STEAM"},
+            )
 
         signal = Signal(
             event_id=event_id,
@@ -818,6 +899,7 @@ async def detect_steam_v2(
             window_minutes=window_minutes,
             books_affected=len(books_involved),
             velocity_minutes=float(window_minutes),
+            time_bucket=time_bucket,
             strength_score=strength,
             metadata_json={
                 "market": market,
@@ -830,6 +912,7 @@ async def detect_steam_v2(
                 "start_line": round(start_line, 6),
                 "end_line": round(end_line, 6),
                 "speed": round(speed, 6),
+                "minutes_to_tip": round(minutes_to_tip, 2) if minutes_to_tip is not None else None,
             },
         )
         candidates_by_event[event_id].append(
@@ -879,17 +962,33 @@ async def detect_market_movements(
     if not event_ids:
         return []
 
+    commence_time_map = await _commence_time_by_event(db, event_ids)
+
     # Three queries total regardless of event count — was N*3 queries before
     all_created: list[Signal] = []
     all_created.extend(
-        await _detect_line_move_signals(db, redis, event_ids, market="spreads", window_minutes=10)
+        await _detect_line_move_signals(
+            db,
+            redis,
+            event_ids,
+            market="spreads",
+            window_minutes=10,
+            commence_time_map=commence_time_map,
+        )
     )
     all_created.extend(
-        await _detect_line_move_signals(db, redis, event_ids, market="totals", window_minutes=15)
+        await _detect_line_move_signals(
+            db,
+            redis,
+            event_ids,
+            market="totals",
+            window_minutes=15,
+            commence_time_map=commence_time_map,
+        )
     )
     all_created.extend(await _detect_multibook_sync_signals(db, redis, event_ids))
-    all_created.extend(await detect_dislocations(event_ids, db, redis))
-    all_created.extend(await detect_steam_v2(event_ids, db, redis))
+    all_created.extend(await detect_dislocations(event_ids, db, redis, commence_time_map=commence_time_map))
+    all_created.extend(await detect_steam_v2(event_ids, db, redis, commence_time_map=commence_time_map))
 
     if not all_created:
         return []

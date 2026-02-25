@@ -89,6 +89,7 @@ class SignalQualityPoint(BaseModel):
     signal_type: str
     direction: str
     strength_score: int
+    time_bucket: str | None
     books_affected: int
     window_minutes: int
     created_at: datetime

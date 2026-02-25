@@ -162,6 +162,7 @@ class Settings(BaseSettings):
     performance_default_days: int = 30
     performance_max_limit: int = 200
     signal_filter_default_min_strength: int = 60
+    time_bucket_expose_inplay: bool = True
     actionable_book_max_books: int = 8
     free_teaser_enabled: bool = True
     context_score_blend_enabled: bool = False

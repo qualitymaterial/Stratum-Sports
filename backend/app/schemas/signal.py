@@ -19,6 +19,7 @@ class SignalOut(BaseModel):
     window_minutes: int
     books_affected: int
     velocity_minutes: float | None
+    time_bucket: str | None = None
     strength_score: int
     created_at: datetime
     metadata: dict = Field(validation_alias="metadata_json")

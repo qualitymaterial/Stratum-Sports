@@ -492,6 +492,26 @@ API partner access is a separate subscription from Stratum Pro; customers can pu
 It includes a ranked signal feed with quality filters (`time_bucket`, `since`, `min_score`, velocity thresholds, and composite score) for private integrations.
 Enrichment fields are nullable-safe and backward compatible. Contact `api-access@yourdomain.com` for partner access.
 
+## Time Bucket Segmentation
+
+`time_bucket` is derived from stored `minutes_to_tip` metadata and persisted on `signals` for indexed feed filtering.
+
+| `minutes_to_tip` | `time_bucket` |
+|---:|---|
+| `None` | `UNKNOWN` |
+| `< 0` | `INPLAY` |
+| `0 <= x < 30` | `PRETIP` |
+| `30 <= x < 120` | `LATE` |
+| `120 <= x < 360` | `MID` |
+| `>= 360` | `OPEN` |
+
+- `UNKNOWN` is used when minutes-to-tip is missing or invalid.
+- Feed filters:
+  - `time_bucket=<OPEN|MID|LATE|PRETIP|INPLAY|UNKNOWN>`
+  - `time_bucket_in=PRETIP,LATE` (comma-separated list)
+- Backfill command (idempotent, chunked):
+  - `python -m app.cli backfill_time_bucket --days 30`
+
 ## Core API Routes
 
 - Auth: `/api/v1/auth/register`, `/api/v1/auth/login`, `/api/v1/auth/me`
@@ -500,7 +520,7 @@ Enrichment fields are nullable-safe and backward compatible. Contact `api-access
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
 - Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
 - Intel CLV (Pro): `/api/v1/intel/clv?days=30&event_id=...&signal_type=...&market=...&min_strength=...&limit=...`, `/api/v1/intel/clv/summary?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`, `/api/v1/intel/clv/scorecards?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`
-- Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&market=...&min_strength=...`
+- Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&market=...&min_strength=...&time_bucket=...&time_bucket_in=...`
 - Intel Actionable Books (Pro): `/api/v1/intel/books/actionable?event_id=...&signal_id=...`, `/api/v1/intel/books/actionable/batch?event_id=...&signal_ids=<uuid,uuid,...>`
 - Intel CLV Teaser (Authenticated Free/Pro): `/api/v1/intel/clv/teaser?days=30`
 - Ops KPIs (Internal token): `/api/v1/ops/cycles?days=7&limit=200`, `/api/v1/ops/cycles/summary?days=7`, `/api/v1/ops/report?days=7`

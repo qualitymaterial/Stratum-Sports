@@ -51,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 CANONICAL_MARKETS = {"spreads", "totals", "h2h"}
 CANONICAL_SIGNAL_TYPES = {"MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"}
+CANONICAL_TIME_BUCKETS = {"OPEN", "MID", "LATE", "PRETIP", "INPLAY", "UNKNOWN"}
 CANONICAL_RECAP_GRAINS = {"day", "week"}
 
 
@@ -88,6 +89,43 @@ def _resolve_single_market(market: str | None) -> str | None:
         return None
     resolved = _resolve_markets(market)
     return resolved[0] if resolved else None
+
+
+def _resolve_time_bucket(time_bucket: str | None) -> str | None:
+    if time_bucket is None:
+        return None
+    normalized = time_bucket.strip().upper()
+    if normalized not in CANONICAL_TIME_BUCKETS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported time_bucket '{time_bucket}'. "
+                f"Allowed: {','.join(sorted(CANONICAL_TIME_BUCKETS))}"
+            ),
+        )
+    return normalized
+
+
+def _resolve_time_bucket_in(time_bucket_in: str | None) -> list[str] | None:
+    if time_bucket_in is None:
+        return None
+    values = [token.strip().upper() for token in time_bucket_in.split(",") if token.strip()]
+    if not values:
+        return None
+    invalid = sorted({value for value in values if value not in CANONICAL_TIME_BUCKETS})
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported time_bucket_in values '{','.join(invalid)}'. "
+                f"Allowed: {','.join(sorted(CANONICAL_TIME_BUCKETS))}"
+            ),
+        )
+    deduped: list[str] = []
+    for value in values:
+        if value not in deduped:
+            deduped.append(value)
+    return deduped
 
 
 def _resolve_recap_grain(grain: str) -> str:
@@ -544,6 +582,8 @@ async def get_signal_quality(
     min_books_affected: int | None = Query(None, ge=1, le=100),
     max_dispersion: float | None = Query(None, ge=0),
     window_minutes_max: int | None = Query(None, ge=1, le=240),
+    time_bucket: str | None = Query(None),
+    time_bucket_in: str | None = Query(None, description="Comma-separated time buckets"),
     created_after: datetime | None = Query(None),
     days: int = Query(get_settings().performance_default_days, ge=1, le=90),
     limit: int = Query(100, ge=1, le=1000),
@@ -558,6 +598,8 @@ async def get_signal_quality(
     resolved_sport_key = _resolve_sport_key(sport_key)
     resolved_market = _resolve_single_market(market)
     resolved_signal_type = _resolve_signal_type(signal_type)
+    resolved_time_bucket = _resolve_time_bucket(time_bucket)
+    resolved_time_bucket_in = _resolve_time_bucket_in(time_bucket_in)
     connection = await _load_discord_connection(db, user.id) if apply_alert_rules else None
     rows = await get_signal_quality_rows(
         db,
@@ -568,6 +610,8 @@ async def get_signal_quality(
         min_books_affected=min_books_affected,
         max_dispersion=max_dispersion,
         window_minutes_max=window_minutes_max,
+        time_bucket=resolved_time_bucket,
+        time_bucket_in=resolved_time_bucket_in,
         created_after=created_after,
         days=days,
         limit=limit,
@@ -584,6 +628,8 @@ async def get_signal_quality(
             "market": resolved_market,
             "days": days,
             "min_strength": min_strength,
+            "time_bucket": resolved_time_bucket,
+            "time_bucket_in": resolved_time_bucket_in,
             "apply_alert_rules": apply_alert_rules,
             "include_hidden": include_hidden,
             "rows": len(rows),

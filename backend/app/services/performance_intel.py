@@ -19,6 +19,7 @@ from app.models.signal import Signal
 from app.services.alert_rules import evaluate_signal_for_connection
 from app.services.context_score import build_context_score
 from app.services.signals import american_to_implied_prob
+from app.services.time_bucket import compute_time_bucket
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -578,6 +579,8 @@ async def get_signal_quality_rows(
     min_books_affected: int | None = None,
     max_dispersion: float | None = None,
     window_minutes_max: int | None = None,
+    time_bucket: str | None = None,
+    time_bucket_in: list[str] | None = None,
     created_after: datetime | None = None,
     days: int = 30,
     limit: int = 100,
@@ -614,6 +617,28 @@ async def get_signal_quality_rows(
         stmt = stmt.where(Signal.books_affected >= int(min_books_affected))
     if window_minutes_max is not None:
         stmt = stmt.where(Signal.window_minutes <= int(window_minutes_max))
+    if time_bucket is not None:
+        if time_bucket == "UNKNOWN":
+            stmt = stmt.where(or_(Signal.time_bucket == "UNKNOWN", Signal.time_bucket.is_(None)))
+        else:
+            stmt = stmt.where(Signal.time_bucket == time_bucket)
+    if time_bucket_in:
+        includes_unknown = "UNKNOWN" in time_bucket_in
+        explicit = [bucket for bucket in time_bucket_in if bucket != "UNKNOWN"]
+        if includes_unknown and explicit:
+            stmt = stmt.where(
+                or_(
+                    Signal.time_bucket.in_(explicit),
+                    Signal.time_bucket == "UNKNOWN",
+                    Signal.time_bucket.is_(None),
+                )
+            )
+        elif includes_unknown:
+            stmt = stmt.where(or_(Signal.time_bucket == "UNKNOWN", Signal.time_bucket.is_(None)))
+        else:
+            stmt = stmt.where(Signal.time_bucket.in_(explicit))
+    if not settings.time_bucket_expose_inplay:
+        stmt = stmt.where(or_(Signal.time_bucket.is_(None), Signal.time_bucket != "INPLAY"))
     if max_dispersion is not None:
         dispersion_expr = cast(Signal.metadata_json["dispersion"].astext, Float)
         stmt = stmt.where(
@@ -657,6 +682,10 @@ async def get_signal_quality_rows(
         )
         if not include_hidden and alert_decision == "hidden":
             continue
+        minutes_to_tip = _safe_float(metadata.get("minutes_to_tip"))
+        resolved_time_bucket = signal.time_bucket or compute_time_bucket(minutes_to_tip)
+        if not settings.time_bucket_expose_inplay and resolved_time_bucket == "INPLAY":
+            resolved_time_bucket = "UNKNOWN"
         payload.append(
             {
                 "id": signal.id,
@@ -667,6 +696,7 @@ async def get_signal_quality_rows(
                 "signal_type": signal.signal_type,
                 "direction": signal.direction,
                 "strength_score": signal.strength_score,
+                "time_bucket": resolved_time_bucket,
                 "books_affected": signal.books_affected,
                 "window_minutes": signal.window_minutes,
                 "created_at": signal.created_at,
