@@ -198,6 +198,9 @@ export default function HeroLandingPage() {
             <p className="mt-3 max-w-2xl text-sm text-textMute">
               Execution quality and CLV process matter more than noise. Paid Intel API partner access starts at $99/month.
             </p>
+            <p className="mt-2 max-w-2xl text-sm text-textMute">
+              API partner access is a separate subscription from Stratum Pro. Customers can purchase Pro only, API only, or both.
+            </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
                 href="/register"
@@ -402,6 +405,9 @@ export default function HeroLandingPage() {
 
       <section id="pricing" className="mx-auto w-full max-w-7xl px-6 py-12">
         <h2 className="text-2xl font-semibold">Free vs Pro</h2>
+        <p className="mt-2 max-w-3xl text-sm text-textMute">
+          API partner access is billed separately from Pro. Customers can subscribe to Pro only, API only, or both.
+        </p>
         <div className="mt-6 grid gap-4 lg:grid-cols-2">
           <article className="rounded-lg border border-borderTone bg-panel p-5 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Free</p>
