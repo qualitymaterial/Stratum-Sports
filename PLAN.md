@@ -18,9 +18,7 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 - **What it is:** Intel API is a ranked signal feed plus quality filters for partners and private integrations.
 - **Primary consumers:** builders shipping apps, internal trading dashboards, automation workflows, and analytics teams.
 - **Core value:** fast access to structured market movement context with consistent, machine-readable output.
-- **What it is not:** not guaranteed predictions.
-- **What it is not:** not gambling advice.
-- **What it is not:** not a guaranteed-profit system.
+- **What it is not:** guaranteed predictions, gambling advice, or a guaranteed-profit system.
 - **Differentiator:** timing context (`minutes_to_tip`, `time_bucket`) plus velocity and composite ranking.
 - **Scoring approach:** additive, deterministic v1 heuristic designed for prioritization.
 - **Integration model:** API subscription is independent from Pro web subscription.
@@ -297,6 +295,7 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 
 ## Composite Score Interpretation (v1)
 Composite Score is a deterministic ranking heuristic for prioritization, not a probability of winning.
+Tier labels represent operational priority bands, not predictive certainty.
 
 - v1 uses a rules/weights heuristic and no ML model.
 - Tiers are operational priority bands:
@@ -354,12 +353,13 @@ Composite Score is a deterministic ranking heuristic for prioritization, not a p
 - Access is subject to rate limits, traffic heuristics, and abuse monitoring.
 - Automation is permitted when clients respect limits and retry discipline.
 - Abuse, credential sharing, scraping misuse, or policy evasion can result in suspension or termination.
+- Enforcement is implemented via API keys, rate limits, anomaly detection, and audit logging.
 
 ## Release Governance (v1)
 - Versioning policy favors additive updates by default.
 - Breaking changes require an explicit API version bump.
 - Deprecation window target for breaking removals is minimum 30 days.
-- Changelog of record remains in `CHANGELOG.md`.
+- Changelog of record lives in `CHANGELOG.md` (or equivalent repository release log).
 - Rollout discipline stays staging -> verification -> production promotion.
 
 ---
