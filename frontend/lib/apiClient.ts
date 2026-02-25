@@ -70,7 +70,7 @@ export function initializeAuthToken(): string {
 }
 
 type ApiRequestOptions = {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   token?: string;
   body?: unknown;
   headers?: Record<string, string>;

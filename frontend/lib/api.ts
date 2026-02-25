@@ -1,5 +1,9 @@
 import {
   AdminOverview,
+  AdminAuditLogList,
+  AdminRole,
+  AdminUserRoleUpdate,
+  AdminUserTierUpdate,
   ActionableBookCard,
   ClvRecapResponse,
   ClvPerformanceRow,
@@ -69,6 +73,60 @@ export async function getAdminOverview(
   appendOptionalParam(params, "days", options.days);
   appendOptionalParam(params, "cycle_limit", options.cycle_limit);
   return apiRequest<AdminOverview>(`/admin/overview?${params.toString()}`, { token });
+}
+
+export async function updateAdminUserTier(
+  token: string,
+  userId: string,
+  payload: {
+    tier: "free" | "pro";
+    reason: string;
+  },
+) {
+  return apiRequest<AdminUserTierUpdate>(`/admin/users/${userId}/tier`, {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export async function updateAdminUserRole(
+  token: string,
+  userId: string,
+  payload: {
+    admin_role: AdminRole | null;
+    reason: string;
+  },
+) {
+  return apiRequest<AdminUserRoleUpdate>(`/admin/users/${userId}/role`, {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export async function getAdminAuditLogs(
+  token: string,
+  options: {
+    limit?: number;
+    offset?: number;
+    action_type?: string;
+    target_type?: string;
+    actor_user_id?: string;
+    target_id?: string;
+    since?: string;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "limit", options.limit);
+  appendOptionalParam(params, "offset", options.offset);
+  appendOptionalParam(params, "action_type", options.action_type);
+  appendOptionalParam(params, "target_type", options.target_type);
+  appendOptionalParam(params, "actor_user_id", options.actor_user_id);
+  appendOptionalParam(params, "target_id", options.target_id);
+  appendOptionalParam(params, "since", options.since);
+  const query = params.toString();
+  return apiRequest<AdminAuditLogList>(`/admin/audit/logs${query ? `?${query}` : ""}`, { token });
 }
 
 export async function getDiscordAuthUrl() {

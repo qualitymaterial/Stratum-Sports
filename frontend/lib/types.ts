@@ -431,3 +431,49 @@ export type AdminOverview = {
     }>;
   };
 };
+
+export type AdminRole = "super_admin" | "ops_admin" | "support_admin" | "billing_admin";
+
+export type AdminUserTierUpdate = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  old_tier: "free" | "pro" | string;
+  new_tier: "free" | "pro" | string;
+  reason: string;
+};
+
+export type AdminUserRoleUpdate = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  old_admin_role: AdminRole | null;
+  new_admin_role: AdminRole | null;
+  old_is_admin: boolean;
+  new_is_admin: boolean;
+  reason: string;
+};
+
+export type AdminAuditLogItem = {
+  id: string;
+  actor_user_id: string;
+  action_type: string;
+  target_type: string;
+  target_id: string | null;
+  reason: string;
+  before_payload: Record<string, unknown> | null;
+  after_payload: Record<string, unknown> | null;
+  request_id: string | null;
+  created_at: string;
+};
+
+export type AdminAuditLogList = {
+  total: number;
+  limit: number;
+  offset: number;
+  items: AdminAuditLogItem[];
+};

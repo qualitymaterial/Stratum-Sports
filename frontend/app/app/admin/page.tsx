@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
-import { getAdminOverview } from "@/lib/api";
+import { getAdminAuditLogs, getAdminOverview, updateAdminUserRole, updateAdminUserTier } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
-import { AdminOverview } from "@/lib/types";
+import { AdminAuditLogList, AdminOverview, AdminRole } from "@/lib/types";
 
 export default function AdminPage() {
   const { user, loading, token } = useCurrentUser(true);
@@ -16,6 +16,26 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [auditLogs, setAuditLogs] = useState<AdminAuditLogList | null>(null);
+  const [auditActionType, setAuditActionType] = useState("");
+  const [auditTargetIdFilter, setAuditTargetIdFilter] = useState("");
+  const [mutationUserId, setMutationUserId] = useState("");
+  const [mutationReason, setMutationReason] = useState("");
+  const [mutationTier, setMutationTier] = useState<"free" | "pro">("pro");
+  const [mutationRole, setMutationRole] = useState<AdminRole | "none">("support_admin");
+  const [mutationLoading, setMutationLoading] = useState(false);
+  const [mutationResult, setMutationResult] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const loadAudit = async (authToken: string) => {
+    const payload = await getAdminAuditLogs(authToken, {
+      limit: 20,
+      offset: 0,
+      action_type: auditActionType || undefined,
+      target_id: auditTargetIdFilter || undefined,
+    });
+    setAuditLogs(payload);
+  };
 
   const load = async () => {
     if (!token || !user?.is_admin) {
@@ -24,12 +44,71 @@ export default function AdminPage() {
     setRefreshing(true);
     setError(null);
     try {
-      const payload = await getAdminOverview(token, { days, cycle_limit: cycleLimit });
-      setOverview(payload);
+      const [overviewPayload] = await Promise.all([
+        getAdminOverview(token, { days, cycle_limit: cycleLimit }),
+        loadAudit(token),
+      ]);
+      setOverview(overviewPayload);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load admin data");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const runTierUpdate = async () => {
+    if (!token || !mutationUserId.trim()) {
+      setMutationError("User ID is required.");
+      return;
+    }
+    if (mutationReason.trim().length < 8) {
+      setMutationError("Reason must be at least 8 characters.");
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await updateAdminUserTier(token, mutationUserId.trim(), {
+        tier: mutationTier,
+        reason: mutationReason.trim(),
+      });
+      setMutationResult(
+        `Tier updated: ${result.email} (${result.old_tier} -> ${result.new_tier}), action ${result.action_id}`,
+      );
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Tier update failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runRoleUpdate = async () => {
+    if (!token || !mutationUserId.trim()) {
+      setMutationError("User ID is required.");
+      return;
+    }
+    if (mutationReason.trim().length < 8) {
+      setMutationError("Reason must be at least 8 characters.");
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await updateAdminUserRole(token, mutationUserId.trim(), {
+        admin_role: mutationRole === "none" ? null : mutationRole,
+        reason: mutationReason.trim(),
+      });
+      setMutationResult(
+        `Role updated: ${result.email} (${result.old_admin_role ?? "none"} -> ${result.new_admin_role ?? "none"}), action ${result.action_id}`,
+      );
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Role update failed");
+    } finally {
+      setMutationLoading(false);
     }
   };
 
@@ -310,6 +389,163 @@ export default function AdminPage() {
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
           <p>2. Receive and configure Discord alert features.</p>
           <p>3. Use internal ops tooling only when paired with the ops internal token gate.</p>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
+        <p className="text-xs uppercase tracking-wider text-textMute">User Access Actions</p>
+        <p className="mt-2 text-xs text-textMute">
+          Changes require a reason and are recorded in immutable admin audit logs.
+        </p>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-xs text-textMute">
+            Target User ID
+            <input
+              value={mutationUserId}
+              onChange={(event) => setMutationUserId(event.target.value)}
+              placeholder="uuid"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Audit Reason
+            <input
+              value={mutationReason}
+              onChange={(event) => setMutationReason(event.target.value)}
+              placeholder="Explain why this action is needed"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Tier
+            <select
+              value={mutationTier}
+              onChange={(event) => setMutationTier(event.target.value as "free" | "pro")}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="free">free</option>
+              <option value="pro">pro</option>
+            </select>
+          </label>
+          <label className="text-xs text-textMute">
+            Admin Role
+            <select
+              value={mutationRole}
+              onChange={(event) => setMutationRole(event.target.value as AdminRole | "none")}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="none">none</option>
+              <option value="super_admin">super_admin</option>
+              <option value="ops_admin">ops_admin</option>
+              <option value="support_admin">support_admin</option>
+              <option value="billing_admin">billing_admin</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              void runTierUpdate();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Update Tier"}
+          </button>
+          <button
+            onClick={() => {
+              void runRoleUpdate();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Update Role"}
+          </button>
+        </div>
+        {mutationError && <p className="mt-2 text-sm text-negative">{mutationError}</p>}
+        {mutationResult && <p className="mt-2 text-sm text-positive">{mutationResult}</p>}
+      </div>
+
+      <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-textMute">Admin Audit Log</p>
+            <p className="mt-1 text-xs text-textMute">Newest entries first. Use filters to narrow results.</p>
+          </div>
+          <button
+            onClick={() => {
+              if (token) {
+                void loadAudit(token);
+              }
+            }}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent"
+          >
+            Refresh Audit
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <label className="text-xs text-textMute">
+            Action Type Filter
+            <input
+              value={auditActionType}
+              onChange={(event) => setAuditActionType(event.target.value)}
+              placeholder="admin.user.role.update"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Target ID Filter
+            <input
+              value={auditTargetIdFilter}
+              onChange={(event) => setAuditTargetIdFilter(event.target.value)}
+              placeholder="target user uuid"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 overflow-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                <th className="border-b border-borderTone py-2">Created</th>
+                <th className="border-b border-borderTone py-2">Action</th>
+                <th className="border-b border-borderTone py-2">Target</th>
+                <th className="border-b border-borderTone py-2">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(auditLogs?.items ?? []).map((row) => (
+                <tr key={row.id}>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">
+                    {new Date(row.created_at).toLocaleString()}
+                  </td>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">
+                    <div>{row.action_type}</div>
+                    <div className="text-xs text-textMute">actor {row.actor_user_id}</div>
+                  </td>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">
+                    <div>{row.target_type}</div>
+                    <div className="text-xs text-textMute">{row.target_id ?? "-"}</div>
+                  </td>
+                  <td className="border-b border-borderTone/50 py-2 text-textMain">
+                    <div>{row.reason}</div>
+                    {row.request_id && <div className="text-xs text-textMute">req {row.request_id}</div>}
+                  </td>
+                </tr>
+              ))}
+              {(auditLogs?.items.length ?? 0) === 0 && (
+                <tr>
+                  <td colSpan={4} className="py-3 text-xs text-textMute">
+                    No audit events match current filters.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
