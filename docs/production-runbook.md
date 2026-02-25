@@ -16,6 +16,33 @@ Safety policy (locked):
 
 If you are at a `root@...` prompt, do not run `pbcopy` or Mac key commands there.
 
+## 0) Context-Safe Command Packs
+
+Use only one context per block. Do not mix `[Mac]` and `[Droplet]` commands in the same paste.
+
+### 0.1 Quick health checks from Mac
+
+```bash
+# [Mac]
+make prod-smoke
+```
+
+Optionally override host:
+
+```bash
+# [Mac]
+PROD_HOST=104.236.237.83 make prod-smoke
+```
+
+### 0.2 Quick container checks on droplet
+
+```bash
+# [Droplet]
+cd /opt/stratum-sports
+docker compose -f docker-compose.prod.yml --env-file .env.production ps
+docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/ready
+```
+
 ## 1) One-Time Setup
 
 ### 1.1 Verify deploy SSH key pair

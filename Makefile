@@ -1,4 +1,4 @@
-.PHONY: up down logs backend-test backend-lint migrate smoke-auth pre-push-check
+.PHONY: up down logs backend-test backend-lint migrate smoke-auth pre-push-check prod-smoke
 
 up:
 	docker compose up --build
@@ -32,3 +32,16 @@ smoke-auth:
 
 pre-push-check:
 	./scripts/pre_push_check.sh
+
+prod-smoke:
+	@HOST="$${PROD_HOST:-104.236.237.83}"; \
+	echo "Running production smoke checks against $$HOST"; \
+	echo "--- GET /"; \
+	curl -fsS -I --max-time 10 "http://$$HOST:3000" | sed -n '1,6p'; \
+	echo "--- GET /api/v1/health/live"; \
+	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/health/live"; echo; \
+	echo "--- GET /api/v1/health/ready"; \
+	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/health/ready"; echo; \
+	echo "--- GET /api/v1/public/teaser/kpis?sport_key=basketball_nba"; \
+	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/public/teaser/kpis?sport_key=basketball_nba"; echo; \
+	echo "prod-smoke complete"
