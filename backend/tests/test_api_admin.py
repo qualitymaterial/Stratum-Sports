@@ -6,6 +6,9 @@ from app.models.admin_audit_log import AdminAuditLog
 from app.models.user import User
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 
+STEP_UP_PASSWORD = "AdminRoutePass123!"
+CONFIRM_PHRASE = "CONFIRM"
+
 
 async def _register(async_client: AsyncClient, email: str) -> str:
     response = await async_client.post(
@@ -32,6 +35,17 @@ async def _ensure_admin_audit_table(db_session: AsyncSession) -> None:
             checkfirst=True,
         )
     )
+
+
+def _mutation_security_fields(
+    *,
+    password: str = STEP_UP_PASSWORD,
+    confirm_phrase: str = CONFIRM_PHRASE,
+) -> dict[str, str]:
+    return {
+        "step_up_password": password,
+        "confirm_phrase": confirm_phrase,
+    }
 
 
 async def test_admin_overview_requires_admin(
@@ -123,7 +137,11 @@ async def test_admin_update_user_tier_requires_permission(
     response = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/tier",
         headers={"Authorization": f"Bearer {token}"},
-        json={"tier": "pro", "reason": "Billing role should not modify tiers"},
+        json={
+            "tier": "pro",
+            "reason": "Billing role should not modify tiers",
+            **_mutation_security_fields(),
+        },
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient admin permissions"
@@ -147,7 +165,11 @@ async def test_admin_update_user_tier_writes_audit_log(
     response = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/tier",
         headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-tier-update"},
-        json={"tier": "pro", "reason": "Support upgrade after subscription verification"},
+        json={
+            "tier": "pro",
+            "reason": "Support upgrade after subscription verification",
+            **_mutation_security_fields(),
+        },
     )
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -189,9 +211,38 @@ async def test_admin_update_user_tier_requires_reason(
     response = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/tier",
         headers={"Authorization": f"Bearer {token}"},
-        json={"tier": "pro", "reason": "short"},
+        json={"tier": "pro", "reason": "short", **_mutation_security_fields()},
     )
     assert response.status_code == 422
+
+
+async def test_admin_update_user_tier_requires_step_up_password(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-tier-stepup@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-tier-stepup@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "ops_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-tier-stepup-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-tier-stepup-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/tier",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "tier": "pro",
+            "reason": "Tier change requires step-up verification",
+            **_mutation_security_fields(password="WrongPass123!"),
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Step-up authentication failed"
 
 
 async def test_admin_update_user_role_requires_permission(
@@ -211,7 +262,11 @@ async def test_admin_update_user_role_requires_permission(
     response = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/role",
         headers={"Authorization": f"Bearer {token}"},
-        json={"admin_role": "support_admin", "reason": "Ops should not assign admin roles"},
+        json={
+            "admin_role": "support_admin",
+            "reason": "Ops should not assign admin roles",
+            **_mutation_security_fields(),
+        },
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient admin permissions"
@@ -235,7 +290,11 @@ async def test_admin_update_user_role_writes_audit_log(
     response = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/role",
         headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-role-update"},
-        json={"admin_role": "support_admin", "reason": "Assign support access for customer operations"},
+        json={
+            "admin_role": "support_admin",
+            "reason": "Assign support access for customer operations",
+            **_mutation_security_fields(),
+        },
     )
     assert response.status_code == 200, response.text
     payload = response.json()
@@ -259,6 +318,35 @@ async def test_admin_update_user_role_writes_audit_log(
     assert audit_row.before_payload == {"admin_role": None, "is_admin": False}
     assert audit_row.after_payload == {"admin_role": "support_admin", "is_admin": True}
     assert audit_row.request_id == "test-role-update"
+
+
+async def test_admin_update_user_role_requires_confirm_phrase(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-role-confirm@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-role-confirm@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "super_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-role-confirm-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-role-confirm-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/role",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "admin_role": "support_admin",
+            "reason": "Role change requires explicit confirmation phrase",
+            **_mutation_security_fields(confirm_phrase="APPROVE"),
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Confirmation phrase must be 'CONFIRM'"
 
 
 async def test_admin_user_search_requires_admin(
@@ -332,14 +420,22 @@ async def test_admin_audit_logs_filters_and_pagination(
     role_resp = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/role",
         headers={"Authorization": f"Bearer {token}"},
-        json={"admin_role": "support_admin", "reason": "Role assignment for test coverage"},
+        json={
+            "admin_role": "support_admin",
+            "reason": "Role assignment for test coverage",
+            **_mutation_security_fields(),
+        },
     )
     assert role_resp.status_code == 200
 
     tier_resp = await async_client.patch(
         f"/api/v1/admin/users/{target_user.id}/tier",
         headers={"Authorization": f"Bearer {token}"},
-        json={"tier": "pro", "reason": "Tier update for test coverage"},
+        json={
+            "tier": "pro",
+            "reason": "Tier update for test coverage",
+            **_mutation_security_fields(),
+        },
     )
     assert tier_resp.status_code == 200
 

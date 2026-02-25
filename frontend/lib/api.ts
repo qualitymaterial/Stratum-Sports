@@ -82,6 +82,8 @@ export async function updateAdminUserTier(
   payload: {
     tier: "free" | "pro";
     reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
   },
 ) {
   return apiRequest<AdminUserTierUpdate>(`/admin/users/${userId}/tier`, {
@@ -97,6 +99,8 @@ export async function updateAdminUserRole(
   payload: {
     admin_role: AdminRole | null;
     reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
   },
 ) {
   return apiRequest<AdminUserRoleUpdate>(`/admin/users/${userId}/role`, {

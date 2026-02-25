@@ -29,6 +29,8 @@ export default function AdminPage() {
   const [mutationReason, setMutationReason] = useState("");
   const [mutationTier, setMutationTier] = useState<"free" | "pro">("pro");
   const [mutationRole, setMutationRole] = useState<AdminRole | "none">("support_admin");
+  const [mutationStepUpPassword, setMutationStepUpPassword] = useState("");
+  const [mutationConfirmPhrase, setMutationConfirmPhrase] = useState("");
   const [mutationLoading, setMutationLoading] = useState(false);
   const [mutationResult, setMutationResult] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -75,6 +77,14 @@ export default function AdminPage() {
       setMutationError("Reason must be at least 8 characters.");
       return;
     }
+    if (mutationStepUpPassword.trim().length < 8) {
+      setMutationError("Step-up password is required.");
+      return;
+    }
+    if (mutationConfirmPhrase.trim().toUpperCase() !== "CONFIRM") {
+      setMutationError("Type CONFIRM to proceed.");
+      return;
+    }
     setMutationLoading(true);
     setMutationError(null);
     setMutationResult(null);
@@ -82,10 +92,14 @@ export default function AdminPage() {
       const result = await updateAdminUserTier(token, mutationUserId.trim(), {
         tier: mutationTier,
         reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
       });
       setMutationResult(
         `Tier updated: ${result.email} (${result.old_tier} -> ${result.new_tier}), action ${result.action_id}`,
       );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Tier update failed");
@@ -103,6 +117,14 @@ export default function AdminPage() {
       setMutationError("Reason must be at least 8 characters.");
       return;
     }
+    if (mutationStepUpPassword.trim().length < 8) {
+      setMutationError("Step-up password is required.");
+      return;
+    }
+    if (mutationConfirmPhrase.trim().toUpperCase() !== "CONFIRM") {
+      setMutationError("Type CONFIRM to proceed.");
+      return;
+    }
     setMutationLoading(true);
     setMutationError(null);
     setMutationResult(null);
@@ -110,10 +132,14 @@ export default function AdminPage() {
       const result = await updateAdminUserRole(token, mutationUserId.trim(), {
         admin_role: mutationRole === "none" ? null : mutationRole,
         reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
       });
       setMutationResult(
         `Role updated: ${result.email} (${result.old_admin_role ?? "none"} -> ${result.new_admin_role ?? "none"}), action ${result.action_id}`,
       );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Role update failed");
@@ -436,7 +462,7 @@ export default function AdminPage() {
         <p className="text-xs uppercase tracking-wider text-textMute">What Admin Can Do Today</p>
         <div className="mt-3 space-y-2 text-sm text-textMain">
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
-          <p>2. Update user tier and admin role with required audit reason.</p>
+          <p>2. Update user tier and admin role with reason + step-up confirmation.</p>
           <p>3. Review immutable admin audit entries with action and target filters.</p>
           <p>4. Use internal ops tooling only when paired with the ops internal token gate.</p>
         </div>
@@ -445,7 +471,7 @@ export default function AdminPage() {
       <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
         <p className="text-xs uppercase tracking-wider text-textMute">User Access Actions</p>
         <p className="mt-2 text-xs text-textMute">
-          Changes require a reason and are recorded in immutable admin audit logs.
+          Changes require a reason, step-up password, and typed confirmation. All actions are recorded in immutable admin audit logs.
         </p>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -505,6 +531,26 @@ export default function AdminPage() {
               value={mutationReason}
               onChange={(event) => setMutationReason(event.target.value)}
               placeholder="Explain why this action is needed"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Step-up Password (Your Password)
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={mutationStepUpPassword}
+              onChange={(event) => setMutationStepUpPassword(event.target.value)}
+              placeholder="Enter your current password"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Type CONFIRM
+            <input
+              value={mutationConfirmPhrase}
+              onChange={(event) => setMutationConfirmPhrase(event.target.value)}
+              placeholder="CONFIRM"
               className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
             />
           </label>

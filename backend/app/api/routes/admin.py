@@ -12,6 +12,7 @@ from app.core.admin_roles import (
     PERMISSION_USER_TIER_WRITE,
 )
 from app.core.database import get_db
+from app.core.security import verify_password
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.cycle_kpi import CycleKpi
 from app.models.user import User
@@ -34,6 +35,25 @@ from app.services.operator_report import build_operator_report
 from app.services.teaser_analytics import get_teaser_conversion_funnel
 
 router = APIRouter()
+ADMIN_MUTATION_CONFIRM_PHRASE = "CONFIRM"
+
+
+def _require_step_up_auth(admin_user: User, step_up_password: str, confirm_phrase: str) -> None:
+    if confirm_phrase.strip().upper() != ADMIN_MUTATION_CONFIRM_PHRASE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Confirmation phrase must be '{ADMIN_MUTATION_CONFIRM_PHRASE}'",
+        )
+    if not admin_user.password_hash:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Step-up authentication unavailable for this admin account",
+        )
+    if not verify_password(step_up_password, admin_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Step-up authentication failed",
+        )
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -153,6 +173,12 @@ async def admin_update_user_tier(
     db: AsyncSession = Depends(get_db),
     admin_user: User = Depends(require_admin_permission(PERMISSION_USER_TIER_WRITE)),
 ) -> AdminUserTierUpdateOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
     target_user = await db.get(User, user_id)
     if target_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -196,6 +222,12 @@ async def admin_update_user_role(
     db: AsyncSession = Depends(get_db),
     admin_user: User = Depends(require_admin_permission(PERMISSION_USER_ROLE_WRITE)),
 ) -> AdminUserRoleUpdateOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
     target_user = await db.get(User, user_id)
     if target_user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

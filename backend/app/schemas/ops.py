@@ -138,6 +138,8 @@ class AdminUserSearchListOut(BaseModel):
 class AdminUserTierUpdateRequest(BaseModel):
     tier: Literal["free", "pro"]
     reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
 
 
 class AdminUserTierUpdateOut(BaseModel):
@@ -154,6 +156,8 @@ class AdminUserTierUpdateOut(BaseModel):
 class AdminUserRoleUpdateRequest(BaseModel):
     admin_role: Literal["super_admin", "ops_admin", "support_admin", "billing_admin"] | None = None
     reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
 
 
 class AdminUserRoleUpdateOut(BaseModel):
