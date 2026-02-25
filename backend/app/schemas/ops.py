@@ -118,6 +118,60 @@ class AdminOverviewOut(BaseModel):
     conversion: ConversionFunnelOut
 
 
+class AdminOutcomesKpiSetOut(BaseModel):
+    clv_samples: int
+    positive_count: int
+    negative_count: int
+    clv_positive_rate: float
+    avg_clv_line: float | None
+    avg_clv_prob: float | None
+    sent_rate: float
+    stale_rate: float
+    degraded_cycle_rate: float
+    alert_failure_rate: float
+
+
+class AdminOutcomesDeltaOut(BaseModel):
+    clv_samples_delta: int
+    positive_count_delta: int
+    negative_count_delta: int
+    clv_positive_rate_delta: float
+    avg_clv_line_delta: float | None
+    avg_clv_prob_delta: float | None
+    sent_rate_delta: float
+    stale_rate_delta: float
+    degraded_cycle_rate_delta: float
+    alert_failure_rate_delta: float
+
+
+class AdminOutcomesBreakdownRowOut(BaseModel):
+    name: str
+    count: int
+    positive_rate: float
+    avg_clv_line: float | None
+    avg_clv_prob: float | None
+
+
+class AdminOutcomesFilteredReasonRowOut(BaseModel):
+    reason: str
+    count: int
+
+
+class AdminOutcomesReportOut(BaseModel):
+    period_start: datetime
+    period_end: datetime
+    baseline_period_start: datetime
+    baseline_period_end: datetime
+    kpis: AdminOutcomesKpiSetOut
+    baseline_kpis: AdminOutcomesKpiSetOut
+    delta_vs_baseline: AdminOutcomesDeltaOut
+    status: str
+    status_reason: str
+    by_signal_type: list[AdminOutcomesBreakdownRowOut]
+    by_market: list[AdminOutcomesBreakdownRowOut]
+    top_filtered_reasons: list[AdminOutcomesFilteredReasonRowOut]
+
+
 class AdminUserSearchItemOut(BaseModel):
     model_config = {"from_attributes": True}
 

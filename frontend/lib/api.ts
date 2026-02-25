@@ -1,4 +1,5 @@
 import {
+  AdminOutcomesReport,
   AdminApiPartnerEntitlement,
   AdminApiPartnerEntitlementUpdate,
   AdminApiPartnerKeyIssue,
@@ -35,7 +36,7 @@ import {
   User,
   WatchlistItem,
 } from "@/lib/types";
-import { apiRequest } from "@/lib/apiClient";
+import { apiRequest, getApiBaseUrl } from "@/lib/apiClient";
 
 export async function register(email: string, password: string) {
   return apiRequest<{ access_token: string; user: User }>("/auth/register", {
@@ -83,6 +84,110 @@ export async function getAdminOverview(
   appendOptionalParam(params, "days", options.days);
   appendOptionalParam(params, "cycle_limit", options.cycle_limit);
   return apiRequest<AdminOverview>(`/admin/overview?${params.toString()}`, { token });
+}
+
+type AdminOutcomesFilters = {
+  days?: number;
+  baseline_days?: number;
+  sport_key?: SportKey;
+  signal_type?: string;
+  market?: string;
+  time_bucket?: string;
+};
+
+function buildAdminOutcomesQuery(options: AdminOutcomesFilters = {}): string {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "baseline_days", options.baseline_days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "signal_type", options.signal_type);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "time_bucket", options.time_bucket);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function resolveDownloadFilename(
+  response: Response,
+  fallback: string,
+): string {
+  const contentDisposition = response.headers.get("Content-Disposition");
+  if (!contentDisposition) {
+    return fallback;
+  }
+  const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/i);
+  if (!match?.[1]) {
+    return fallback;
+  }
+  return match[1];
+}
+
+async function downloadFile(
+  token: string,
+  path: string,
+  fallbackFilename: string,
+): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}${path}`, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+
+  if (!response.ok) {
+    let message = `Request failed (${response.status})`;
+    try {
+      const payload = await response.json();
+      if (payload?.detail) {
+        message = payload.detail;
+      }
+    } catch {
+      // ignore parse failures
+    }
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = resolveDownloadFilename(response, fallbackFilename);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export async function getAdminOutcomesReport(
+  token: string,
+  options: AdminOutcomesFilters = {},
+) {
+  const query = buildAdminOutcomesQuery(options);
+  return apiRequest<AdminOutcomesReport>(`/admin/outcomes/report${query}`, { token });
+}
+
+export async function downloadAdminOutcomesJson(
+  token: string,
+  options: AdminOutcomesFilters = {},
+) {
+  const query = buildAdminOutcomesQuery(options);
+  await downloadFile(token, `/admin/outcomes/export.json${query}`, "admin-outcomes-report.json");
+}
+
+export async function downloadAdminOutcomesCsv(
+  token: string,
+  options: AdminOutcomesFilters & {
+    table: "summary" | "by_signal_type" | "by_market" | "top_filtered_reasons";
+  },
+) {
+  const query = buildAdminOutcomesQuery(options);
+  const separator = query ? "&" : "?";
+  await downloadFile(
+    token,
+    `/admin/outcomes/export.csv${query}${separator}table=${encodeURIComponent(options.table)}`,
+    `admin-outcomes-${options.table}.csv`,
+  );
 }
 
 export async function updateAdminUserTier(

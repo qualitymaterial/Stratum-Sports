@@ -432,6 +432,60 @@ export type AdminOverview = {
   };
 };
 
+export type AdminOutcomesKpiSet = {
+  clv_samples: number;
+  positive_count: number;
+  negative_count: number;
+  clv_positive_rate: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+  sent_rate: number;
+  stale_rate: number;
+  degraded_cycle_rate: number;
+  alert_failure_rate: number;
+};
+
+export type AdminOutcomesDelta = {
+  clv_samples_delta: number;
+  positive_count_delta: number;
+  negative_count_delta: number;
+  clv_positive_rate_delta: number;
+  avg_clv_line_delta: number | null;
+  avg_clv_prob_delta: number | null;
+  sent_rate_delta: number;
+  stale_rate_delta: number;
+  degraded_cycle_rate_delta: number;
+  alert_failure_rate_delta: number;
+};
+
+export type AdminOutcomesBreakdownRow = {
+  name: string;
+  count: number;
+  positive_rate: number;
+  avg_clv_line: number | null;
+  avg_clv_prob: number | null;
+};
+
+export type AdminOutcomesFilteredReasonRow = {
+  reason: string;
+  count: number;
+};
+
+export type AdminOutcomesReport = {
+  period_start: string;
+  period_end: string;
+  baseline_period_start: string;
+  baseline_period_end: string;
+  kpis: AdminOutcomesKpiSet;
+  baseline_kpis: AdminOutcomesKpiSet;
+  delta_vs_baseline: AdminOutcomesDelta;
+  status: string;
+  status_reason: string;
+  by_signal_type: AdminOutcomesBreakdownRow[];
+  by_market: AdminOutcomesBreakdownRow[];
+  top_filtered_reasons: AdminOutcomesFilteredReasonRow[];
+};
+
 export type AdminRole = "super_admin" | "ops_admin" | "support_admin" | "billing_admin";
 
 export type AdminUserSearchItem = {

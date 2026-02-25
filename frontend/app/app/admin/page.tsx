@@ -6,7 +6,10 @@ import { useEffect, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import {
   cancelAdminUserBilling,
+  downloadAdminOutcomesCsv,
+  downloadAdminOutcomesJson,
   getAdminAuditLogs,
+  getAdminOutcomesReport,
   getAdminOverview,
   getAdminUserApiPartnerEntitlement,
   getAdminUserApiPartnerKeys,
@@ -26,6 +29,7 @@ import {
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import {
+  AdminOutcomesReport,
   AdminApiPartnerEntitlement,
   AdminApiPartnerKeyList,
   AdminAuditLogList,
@@ -42,6 +46,23 @@ export default function AdminPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [outcomes, setOutcomes] = useState<AdminOutcomesReport | null>(null);
+  const [outcomesDays, setOutcomesDays] = useState(30);
+  const [outcomesBaselineDays, setOutcomesBaselineDays] = useState(14);
+  const [outcomesSportKey, setOutcomesSportKey] = useState<
+    "" | "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl"
+  >("");
+  const [outcomesSignalType, setOutcomesSignalType] = useState("");
+  const [outcomesMarket, setOutcomesMarket] = useState<"" | "spreads" | "totals" | "h2h">("");
+  const [outcomesTimeBucket, setOutcomesTimeBucket] = useState<
+    "" | "OPEN" | "MID" | "LATE" | "PRETIP" | "UNKNOWN"
+  >("");
+  const [outcomesLoading, setOutcomesLoading] = useState(false);
+  const [outcomesError, setOutcomesError] = useState<string | null>(null);
+  const [outcomesExportTable, setOutcomesExportTable] = useState<
+    "summary" | "by_signal_type" | "by_market" | "top_filtered_reasons"
+  >("summary");
+  const [outcomesExporting, setOutcomesExporting] = useState<"json" | "csv" | null>(null);
   const [auditLogs, setAuditLogs] = useState<AdminAuditLogList | null>(null);
   const [auditActionType, setAuditActionType] = useState("");
   const [auditTargetIdFilter, setAuditTargetIdFilter] = useState("");
@@ -86,6 +107,72 @@ export default function AdminPage() {
       target_id: auditTargetIdFilter || undefined,
     });
     setAuditLogs(payload);
+  };
+
+  const loadOutcomes = async (authToken: string) => {
+    setOutcomesLoading(true);
+    setOutcomesError(null);
+    try {
+      const payload = await getAdminOutcomesReport(authToken, {
+        days: outcomesDays,
+        baseline_days: outcomesBaselineDays,
+        sport_key: outcomesSportKey || undefined,
+        signal_type: outcomesSignalType.trim() || undefined,
+        market: outcomesMarket || undefined,
+        time_bucket: outcomesTimeBucket || undefined,
+      });
+      setOutcomes(payload);
+    } catch (err) {
+      setOutcomes(null);
+      setOutcomesError(err instanceof Error ? err.message : "Failed to load outcomes report");
+    } finally {
+      setOutcomesLoading(false);
+    }
+  };
+
+  const runOutcomesExportJson = async () => {
+    if (!token) {
+      return;
+    }
+    setOutcomesExporting("json");
+    setOutcomesError(null);
+    try {
+      await downloadAdminOutcomesJson(token, {
+        days: outcomesDays,
+        baseline_days: outcomesBaselineDays,
+        sport_key: outcomesSportKey || undefined,
+        signal_type: outcomesSignalType.trim() || undefined,
+        market: outcomesMarket || undefined,
+        time_bucket: outcomesTimeBucket || undefined,
+      });
+    } catch (err) {
+      setOutcomesError(err instanceof Error ? err.message : "Failed to export JSON report");
+    } finally {
+      setOutcomesExporting(null);
+    }
+  };
+
+  const runOutcomesExportCsv = async () => {
+    if (!token) {
+      return;
+    }
+    setOutcomesExporting("csv");
+    setOutcomesError(null);
+    try {
+      await downloadAdminOutcomesCsv(token, {
+        table: outcomesExportTable,
+        days: outcomesDays,
+        baseline_days: outcomesBaselineDays,
+        sport_key: outcomesSportKey || undefined,
+        signal_type: outcomesSignalType.trim() || undefined,
+        market: outcomesMarket || undefined,
+        time_bucket: outcomesTimeBucket || undefined,
+      });
+    } catch (err) {
+      setOutcomesError(err instanceof Error ? err.message : "Failed to export CSV report");
+    } finally {
+      setOutcomesExporting(null);
+    }
   };
 
   const load = async () => {
@@ -584,6 +671,23 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, token, user?.is_admin, days, cycleLimit]);
 
+  useEffect(() => {
+    if (!loading && token && user?.is_admin) {
+      void loadOutcomes(token);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    loading,
+    token,
+    user?.is_admin,
+    outcomesDays,
+    outcomesBaselineDays,
+    outcomesSportKey,
+    outcomesSignalType,
+    outcomesMarket,
+    outcomesTimeBucket,
+  ]);
+
   if (loading || !user) {
     return <LoadingState label="Loading admin panel..." />;
   }
@@ -611,10 +715,22 @@ export default function AdminPage() {
   const ops = report?.ops;
   const reliability = report?.reliability;
   const conversion = overview?.conversion ?? null;
+  const outcomesReport = outcomes;
   const recentCycles = overview?.recent_cycles ?? [];
   const topSignalTypes = Object.entries(ops?.signals_created_by_type ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
+  const formatRate = (value: number | null | undefined) =>
+    `${((value ?? 0) * 100).toFixed(1)}%`;
+  const formatDeltaRate = (value: number | null | undefined) =>
+    `${(value ?? 0) >= 0 ? "+" : ""}${((value ?? 0) * 100).toFixed(1)} pp`;
+  const formatSigned = (value: number | null | undefined, digits = 3) => {
+    if (value == null) {
+      return "-";
+    }
+    const next = Number(value);
+    return `${next >= 0 ? "+" : ""}${next.toFixed(digits)}`;
+  };
 
   return (
     <section className="space-y-4">
@@ -711,6 +827,302 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-textMute">Outcomes KPIs</p>
+            <p className="mt-1 text-xs text-textMute">
+              Outcome uses CLV-standard definition (positive when clv_line &gt; 0 or clv_prob &gt; 0).
+            </p>
+            <p className="text-xs text-textMute">
+              This is prioritization/quality monitoring, not guaranteed betting outcomes.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              if (token) {
+                void loadOutcomes(token);
+              }
+            }}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent"
+            disabled={outcomesLoading}
+          >
+            {outcomesLoading ? "Refreshing..." : "Refresh Outcomes"}
+          </button>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="text-xs text-textMute">
+            Days
+            <input
+              type="number"
+              min={7}
+              max={90}
+              value={outcomesDays}
+              onChange={(event) => {
+                setOutcomesDays(Math.max(7, Math.min(90, Number(event.target.value) || 30)));
+              }}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Baseline Days
+            <input
+              type="number"
+              min={7}
+              max={30}
+              value={outcomesBaselineDays}
+              onChange={(event) => {
+                setOutcomesBaselineDays(Math.max(7, Math.min(30, Number(event.target.value) || 14)));
+              }}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Sport
+            <select
+              value={outcomesSportKey}
+              onChange={(event) =>
+                setOutcomesSportKey(
+                  event.target.value as "" | "basketball_nba" | "basketball_ncaab" | "americanfootball_nfl",
+                )
+              }
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="">all</option>
+              <option value="basketball_nba">NBA</option>
+              <option value="basketball_ncaab">NCAAB</option>
+              <option value="americanfootball_nfl">NFL</option>
+            </select>
+          </label>
+          <label className="text-xs text-textMute">
+            Signal Type
+            <input
+              value={outcomesSignalType}
+              onChange={(event) => setOutcomesSignalType(event.target.value)}
+              placeholder="MOVE"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+          </label>
+          <label className="text-xs text-textMute">
+            Market
+            <select
+              value={outcomesMarket}
+              onChange={(event) => setOutcomesMarket(event.target.value as "" | "spreads" | "totals" | "h2h")}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="">all</option>
+              <option value="spreads">spreads</option>
+              <option value="totals">totals</option>
+              <option value="h2h">h2h</option>
+            </select>
+          </label>
+          <label className="text-xs text-textMute">
+            Time Bucket
+            <select
+              value={outcomesTimeBucket}
+              onChange={(event) =>
+                setOutcomesTimeBucket(
+                  event.target.value as "" | "OPEN" | "MID" | "LATE" | "PRETIP" | "UNKNOWN",
+                )
+              }
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="">all</option>
+              <option value="OPEN">OPEN</option>
+              <option value="MID">MID</option>
+              <option value="LATE">LATE</option>
+              <option value="PRETIP">PRETIP</option>
+              <option value="UNKNOWN">UNKNOWN</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <label className="text-xs text-textMute">
+            CSV Table
+            <select
+              value={outcomesExportTable}
+              onChange={(event) =>
+                setOutcomesExportTable(
+                  event.target.value as
+                    | "summary"
+                    | "by_signal_type"
+                    | "by_market"
+                    | "top_filtered_reasons",
+                )
+              }
+              className="mt-1 rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="summary">summary</option>
+              <option value="by_signal_type">by_signal_type</option>
+              <option value="by_market">by_market</option>
+              <option value="top_filtered_reasons">top_filtered_reasons</option>
+            </select>
+          </label>
+          <button
+            onClick={() => {
+              void runOutcomesExportJson();
+            }}
+            disabled={outcomesExporting !== null}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {outcomesExporting === "json" ? "Exporting..." : "Export JSON"}
+          </button>
+          <button
+            onClick={() => {
+              void runOutcomesExportCsv();
+            }}
+            disabled={outcomesExporting !== null}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {outcomesExporting === "csv" ? "Exporting..." : "Export CSV"}
+          </button>
+        </div>
+
+        {outcomesError && <p className="mt-3 text-sm text-negative">{outcomesError}</p>}
+        {outcomesLoading && !outcomesReport && <p className="mt-3 text-sm text-textMute">Loading outcomes...</p>}
+
+        {outcomesReport && (
+          <>
+            <div className="mt-4 grid gap-3 md:grid-cols-5">
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">Status</p>
+                <p className="mt-1 text-sm font-semibold text-textMain">{outcomesReport.status}</p>
+                <p className="mt-1 text-[11px] text-textMute">{outcomesReport.status_reason}</p>
+              </div>
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">CLV Positive Rate</p>
+                <p className="mt-1 text-sm font-semibold text-textMain">
+                  {formatRate(outcomesReport.kpis.clv_positive_rate)}
+                </p>
+                <p className="mt-1 text-[11px] text-textMute">
+                  Δ {formatDeltaRate(outcomesReport.delta_vs_baseline.clv_positive_rate_delta)}
+                </p>
+              </div>
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">CLV Samples</p>
+                <p className="mt-1 text-sm font-semibold text-textMain">{outcomesReport.kpis.clv_samples}</p>
+                <p className="mt-1 text-[11px] text-textMute">
+                  +{outcomesReport.kpis.positive_count} / -{outcomesReport.kpis.negative_count}
+                </p>
+              </div>
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">Avg CLV</p>
+                <p className="mt-1 text-sm font-semibold text-textMain">
+                  line {formatSigned(outcomesReport.kpis.avg_clv_line)}
+                </p>
+                <p className="mt-1 text-[11px] text-textMute">
+                  prob {formatSigned(outcomesReport.kpis.avg_clv_prob)}
+                </p>
+              </div>
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">Reliability</p>
+                <p className="mt-1 text-sm font-semibold text-textMain">
+                  Sent {formatRate(outcomesReport.kpis.sent_rate)} / Stale {formatRate(outcomesReport.kpis.stale_rate)}
+                </p>
+                <p className="mt-1 text-[11px] text-textMute">
+                  Degraded {formatRate(outcomesReport.kpis.degraded_cycle_rate)} • Alert fail {formatRate(outcomesReport.kpis.alert_failure_rate)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">By Signal Type</p>
+                <div className="mt-2 overflow-auto">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="text-left uppercase tracking-wider text-textMute">
+                        <th className="border-b border-borderTone py-1.5">Signal</th>
+                        <th className="border-b border-borderTone py-1.5">Count</th>
+                        <th className="border-b border-borderTone py-1.5">%+</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outcomesReport.by_signal_type.map((row) => (
+                        <tr key={`signal-${row.name}`}>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.name}</td>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.count}</td>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{formatRate(row.positive_rate)}</td>
+                        </tr>
+                      ))}
+                      {outcomesReport.by_signal_type.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="py-2 text-textMute">
+                            No rows for current filter set.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">By Market</p>
+                <div className="mt-2 overflow-auto">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="text-left uppercase tracking-wider text-textMute">
+                        <th className="border-b border-borderTone py-1.5">Market</th>
+                        <th className="border-b border-borderTone py-1.5">Count</th>
+                        <th className="border-b border-borderTone py-1.5">%+</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outcomesReport.by_market.map((row) => (
+                        <tr key={`market-${row.name}`}>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.name}</td>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.count}</td>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{formatRate(row.positive_rate)}</td>
+                        </tr>
+                      ))}
+                      {outcomesReport.by_market.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="py-2 text-textMute">
+                            No rows for current filter set.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="rounded border border-borderTone bg-panelSoft p-3">
+                <p className="text-[11px] uppercase tracking-wider text-textMute">Top Filtered Reasons</p>
+                <div className="mt-2 overflow-auto">
+                  <table className="w-full border-collapse text-xs">
+                    <thead>
+                      <tr className="text-left uppercase tracking-wider text-textMute">
+                        <th className="border-b border-borderTone py-1.5">Reason</th>
+                        <th className="border-b border-borderTone py-1.5">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outcomesReport.top_filtered_reasons.map((row) => (
+                        <tr key={`reason-${row.reason}`}>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.reason}</td>
+                          <td className="border-b border-borderTone/50 py-1.5 text-textMain">{row.count}</td>
+                        </tr>
+                      ))}
+                      {outcomesReport.top_filtered_reasons.length === 0 && (
+                        <tr>
+                          <td colSpan={2} className="py-2 text-textMute">
+                            No filtered reasons in this window.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {report && (
         <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">

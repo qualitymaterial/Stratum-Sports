@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 from httpx import AsyncClient
@@ -8,10 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
+from app.models.clv_record import ClvRecord
+from app.models.cycle_kpi import CycleKpi
+from app.models.game import Game
 from app.models.password_reset_token import PasswordResetToken
+from app.models.signal import Signal
 from app.models.subscription import Subscription
-from app.models.user import User
 from app.models.teaser_interaction_event import TeaserInteractionEvent
+from app.models.user import User
 from app.services.partner_api_keys import hash_partner_api_key
 
 STEP_UP_PASSWORD = "AdminRoutePass123!"
@@ -70,6 +74,178 @@ async def _ensure_api_partner_entitlements_table(db_session: AsyncSession) -> No
             checkfirst=True,
         )
     )
+
+
+async def _ensure_outcomes_tables(db_session: AsyncSession) -> None:
+    await db_session.run_sync(
+        lambda sync_session: Game.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+    await db_session.run_sync(
+        lambda sync_session: Signal.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+    await db_session.run_sync(
+        lambda sync_session: ClvRecord.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+    await db_session.run_sync(
+        lambda sync_session: CycleKpi.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+
+
+async def _seed_outcomes_dataset(
+    db_session: AsyncSession,
+    *,
+    now: datetime,
+    suffix: str,
+) -> None:
+    game_nba = Game(
+        event_id=f"evt-outcomes-nba-{suffix}",
+        sport_key="basketball_nba",
+        commence_time=now + timedelta(hours=4),
+        home_team="Home Team",
+        away_team="Away Team",
+    )
+    game_nfl = Game(
+        event_id=f"evt-outcomes-nfl-{suffix}",
+        sport_key="americanfootball_nfl",
+        commence_time=now + timedelta(hours=30),
+        home_team="Home Football",
+        away_team="Away Football",
+    )
+    db_session.add_all([game_nba, game_nfl])
+    await db_session.flush()
+
+    signal_a = Signal(
+        event_id=game_nba.event_id,
+        market="spreads",
+        signal_type="MOVE",
+        direction="UP",
+        from_value=-2.0,
+        to_value=-1.5,
+        from_price=-110,
+        to_price=-108,
+        window_minutes=30,
+        books_affected=4,
+        velocity_minutes=0.2,
+        time_bucket="PRETIP",
+        strength_score=78,
+        created_at=now - timedelta(minutes=1),
+        metadata_json={"outcome_name": "Away Team"},
+    )
+    signal_b = Signal(
+        event_id=game_nba.event_id,
+        market="totals",
+        signal_type="KEY_CROSS",
+        direction="UP",
+        from_value=220.5,
+        to_value=221.0,
+        from_price=-112,
+        to_price=-105,
+        window_minutes=30,
+        books_affected=5,
+        velocity_minutes=0.15,
+        time_bucket="LATE",
+        strength_score=72,
+        created_at=now - timedelta(minutes=2),
+        metadata_json={"outcome_name": "Over"},
+    )
+    signal_c = Signal(
+        event_id=game_nfl.event_id,
+        market="h2h",
+        signal_type="MOVE",
+        direction="UP",
+        from_value=-120,
+        to_value=-118,
+        from_price=-120,
+        to_price=-118,
+        window_minutes=60,
+        books_affected=3,
+        velocity_minutes=0.1,
+        time_bucket="OPEN",
+        strength_score=65,
+        created_at=now - timedelta(minutes=20),
+        metadata_json={"outcome_name": "Home Football"},
+    )
+    db_session.add_all([signal_a, signal_b, signal_c])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            ClvRecord(
+                signal_id=signal_a.id,
+                event_id=signal_a.event_id,
+                signal_type=signal_a.signal_type,
+                market=signal_a.market,
+                outcome_name="Away Team",
+                entry_line=-1.5,
+                close_line=-1.0,
+                clv_line=0.5,
+                clv_prob=0.02,
+                computed_at=now - timedelta(hours=2),
+            ),
+            ClvRecord(
+                signal_id=signal_b.id,
+                event_id=signal_b.event_id,
+                signal_type=signal_b.signal_type,
+                market=signal_b.market,
+                outcome_name="Over",
+                entry_line=221.0,
+                close_line=221.5,
+                clv_line=-0.05,
+                clv_prob=0.01,
+                computed_at=now - timedelta(hours=3),
+            ),
+            ClvRecord(
+                signal_id=signal_c.id,
+                event_id=signal_c.event_id,
+                signal_type=signal_c.signal_type,
+                market=signal_c.market,
+                outcome_name="Home Football",
+                entry_price=-118,
+                close_price=-125,
+                clv_line=-0.4,
+                clv_prob=-0.03,
+                computed_at=now - timedelta(hours=4),
+            ),
+        ]
+    )
+
+    db_session.add_all(
+        [
+            CycleKpi(
+                cycle_id=f"cycle-outcomes-1-{suffix}",
+                started_at=now - timedelta(hours=1),
+                completed_at=now - timedelta(minutes=59),
+                duration_ms=60_000,
+                degraded=False,
+                alerts_sent=6,
+                alerts_failed=1,
+                signals_created_total=8,
+            ),
+            CycleKpi(
+                cycle_id=f"cycle-outcomes-2-{suffix}",
+                started_at=now - timedelta(hours=2),
+                completed_at=now - timedelta(hours=1, minutes=59),
+                duration_ms=62_000,
+                degraded=True,
+                alerts_sent=3,
+                alerts_failed=2,
+                signals_created_total=5,
+            ),
+        ]
+    )
+    await db_session.commit()
 
 
 def _make_subscription(
@@ -171,6 +347,175 @@ async def test_admin_conversion_funnel_includes_teaser_interactions(
     assert payload["teaser_clicks"] >= 1
     assert isinstance(payload["by_sport"], list)
     assert any(row["sport_key"] == "basketball_nba" for row in payload["by_sport"])
+
+
+async def test_admin_outcomes_report_requires_admin_read(
+    async_client: AsyncClient,
+) -> None:
+    token = await _register(async_client, "admin-outcomes-free@example.com")
+    response = await async_client.get(
+        "/api/v1/admin/outcomes/report",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_outcomes_exports_require_admin_read(
+    async_client: AsyncClient,
+) -> None:
+    token = await _register(async_client, "admin-outcomes-export-free@example.com")
+    json_response = await async_client.get(
+        "/api/v1/admin/outcomes/export.json",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert json_response.status_code == 403
+    assert json_response.json()["detail"] == "Insufficient admin permissions"
+
+    csv_response = await async_client.get(
+        "/api/v1/admin/outcomes/export.csv?table=summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert csv_response.status_code == 403
+    assert csv_response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_outcomes_report_returns_clv_kpis_and_baseline_status(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_outcomes_tables(db_session)
+    token = await _register(async_client, "admin-outcomes-reader@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-outcomes-reader@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+    await db_session.commit()
+    await _seed_outcomes_dataset(db_session, now=datetime.now(UTC), suffix="reader")
+
+    response = await async_client.get(
+        "/api/v1/admin/outcomes/report?days=30&baseline_days=14",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["kpis"]["clv_samples"] == 3
+    assert payload["kpis"]["positive_count"] == 2
+    assert payload["kpis"]["negative_count"] == 1
+    assert payload["status"] == "baseline_building"
+    assert "Collecting CLV samples" in payload["status_reason"]
+    assert isinstance(payload["by_signal_type"], list)
+    assert isinstance(payload["by_market"], list)
+    assert isinstance(payload["top_filtered_reasons"], list)
+
+
+async def test_admin_outcomes_report_filter_propagation(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_outcomes_tables(db_session)
+    token = await _register(async_client, "admin-outcomes-filter@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-outcomes-filter@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "ops_admin"
+    admin_user.tier = "pro"
+    await db_session.commit()
+    await _seed_outcomes_dataset(db_session, now=datetime.now(UTC), suffix="filter")
+
+    response = await async_client.get(
+        "/api/v1/admin/outcomes/report"
+        "?days=30&baseline_days=14&sport_key=basketball_nba&signal_type=MOVE&market=spreads&time_bucket=PRETIP",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["kpis"]["clv_samples"] == 1
+    assert payload["kpis"]["positive_count"] == 1
+    assert payload["by_signal_type"] == [
+        {
+            "name": "MOVE",
+            "count": 1,
+            "positive_rate": 1.0,
+            "avg_clv_line": 0.5,
+            "avg_clv_prob": 0.02,
+        }
+    ]
+    assert payload["by_market"] == [
+        {
+            "name": "spreads",
+            "count": 1,
+            "positive_rate": 1.0,
+            "avg_clv_line": 0.5,
+            "avg_clv_prob": 0.02,
+        }
+    ]
+
+
+async def test_admin_outcomes_json_export_attachment_headers(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_outcomes_tables(db_session)
+    token = await _register(async_client, "admin-outcomes-json@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-outcomes-json@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+    await db_session.commit()
+    await _seed_outcomes_dataset(db_session, now=datetime.now(UTC), suffix="json")
+
+    response = await async_client.get(
+        "/api/v1/admin/outcomes/export.json?days=30&baseline_days=14",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith("application/json")
+    assert "attachment; filename=\"admin-outcomes-report-" in response.headers["content-disposition"]
+    payload = response.json()
+    assert "kpis" in payload
+    assert "baseline_kpis" in payload
+    assert "delta_vs_baseline" in payload
+
+
+async def test_admin_outcomes_csv_export_summary_and_breakdown_headers(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_outcomes_tables(db_session)
+    token = await _register(async_client, "admin-outcomes-csv@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-outcomes-csv@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+    await db_session.commit()
+    await _seed_outcomes_dataset(db_session, now=datetime.now(UTC), suffix="csv")
+
+    summary_response = await async_client.get(
+        "/api/v1/admin/outcomes/export.csv?table=summary&days=30&baseline_days=14",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert summary_response.status_code == 200, summary_response.text
+    assert summary_response.headers["content-type"].startswith("text/csv")
+    assert "attachment; filename=\"admin-outcomes-summary-" in summary_response.headers["content-disposition"]
+    summary_lines = summary_response.text.strip().splitlines()
+    assert summary_lines[0] == "metric,current,baseline,delta"
+    assert summary_lines[1].startswith("clv_samples,")
+
+    market_response = await async_client.get(
+        "/api/v1/admin/outcomes/export.csv?table=by_market&days=30&baseline_days=14",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert market_response.status_code == 200, market_response.text
+    market_lines = market_response.text.strip().splitlines()
+    assert market_lines[0] == "market,count,positive_rate,avg_clv_line,avg_clv_prob"
 
 
 async def test_admin_update_user_tier_requires_permission(

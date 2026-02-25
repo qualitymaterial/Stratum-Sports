@@ -1,7 +1,12 @@
+import csv
+import io
+import logging
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import String, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +38,7 @@ from app.schemas.ops import (
     AdminBillingMutationOut,
     AdminBillingMutationRequest,
     AdminBillingSubscriptionOut,
+    AdminOutcomesReportOut,
     AdminApiPartnerEntitlementOut,
     AdminApiPartnerEntitlementUpdateOut,
     AdminApiPartnerEntitlementUpdateRequest,
@@ -62,6 +68,7 @@ from app.schemas.ops import (
     OperatorReport,
 )
 from app.services.admin_audit import write_admin_audit_log
+from app.services.admin_outcomes import build_admin_outcomes_report
 from app.services.operator_report import build_operator_report
 from app.services.api_partner_entitlements import (
     DEFAULT_OVERAGE_UNIT_QUANTITY,
@@ -87,6 +94,8 @@ from app.services.teaser_analytics import get_teaser_conversion_funnel
 router = APIRouter()
 settings = get_settings()
 ADMIN_MUTATION_CONFIRM_PHRASE = "CONFIRM"
+OUTCOMES_EXPORT_MAX_ROWS = 10_000
+logger = logging.getLogger(__name__)
 
 
 def _require_step_up_auth(admin_user: User, step_up_password: str, confirm_phrase: str) -> None:
@@ -129,6 +138,90 @@ async def _get_partner_key_for_user(db: AsyncSession, *, user_id: UUID, key_id: 
     return key
 
 
+def _normalize_optional_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def _normalize_time_bucket_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip().upper()
+    if not cleaned:
+        return None
+    allowed = {"OPEN", "MID", "LATE", "PRETIP", "UNKNOWN", "INPLAY"}
+    if cleaned not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="time_bucket must be one of OPEN, MID, LATE, PRETIP, UNKNOWN, INPLAY",
+        )
+    if cleaned == "INPLAY" and not settings.time_bucket_expose_inplay:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="INPLAY time_bucket is disabled in current configuration",
+        )
+    return cleaned
+
+
+def _build_outcomes_filename(suffix: str, extension: str) -> str:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return f"admin-outcomes-{suffix}-{timestamp}.{extension}"
+
+
+def _render_outcomes_csv(
+    report: AdminOutcomesReportOut,
+    *,
+    table: Literal["summary", "by_signal_type", "by_market", "top_filtered_reasons"],
+) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+
+    if table == "summary":
+        writer.writerow(["metric", "current", "baseline", "delta"])
+        summary_rows = [
+            ("clv_samples", report.kpis.clv_samples, report.baseline_kpis.clv_samples, report.delta_vs_baseline.clv_samples_delta),
+            ("positive_count", report.kpis.positive_count, report.baseline_kpis.positive_count, report.delta_vs_baseline.positive_count_delta),
+            ("negative_count", report.kpis.negative_count, report.baseline_kpis.negative_count, report.delta_vs_baseline.negative_count_delta),
+            ("clv_positive_rate", report.kpis.clv_positive_rate, report.baseline_kpis.clv_positive_rate, report.delta_vs_baseline.clv_positive_rate_delta),
+            ("avg_clv_line", report.kpis.avg_clv_line, report.baseline_kpis.avg_clv_line, report.delta_vs_baseline.avg_clv_line_delta),
+            ("avg_clv_prob", report.kpis.avg_clv_prob, report.baseline_kpis.avg_clv_prob, report.delta_vs_baseline.avg_clv_prob_delta),
+            ("sent_rate", report.kpis.sent_rate, report.baseline_kpis.sent_rate, report.delta_vs_baseline.sent_rate_delta),
+            ("stale_rate", report.kpis.stale_rate, report.baseline_kpis.stale_rate, report.delta_vs_baseline.stale_rate_delta),
+            ("degraded_cycle_rate", report.kpis.degraded_cycle_rate, report.baseline_kpis.degraded_cycle_rate, report.delta_vs_baseline.degraded_cycle_rate_delta),
+            ("alert_failure_rate", report.kpis.alert_failure_rate, report.baseline_kpis.alert_failure_rate, report.delta_vs_baseline.alert_failure_rate_delta),
+            ("status", report.status, "baseline_comparison", report.status_reason),
+        ]
+        if len(summary_rows) > OUTCOMES_EXPORT_MAX_ROWS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
+        for metric, current, baseline, delta in summary_rows:
+            writer.writerow([metric, current, baseline, delta])
+    elif table == "by_signal_type":
+        writer.writerow(["signal_type", "count", "positive_rate", "avg_clv_line", "avg_clv_prob"])
+        rows = report.by_signal_type
+        if len(rows) > OUTCOMES_EXPORT_MAX_ROWS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
+        for row in rows:
+            writer.writerow([row.name, row.count, row.positive_rate, row.avg_clv_line, row.avg_clv_prob])
+    elif table == "by_market":
+        writer.writerow(["market", "count", "positive_rate", "avg_clv_line", "avg_clv_prob"])
+        rows = report.by_market
+        if len(rows) > OUTCOMES_EXPORT_MAX_ROWS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
+        for row in rows:
+            writer.writerow([row.name, row.count, row.positive_rate, row.avg_clv_line, row.avg_clv_prob])
+    else:
+        writer.writerow(["reason", "count"])
+        rows = report.top_filtered_reasons
+        if len(rows) > OUTCOMES_EXPORT_MAX_ROWS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
+        for row in rows:
+            writer.writerow([row.reason, row.count])
+
+    return buffer.getvalue()
+
+
 @router.get("/overview", response_model=AdminOverviewOut)
 async def admin_overview(
     days: int = Query(7, ge=1, le=30),
@@ -165,6 +258,141 @@ async def admin_conversion_funnel(
 ) -> ConversionFunnelOut:
     payload = await get_teaser_conversion_funnel(db, days=days)
     return ConversionFunnelOut(**payload)
+
+
+@router.get("/outcomes/report", response_model=AdminOutcomesReportOut)
+async def admin_outcomes_report(
+    days: int = Query(30, ge=7, le=90),
+    baseline_days: int = Query(14, ge=7, le=30),
+    sport_key: str | None = Query(
+        None,
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
+    signal_type: str | None = Query(None, min_length=1, max_length=64),
+    market: str | None = Query(None, min_length=1, max_length=32),
+    time_bucket: str | None = Query(None, min_length=3, max_length=16),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminOutcomesReportOut:
+    normalized_signal_type = _normalize_optional_filter(signal_type)
+    normalized_market = _normalize_optional_filter(market)
+    normalized_time_bucket = _normalize_time_bucket_filter(time_bucket)
+    report_payload = await build_admin_outcomes_report(
+        db,
+        days=days,
+        baseline_days=baseline_days,
+        sport_key=sport_key,
+        signal_type=normalized_signal_type,
+        market=normalized_market,
+        time_bucket=normalized_time_bucket,
+    )
+    logger.info(
+        "admin_outcomes_report_generated",
+        extra={
+            "days": days,
+            "baseline_days": baseline_days,
+            "sport_key": sport_key,
+            "signal_type": normalized_signal_type,
+            "market": normalized_market,
+            "time_bucket": normalized_time_bucket,
+        },
+    )
+    return AdminOutcomesReportOut(**report_payload)
+
+
+@router.get("/outcomes/export.json")
+async def admin_outcomes_export_json(
+    days: int = Query(30, ge=7, le=90),
+    baseline_days: int = Query(14, ge=7, le=30),
+    sport_key: str | None = Query(
+        None,
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
+    signal_type: str | None = Query(None, min_length=1, max_length=64),
+    market: str | None = Query(None, min_length=1, max_length=32),
+    time_bucket: str | None = Query(None, min_length=3, max_length=16),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> Response:
+    normalized_signal_type = _normalize_optional_filter(signal_type)
+    normalized_market = _normalize_optional_filter(market)
+    normalized_time_bucket = _normalize_time_bucket_filter(time_bucket)
+    report_payload = await build_admin_outcomes_report(
+        db,
+        days=days,
+        baseline_days=baseline_days,
+        sport_key=sport_key,
+        signal_type=normalized_signal_type,
+        market=normalized_market,
+        time_bucket=normalized_time_bucket,
+    )
+    report = AdminOutcomesReportOut(**report_payload)
+    filename = _build_outcomes_filename("report", "json")
+    logger.info(
+        "admin_outcomes_export_json_generated",
+        extra={
+            "days": days,
+            "baseline_days": baseline_days,
+            "sport_key": sport_key,
+            "signal_type": normalized_signal_type,
+            "market": normalized_market,
+            "time_bucket": normalized_time_bucket,
+        },
+    )
+    return Response(
+        content=report.model_dump_json(),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/outcomes/export.csv")
+async def admin_outcomes_export_csv(
+    table: Literal["summary", "by_signal_type", "by_market", "top_filtered_reasons"] = Query("summary"),
+    days: int = Query(30, ge=7, le=90),
+    baseline_days: int = Query(14, ge=7, le=30),
+    sport_key: str | None = Query(
+        None,
+        pattern="^(basketball_nba|basketball_ncaab|americanfootball_nfl)$",
+    ),
+    signal_type: str | None = Query(None, min_length=1, max_length=64),
+    market: str | None = Query(None, min_length=1, max_length=32),
+    time_bucket: str | None = Query(None, min_length=3, max_length=16),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> StreamingResponse:
+    normalized_signal_type = _normalize_optional_filter(signal_type)
+    normalized_market = _normalize_optional_filter(market)
+    normalized_time_bucket = _normalize_time_bucket_filter(time_bucket)
+    report_payload = await build_admin_outcomes_report(
+        db,
+        days=days,
+        baseline_days=baseline_days,
+        sport_key=sport_key,
+        signal_type=normalized_signal_type,
+        market=normalized_market,
+        time_bucket=normalized_time_bucket,
+    )
+    report = AdminOutcomesReportOut(**report_payload)
+    csv_content = _render_outcomes_csv(report, table=table)
+    filename = _build_outcomes_filename(table, "csv")
+    logger.info(
+        "admin_outcomes_export_csv_generated",
+        extra={
+            "table": table,
+            "days": days,
+            "baseline_days": baseline_days,
+            "sport_key": sport_key,
+            "signal_type": normalized_signal_type,
+            "market": normalized_market,
+            "time_bucket": normalized_time_bucket,
+        },
+    )
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/audit/logs", response_model=AdminAuditLogListOut)

@@ -724,6 +724,8 @@ async def get_signal_lifecycle_summary(
     market: str | None = None,
     min_strength: int | None = None,
     created_after: datetime | None = None,
+    created_before: datetime | None = None,
+    time_bucket: str | None = None,
     days: int = 7,
     apply_alert_rules: bool = True,
     connection: DiscordConnection | None = None,
@@ -748,6 +750,15 @@ async def get_signal_lifecycle_summary(
         stmt = stmt.where(Signal.signal_type == signal_type)
     if market:
         stmt = stmt.where(Signal.market == market)
+    if created_before is not None:
+        stmt = stmt.where(Signal.created_at < created_before)
+    if time_bucket is not None:
+        if time_bucket == "UNKNOWN":
+            stmt = stmt.where(or_(Signal.time_bucket == "UNKNOWN", Signal.time_bucket.is_(None)))
+        else:
+            stmt = stmt.where(Signal.time_bucket == time_bucket)
+    if not settings.time_bucket_expose_inplay:
+        stmt = stmt.where(or_(Signal.time_bucket.is_(None), Signal.time_bucket != "INPLAY"))
 
     signals = (await db.execute(stmt)).scalars().all()
     total_detected = len(signals)
