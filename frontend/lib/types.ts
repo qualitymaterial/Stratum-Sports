@@ -581,6 +581,31 @@ export type AdminApiPartnerKeyRevoke = {
   revoked_at: string | null;
 };
 
+export type AdminApiPartnerEntitlement = {
+  entitlement_id: string | null;
+  user_id: string;
+  email: string;
+  plan_code: "api_monthly" | "api_annual" | null;
+  api_access_enabled: boolean;
+  soft_limit_monthly: number | null;
+  overage_enabled: boolean;
+  overage_price_cents: number | null;
+  overage_unit_quantity: number;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type AdminApiPartnerEntitlementUpdate = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  reason: string;
+  old_entitlement: AdminApiPartnerEntitlement;
+  new_entitlement: AdminApiPartnerEntitlement;
+};
+
 export type AdminAuditLogItem = {
   id: string;
   actor_user_id: string;

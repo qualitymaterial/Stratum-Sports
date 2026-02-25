@@ -23,6 +23,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
 from app.models.cycle_kpi import CycleKpi
 from app.models.password_reset_token import PasswordResetToken
@@ -32,6 +33,9 @@ from app.schemas.ops import (
     AdminBillingMutationOut,
     AdminBillingMutationRequest,
     AdminBillingSubscriptionOut,
+    AdminApiPartnerEntitlementOut,
+    AdminApiPartnerEntitlementUpdateOut,
+    AdminApiPartnerEntitlementUpdateRequest,
     AdminApiPartnerKeyIssueOut,
     AdminApiPartnerKeyIssueRequest,
     AdminApiPartnerKeyListOut,
@@ -59,6 +63,12 @@ from app.schemas.ops import (
 )
 from app.services.admin_audit import write_admin_audit_log
 from app.services.operator_report import build_operator_report
+from app.services.api_partner_entitlements import (
+    DEFAULT_OVERAGE_UNIT_QUANTITY,
+    get_api_partner_entitlement,
+    get_or_create_api_partner_entitlement,
+    serialize_api_partner_entitlement_for_audit,
+)
 from app.services.partner_api_keys import (
     issue_api_partner_key,
     list_api_partner_keys_for_user,
@@ -358,6 +368,39 @@ def _serialize_subscription_for_audit(subscription: Subscription | None) -> dict
         if subscription.current_period_end is not None
         else None,
     }
+
+
+def _build_admin_api_partner_entitlement_out(
+    target_user: User,
+    entitlement: ApiPartnerEntitlement | None,
+) -> AdminApiPartnerEntitlementOut:
+    if entitlement is None:
+        return AdminApiPartnerEntitlementOut(
+            entitlement_id=None,
+            user_id=target_user.id,
+            email=target_user.email,
+            plan_code=None,
+            api_access_enabled=False,
+            soft_limit_monthly=None,
+            overage_enabled=True,
+            overage_price_cents=None,
+            overage_unit_quantity=DEFAULT_OVERAGE_UNIT_QUANTITY,
+            created_at=None,
+            updated_at=None,
+        )
+    return AdminApiPartnerEntitlementOut(
+        entitlement_id=entitlement.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        plan_code=entitlement.plan_code,
+        api_access_enabled=entitlement.api_access_enabled,
+        soft_limit_monthly=entitlement.soft_limit_monthly,
+        overage_enabled=entitlement.overage_enabled,
+        overage_price_cents=entitlement.overage_price_cents,
+        overage_unit_quantity=entitlement.overage_unit_quantity,
+        created_at=entitlement.created_at,
+        updated_at=entitlement.updated_at,
+    )
 
 
 @router.get("/users/{user_id}/billing", response_model=AdminUserBillingOverviewOut)
@@ -764,6 +807,79 @@ async def admin_rotate_user_api_partner_key(
         operation="rotate",
         key=AdminApiPartnerKeyOut.model_validate(rotated_key),
         api_key=raw_api_key,
+    )
+
+
+@router.get("/users/{user_id}/api-entitlement", response_model=AdminApiPartnerEntitlementOut)
+async def admin_get_user_api_partner_entitlement(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminApiPartnerEntitlementOut:
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    entitlement = await get_api_partner_entitlement(db, user_id=target_user.id)
+    return _build_admin_api_partner_entitlement_out(target_user, entitlement)
+
+
+@router.patch("/users/{user_id}/api-entitlement", response_model=AdminApiPartnerEntitlementUpdateOut)
+async def admin_update_user_api_partner_entitlement(
+    user_id: UUID,
+    payload: AdminApiPartnerEntitlementUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_PARTNER_API_WRITE)),
+) -> AdminApiPartnerEntitlementUpdateOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    entitlement = await get_or_create_api_partner_entitlement(db, user_id=target_user.id)
+    old_state = _build_admin_api_partner_entitlement_out(target_user, entitlement)
+
+    if "plan_code" in payload.model_fields_set:
+        entitlement.plan_code = payload.plan_code
+    if "api_access_enabled" in payload.model_fields_set and payload.api_access_enabled is not None:
+        entitlement.api_access_enabled = payload.api_access_enabled
+    if "soft_limit_monthly" in payload.model_fields_set:
+        entitlement.soft_limit_monthly = payload.soft_limit_monthly
+    if "overage_enabled" in payload.model_fields_set and payload.overage_enabled is not None:
+        entitlement.overage_enabled = payload.overage_enabled
+    if "overage_price_cents" in payload.model_fields_set:
+        entitlement.overage_price_cents = payload.overage_price_cents
+    if "overage_unit_quantity" in payload.model_fields_set and payload.overage_unit_quantity is not None:
+        entitlement.overage_unit_quantity = payload.overage_unit_quantity
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.partner_entitlement.update",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload=old_state.model_dump(mode="json"),
+        after_payload=serialize_api_partner_entitlement_for_audit(entitlement),
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(entitlement)
+    await db.refresh(audit)
+
+    return AdminApiPartnerEntitlementUpdateOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        old_entitlement=old_state,
+        new_entitlement=_build_admin_api_partner_entitlement_out(target_user, entitlement),
     )
 
 

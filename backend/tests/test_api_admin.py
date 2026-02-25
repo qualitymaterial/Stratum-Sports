@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
 from app.models.password_reset_token import PasswordResetToken
 from app.models.subscription import Subscription
@@ -56,6 +57,15 @@ async def _ensure_password_reset_table(db_session: AsyncSession) -> None:
 async def _ensure_api_partner_keys_table(db_session: AsyncSession) -> None:
     await db_session.run_sync(
         lambda sync_session: ApiPartnerKey.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+
+
+async def _ensure_api_partner_entitlements_table(db_session: AsyncSession) -> None:
+    await db_session.run_sync(
+        lambda sync_session: ApiPartnerEntitlement.__table__.create(
             bind=sync_session.connection(),
             checkfirst=True,
         )
@@ -902,6 +912,136 @@ async def test_admin_issue_partner_key_requires_permission(
     )
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_update_partner_entitlement_requires_permission(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_api_partner_entitlements_table(db_session)
+    token = await _register(async_client, "admin-entitlement-support@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-support@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-entitlement-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/api-entitlement",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "plan_code": "api_monthly",
+            "api_access_enabled": True,
+            "soft_limit_monthly": 10000,
+            "reason": "Support role should not modify partner entitlement",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_get_partner_entitlement_defaults_when_missing(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_api_partner_entitlements_table(db_session)
+    token = await _register(async_client, "admin-entitlement-read@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-read@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-entitlement-read-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-read-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.get(
+        f"/api/v1/admin/users/{target_user.id}/api-entitlement",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["user_id"] == str(target_user.id)
+    assert payload["entitlement_id"] is None
+    assert payload["plan_code"] is None
+    assert payload["api_access_enabled"] is False
+    assert payload["soft_limit_monthly"] is None
+    assert payload["overage_enabled"] is True
+    assert payload["overage_price_cents"] is None
+    assert payload["overage_unit_quantity"] == 1000
+
+
+async def test_admin_update_partner_entitlement_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    await _ensure_api_partner_entitlements_table(db_session)
+    token = await _register(async_client, "admin-entitlement-write@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-write@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-entitlement-write-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-entitlement-write-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/api-entitlement",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-partner-entitlement-update"},
+        json={
+            "plan_code": "api_monthly",
+            "api_access_enabled": True,
+            "soft_limit_monthly": 25000,
+            "overage_enabled": True,
+            "overage_price_cents": 299,
+            "overage_unit_quantity": 1000,
+            "reason": "Enable paid API partner plan with default overage policy",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["new_entitlement"]["plan_code"] == "api_monthly"
+    assert payload["new_entitlement"]["api_access_enabled"] is True
+    assert payload["new_entitlement"]["soft_limit_monthly"] == 25000
+    assert payload["new_entitlement"]["overage_enabled"] is True
+    assert payload["new_entitlement"]["overage_price_cents"] == 299
+    assert payload["new_entitlement"]["overage_unit_quantity"] == 1000
+
+    ent_stmt = select(ApiPartnerEntitlement).where(ApiPartnerEntitlement.user_id == target_user.id)
+    ent_row = (await db_session.execute(ent_stmt)).scalar_one()
+    assert ent_row.plan_code == "api_monthly"
+    assert ent_row.api_access_enabled is True
+    assert ent_row.soft_limit_monthly == 25000
+    assert ent_row.overage_enabled is True
+    assert ent_row.overage_price_cents == 299
+    assert ent_row.overage_unit_quantity == 1000
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.action_type == "admin.partner_entitlement.update",
+        AdminAuditLog.target_id == str(target_user.id),
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.request_id == "test-partner-entitlement-update"
 
 
 async def test_admin_issue_partner_key_and_list_keys(

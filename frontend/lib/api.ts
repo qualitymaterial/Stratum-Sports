@@ -1,4 +1,6 @@
 import {
+  AdminApiPartnerEntitlement,
+  AdminApiPartnerEntitlementUpdate,
   AdminApiPartnerKeyIssue,
   AdminApiPartnerKeyList,
   AdminApiPartnerKeyRevoke,
@@ -261,6 +263,35 @@ export async function rotateAdminUserApiPartnerKey(
 ) {
   return apiRequest<AdminApiPartnerKeyIssue>(`/admin/users/${userId}/api-keys/${keyId}/rotate`, {
     method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getAdminUserApiPartnerEntitlement(
+  token: string,
+  userId: string,
+) {
+  return apiRequest<AdminApiPartnerEntitlement>(`/admin/users/${userId}/api-entitlement`, { token });
+}
+
+export async function updateAdminUserApiPartnerEntitlement(
+  token: string,
+  userId: string,
+  payload: {
+    plan_code?: "api_monthly" | "api_annual" | null;
+    api_access_enabled?: boolean;
+    soft_limit_monthly?: number | null;
+    overage_enabled?: boolean;
+    overage_price_cents?: number | null;
+    overage_unit_quantity?: number;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminApiPartnerEntitlementUpdate>(`/admin/users/${userId}/api-entitlement`, {
+    method: "PATCH",
     token,
     body: payload,
   });

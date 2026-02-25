@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class CycleKpiOut(BaseModel):
@@ -326,6 +326,57 @@ class AdminApiPartnerKeyRevokeOut(BaseModel):
     old_is_active: bool
     new_is_active: bool
     revoked_at: datetime | None
+
+
+class AdminApiPartnerEntitlementOut(BaseModel):
+    entitlement_id: UUID | None = None
+    user_id: UUID
+    email: str
+    plan_code: Literal["api_monthly", "api_annual"] | None = None
+    api_access_enabled: bool
+    soft_limit_monthly: int | None = None
+    overage_enabled: bool
+    overage_price_cents: int | None = None
+    overage_unit_quantity: int
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AdminApiPartnerEntitlementUpdateRequest(BaseModel):
+    plan_code: Literal["api_monthly", "api_annual"] | None = None
+    api_access_enabled: bool | None = None
+    soft_limit_monthly: int | None = Field(default=None, ge=0, le=100_000_000)
+    overage_enabled: bool | None = None
+    overage_price_cents: int | None = Field(default=None, ge=0, le=1_000_000_00)
+    overage_unit_quantity: int | None = Field(default=None, ge=1, le=1_000_000)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+    @model_validator(mode="after")
+    def _validate_has_any_mutation(self) -> "AdminApiPartnerEntitlementUpdateRequest":
+        mutable_fields = {
+            "plan_code",
+            "api_access_enabled",
+            "soft_limit_monthly",
+            "overage_enabled",
+            "overage_price_cents",
+            "overage_unit_quantity",
+        }
+        if not (self.model_fields_set & mutable_fields):
+            raise ValueError("At least one entitlement field must be provided")
+        return self
+
+
+class AdminApiPartnerEntitlementUpdateOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    reason: str
+    old_entitlement: AdminApiPartnerEntitlementOut
+    new_entitlement: AdminApiPartnerEntitlementOut
 
 
 class AdminAuditLogItemOut(BaseModel):

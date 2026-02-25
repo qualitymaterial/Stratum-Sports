@@ -8,6 +8,7 @@ import {
   cancelAdminUserBilling,
   getAdminAuditLogs,
   getAdminOverview,
+  getAdminUserApiPartnerEntitlement,
   getAdminUserApiPartnerKeys,
   getAdminUserBilling,
   getAdminUsers,
@@ -17,6 +18,7 @@ import {
   rotateAdminUserApiPartnerKey,
   resyncAdminUserBilling,
   requestAdminUserPasswordReset,
+  updateAdminUserApiPartnerEntitlement,
   updateAdminUserActive,
   updateAdminUserRole,
   updateAdminUserTier,
@@ -24,6 +26,7 @@ import {
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import {
+  AdminApiPartnerEntitlement,
   AdminApiPartnerKeyList,
   AdminAuditLogList,
   AdminBillingOverview,
@@ -58,6 +61,15 @@ export default function AdminPage() {
   const [partnerKeysSummary, setPartnerKeysSummary] = useState<AdminApiPartnerKeyList | null>(null);
   const [partnerKeysLoading, setPartnerKeysLoading] = useState(false);
   const [partnerKeysError, setPartnerKeysError] = useState<string | null>(null);
+  const [partnerEntitlement, setPartnerEntitlement] = useState<AdminApiPartnerEntitlement | null>(null);
+  const [partnerEntitlementLoading, setPartnerEntitlementLoading] = useState(false);
+  const [partnerEntitlementError, setPartnerEntitlementError] = useState<string | null>(null);
+  const [partnerPlanCode, setPartnerPlanCode] = useState<"none" | "api_monthly" | "api_annual">("none");
+  const [partnerAccessEnabled, setPartnerAccessEnabled] = useState<"enabled" | "disabled">("disabled");
+  const [partnerSoftLimitMonthly, setPartnerSoftLimitMonthly] = useState("");
+  const [partnerOverageEnabled, setPartnerOverageEnabled] = useState<"enabled" | "disabled">("enabled");
+  const [partnerOveragePriceCents, setPartnerOveragePriceCents] = useState("");
+  const [partnerOverageUnitQuantity, setPartnerOverageUnitQuantity] = useState("1000");
   const [partnerKeyName, setPartnerKeyName] = useState("Primary Partner Key");
   const [partnerKeyExpiresDays, setPartnerKeyExpiresDays] = useState("90");
   const [latestIssuedApiKey, setLatestIssuedApiKey] = useState<string | null>(null);
@@ -130,6 +142,37 @@ export default function AdminPage() {
       setPartnerKeysError(err instanceof Error ? err.message : "Failed to load API partner keys");
     } finally {
       setPartnerKeysLoading(false);
+    }
+  };
+
+  const loadPartnerEntitlement = async (authToken: string, userId: string) => {
+    if (!authToken || !userId.trim()) {
+      setPartnerEntitlement(null);
+      setPartnerEntitlementError(null);
+      return;
+    }
+    setPartnerEntitlementLoading(true);
+    setPartnerEntitlementError(null);
+    try {
+      const payload = await getAdminUserApiPartnerEntitlement(authToken, userId.trim());
+      setPartnerEntitlement(payload);
+      setPartnerPlanCode(payload.plan_code ?? "none");
+      setPartnerAccessEnabled(payload.api_access_enabled ? "enabled" : "disabled");
+      setPartnerSoftLimitMonthly(
+        payload.soft_limit_monthly != null ? String(payload.soft_limit_monthly) : "",
+      );
+      setPartnerOverageEnabled(payload.overage_enabled ? "enabled" : "disabled");
+      setPartnerOveragePriceCents(
+        payload.overage_price_cents != null ? String(payload.overage_price_cents) : "",
+      );
+      setPartnerOverageUnitQuantity(String(payload.overage_unit_quantity ?? 1000));
+    } catch (err) {
+      setPartnerEntitlement(null);
+      setPartnerEntitlementError(
+        err instanceof Error ? err.message : "Failed to load partner entitlement",
+      );
+    } finally {
+      setPartnerEntitlementLoading(false);
     }
   };
 
@@ -436,6 +479,60 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "API key rotate failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runUpdatePartnerEntitlement = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    const parsedSoftLimit =
+      partnerSoftLimitMonthly.trim() === "" ? null : Number(partnerSoftLimitMonthly.trim());
+    if (parsedSoftLimit != null && (!Number.isInteger(parsedSoftLimit) || parsedSoftLimit < 0)) {
+      setMutationError("Soft limit monthly must be a non-negative whole number.");
+      return;
+    }
+
+    const parsedOveragePrice =
+      partnerOveragePriceCents.trim() === "" ? null : Number(partnerOveragePriceCents.trim());
+    if (parsedOveragePrice != null && (!Number.isInteger(parsedOveragePrice) || parsedOveragePrice < 0)) {
+      setMutationError("Overage price (cents) must be a non-negative whole number.");
+      return;
+    }
+
+    const parsedOverageUnitQuantity = Number(partnerOverageUnitQuantity.trim());
+    if (!Number.isInteger(parsedOverageUnitQuantity) || parsedOverageUnitQuantity <= 0) {
+      setMutationError("Overage unit quantity must be a positive whole number.");
+      return;
+    }
+
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await updateAdminUserApiPartnerEntitlement(token, mutationUserId.trim(), {
+        plan_code: partnerPlanCode === "none" ? null : partnerPlanCode,
+        api_access_enabled: partnerAccessEnabled === "enabled",
+        soft_limit_monthly: parsedSoftLimit,
+        overage_enabled: partnerOverageEnabled === "enabled",
+        overage_price_cents: parsedOveragePrice,
+        overage_unit_quantity: parsedOverageUnitQuantity,
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setPartnerEntitlement(result.new_entitlement);
+      setMutationResult(
+        `Partner entitlement updated for ${result.email}, action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadPartnerEntitlement(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Partner entitlement update failed");
     } finally {
       setMutationLoading(false);
     }
@@ -757,8 +854,9 @@ export default function AdminPage() {
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
           <p>2. Update user tier, role, and account status with reason + step-up confirmation.</p>
           <p>3. Manage billing state (resync, cancel, reactivate) with auditable controls.</p>
-          <p>4. Issue, rotate, and revoke API partner keys for selected users.</p>
-          <p>5. Review immutable admin audit entries with action and target filters.</p>
+          <p>4. Set API partner entitlement controls (plan, access, soft limit, overage policy).</p>
+          <p>5. Issue, rotate, and revoke API partner keys for selected users.</p>
+          <p>6. Review immutable admin audit entries with action and target filters.</p>
         </div>
       </div>
 
@@ -797,11 +895,14 @@ export default function AdminPage() {
                 if (token && nextUserId) {
                   void loadBilling(token, nextUserId);
                   void loadPartnerKeys(token, nextUserId);
+                  void loadPartnerEntitlement(token, nextUserId);
                 } else {
                   setBillingSummary(null);
                   setBillingError(null);
                   setPartnerKeysSummary(null);
                   setPartnerKeysError(null);
+                  setPartnerEntitlement(null);
+                  setPartnerEntitlementError(null);
                 }
                 setLatestIssuedApiKey(null);
                 const selected = userSearchResults.find((item) => item.id === nextUserId);
@@ -836,6 +937,8 @@ export default function AdminPage() {
                 setBillingError(null);
                 setPartnerKeysSummary(null);
                 setPartnerKeysError(null);
+                setPartnerEntitlement(null);
+                setPartnerEntitlementError(null);
                 setLatestIssuedApiKey(null);
               }}
               placeholder="uuid"
@@ -1077,6 +1180,118 @@ export default function AdminPage() {
           )}
         </div>
 
+        <div className="mt-4 rounded border border-borderTone bg-panelSoft p-3 text-xs text-textMute">
+          <div className="flex items-center justify-between gap-3">
+            <p className="uppercase tracking-wider">API Partner Entitlement</p>
+            <button
+              onClick={() => {
+                if (token && mutationUserId.trim()) {
+                  void loadPartnerEntitlement(token, mutationUserId.trim());
+                }
+              }}
+              disabled={partnerEntitlementLoading || !mutationUserId.trim()}
+              className="rounded border border-borderTone px-2 py-1 text-[10px] uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {partnerEntitlementLoading ? "Loading..." : "Refresh Entitlement"}
+            </button>
+          </div>
+          {partnerEntitlementError && <p className="mt-2 text-negative">{partnerEntitlementError}</p>}
+          {!partnerEntitlementError && (
+            <>
+              <div className="mt-2 flex flex-wrap gap-3">
+                <p>
+                  Access:{" "}
+                  <span className="text-textMain">
+                    {partnerEntitlement?.api_access_enabled ? "enabled" : "disabled"}
+                  </span>
+                </p>
+                <p>
+                  Plan: <span className="text-textMain">{partnerEntitlement?.plan_code ?? "-"}</span>
+                </p>
+                <p>
+                  Updated:{" "}
+                  <span className="text-textMain">
+                    {partnerEntitlement?.updated_at
+                      ? new Date(partnerEntitlement.updated_at).toLocaleString()
+                      : "-"}
+                  </span>
+                </p>
+              </div>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <label className="text-[11px] text-textMute">
+                  Plan
+                  <select
+                    value={partnerPlanCode}
+                    onChange={(event) =>
+                      setPartnerPlanCode(event.target.value as "none" | "api_monthly" | "api_annual")
+                    }
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  >
+                    <option value="none">none</option>
+                    <option value="api_monthly">api_monthly</option>
+                    <option value="api_annual">api_annual</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-textMute">
+                  API Access
+                  <select
+                    value={partnerAccessEnabled}
+                    onChange={(event) => setPartnerAccessEnabled(event.target.value as "enabled" | "disabled")}
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  >
+                    <option value="enabled">enabled</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-textMute">
+                  Soft Limit (monthly requests)
+                  <input
+                    type="number"
+                    min={0}
+                    value={partnerSoftLimitMonthly}
+                    onChange={(event) => setPartnerSoftLimitMonthly(event.target.value)}
+                    placeholder="leave blank to unset"
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+                <label className="text-[11px] text-textMute">
+                  Overage
+                  <select
+                    value={partnerOverageEnabled}
+                    onChange={(event) => setPartnerOverageEnabled(event.target.value as "enabled" | "disabled")}
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  >
+                    <option value="enabled">enabled</option>
+                    <option value="disabled">disabled</option>
+                  </select>
+                </label>
+                <label className="text-[11px] text-textMute">
+                  Overage Price (cents per unit)
+                  <input
+                    type="number"
+                    min={0}
+                    value={partnerOveragePriceCents}
+                    onChange={(event) => setPartnerOveragePriceCents(event.target.value)}
+                    placeholder="leave blank to unset"
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+                <label className="text-[11px] text-textMute">
+                  Overage Unit Quantity
+                  <input
+                    type="number"
+                    min={1}
+                    value={partnerOverageUnitQuantity}
+                    onChange={(event) => setPartnerOverageUnitQuantity(event.target.value)}
+                    className="mt-1 w-full rounded border border-borderTone bg-panel px-2 py-1 text-xs text-textMain"
+                  />
+                </label>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={() => {
@@ -1149,6 +1364,15 @@ export default function AdminPage() {
             className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
           >
             {mutationLoading ? "Working..." : "Issue API Key"}
+          </button>
+          <button
+            onClick={() => {
+              void runUpdatePartnerEntitlement();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Save API Entitlement"}
           </button>
         </div>
         {mutationError && <p className="mt-2 text-sm text-negative">{mutationError}</p>}
