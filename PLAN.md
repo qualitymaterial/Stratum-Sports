@@ -468,10 +468,11 @@ Tier labels represent operational priority bands, not predictive certainty.
 ## 8) Admin Control Plane Roadmap (SaaS Operations)
 
 ### 8.1 Current State (Verified)
-1. Admin API is read-only (`/api/v1/admin/overview`, `/api/v1/admin/conversion/funnel`).
-2. Ops API relies on one shared internal token (`X-Stratum-Ops-Token`).
-3. Promotion/admin grants are still script-driven (`create_admin`, `promote_user`).
-4. UI explicitly notes no full admin CRUD console yet.
+1. Admin read APIs are live (`/api/v1/admin/overview`, `/api/v1/admin/conversion/funnel`, `/api/v1/admin/audit/logs`, `/api/v1/admin/users`).
+2. Admin mutation APIs are live for user access (`tier`, `role`, `active`, password reset) with reason + step-up + confirm phrase.
+3. Billing admin mutations are live (`resync`, `cancel`, `reactivate`) with immutable audit entries.
+4. API partner key lifecycle is live (`issue`, `rotate`, `revoke`) with one-time key reveal and audit traceability.
+5. Admin UI now supports core mutation flows and audit visibility, but does not yet cover full ops controls, entitlement management, or MFA governance.
 
 ### 8.2 Phase A (P0) — Admin foundations
 1. Replace binary `is_admin` with scoped roles:
@@ -485,6 +486,10 @@ Tier labels represent operational priority bands, not predictive certainty.
 1. Every admin write creates an audit record.
 2. Unauthorized roles are blocked.
 3. Sensitive actions require step-up auth.
+
+**Status**
+1. Completed for current admin mutation surfaces.
+2. Remaining: periodic role/access review automation and privileged-session hardening (tracked in Phase E).
 
 ### 8.3 Phase B (P0) — Core admin mutation APIs
 1. User management APIs:
@@ -507,6 +512,12 @@ Tier labels represent operational priority bands, not predictive certainty.
 1. Routine admin operations are no longer CLI-only.
 2. Mutations enforce role + audit + reason.
 3. Support workflows are executable in-app.
+
+**Status**
+1. Completed: user search + tier/role/active/password reset mutations.
+2. Completed: billing resync/cancel/reactivate mutations.
+3. Completed: partner API key issue/rotate/revoke lifecycle.
+4. Remaining: partner entitlement plan/limit mutation APIs and key-level usage/overage views.
 
 ### 8.4 Phase C (P1) — Admin UI expansion
 1. Expand `/app/admin` into tabs:
@@ -531,6 +542,10 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. Every action maps to an audit entry.
 3. Error states are actionable and safe.
 
+**Status**
+1. Partially complete via a consolidated single-page admin console.
+2. Remaining: formal tabbed IA, action receipts surfaced uniformly, and role-scoped UI affordances by permission.
+
 ### 8.5 Phase D (P1) — Ops and reliability controls
 1. Replace single ops token with scoped service tokens.
 2. Add token rotation and revocation flow.
@@ -549,6 +564,10 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. Operational interventions are auditable and permission-gated.
 3. Admin dashboard surfaces current system risk.
 
+**Status**
+1. Not started for service-token replacement and in-UI run controls.
+2. This is the highest-impact remaining admin/ops gap after Phase B completion.
+
 ### 8.6 Phase E (P2) — Security and compliance hardening
 1. MFA for admin accounts.
 2. Stronger password policy and breach-resistant controls.
@@ -563,6 +582,19 @@ Tier labels represent operational priority bands, not predictive certainty.
 1. Admin auth meets baseline SaaS security expectations.
 2. Privileged sessions are time-bounded and reviewable.
 3. Admin role lifecycle is governed and visible.
+
+### 8.7 Next Up (Immediate Execution Order)
+1. **PR-A:** Partner entitlement controls (set API plan, soft limit, overage policy) + audited mutations.
+2. **PR-B:** Partner usage visibility in admin (per-key and per-account usage window, overage-to-date).
+3. **PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).
+4. **PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.
+5. **PR-E:** Admin MFA + privileged session TTL enforcement.
+
+### 8.8 Deferred Follow-Ups (Outcomes Report UX/Export)
+1. Add explicit baseline-readiness indicator in outcomes summary/export (`baseline_building` with sample threshold context).
+2. Normalize rate presentation in admin outcomes CSV/UI (`clv_positive_rate`, `sent_rate`, `stale_rate`, failure rates) as readable percentages.
+3. Add optional summary metadata in exports to explain low-sample windows (current samples, baseline samples, minimum recommended sample size).
+4. Keep outcome interpretation copy explicit: CLV-standard operational KPI, not guaranteed wagering outcome.
 
 ---
 
