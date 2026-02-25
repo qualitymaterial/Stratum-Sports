@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin_permission, require_admin_user
 from app.core.admin_roles import (
+    PERMISSION_BILLING_WRITE,
     PERMISSION_ADMIN_READ,
     PERMISSION_USER_PASSWORD_RESET_WRITE,
     PERMISSION_USER_ROLE_WRITE,
@@ -23,8 +24,13 @@ from app.core.security import (
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.cycle_kpi import CycleKpi
 from app.models.password_reset_token import PasswordResetToken
+from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.ops import (
+    AdminBillingMutationOut,
+    AdminBillingMutationRequest,
+    AdminBillingSubscriptionOut,
+    AdminUserBillingOverviewOut,
     AdminUserActiveUpdateOut,
     AdminUserActiveUpdateRequest,
     AdminAuditLogItemOut,
@@ -44,6 +50,12 @@ from app.schemas.ops import (
 )
 from app.services.admin_audit import write_admin_audit_log
 from app.services.operator_report import build_operator_report
+from app.services.stripe_service import (
+    admin_cancel_user_subscription,
+    admin_reactivate_user_subscription,
+    admin_resync_user_subscription,
+    get_latest_subscription_for_user,
+)
 from app.services.teaser_analytics import get_teaser_conversion_funnel
 
 router = APIRouter()
@@ -67,6 +79,14 @@ def _require_step_up_auth(admin_user: User, step_up_password: str, confirm_phras
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Step-up authentication failed",
         )
+
+
+def _raise_billing_error(exc: Exception) -> None:
+    if isinstance(exc, RuntimeError):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Billing operation failed: {exc}") from exc
 
 
 @router.get("/overview", response_model=AdminOverviewOut)
@@ -295,6 +315,224 @@ async def admin_request_user_password_reset(
         response.reset_token = raw_token
         response.expires_in_minutes = settings.password_reset_token_expire_minutes
     return response
+
+
+def _serialize_subscription_for_audit(subscription: Subscription | None) -> dict | None:
+    if subscription is None:
+        return None
+    return {
+        "stripe_subscription_id": subscription.stripe_subscription_id,
+        "status": subscription.status,
+        "cancel_at_period_end": subscription.cancel_at_period_end,
+        "current_period_end": subscription.current_period_end.isoformat()
+        if subscription.current_period_end is not None
+        else None,
+    }
+
+
+@router.get("/users/{user_id}/billing", response_model=AdminUserBillingOverviewOut)
+async def admin_user_billing_overview(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminUserBillingOverviewOut:
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    local_subscription = await get_latest_subscription_for_user(db, target_user.id)
+    return AdminUserBillingOverviewOut(
+        user_id=target_user.id,
+        email=target_user.email,
+        tier=target_user.tier,
+        is_active=target_user.is_active,
+        stripe_customer_id=target_user.stripe_customer_id,
+        subscription=AdminBillingSubscriptionOut.model_validate(local_subscription)
+        if local_subscription is not None
+        else None,
+    )
+
+
+@router.post("/users/{user_id}/billing/resync", response_model=AdminBillingMutationOut)
+async def admin_user_billing_resync(
+    user_id: UUID,
+    payload: AdminBillingMutationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_BILLING_WRITE)),
+) -> AdminBillingMutationOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    before_subscription = await get_latest_subscription_for_user(db, target_user.id)
+    before_status = before_subscription.status if before_subscription is not None else None
+    before_cancel = (
+        before_subscription.cancel_at_period_end if before_subscription is not None else None
+    )
+    before_tier = target_user.tier
+
+    try:
+        after_subscription = await admin_resync_user_subscription(db, user=target_user)
+    except Exception as exc:
+        _raise_billing_error(exc)
+    await db.refresh(target_user)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.billing.resync",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={
+            "tier": before_tier,
+            "subscription": _serialize_subscription_for_audit(before_subscription),
+        },
+        after_payload={
+            "tier": target_user.tier,
+            "subscription": _serialize_subscription_for_audit(after_subscription),
+        },
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+
+    return AdminBillingMutationOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="resync",
+        previous_status=before_status,
+        new_status=after_subscription.status if after_subscription is not None else None,
+        previous_cancel_at_period_end=before_cancel,
+        new_cancel_at_period_end=(
+            after_subscription.cancel_at_period_end if after_subscription is not None else None
+        ),
+        subscription_id=(
+            after_subscription.stripe_subscription_id if after_subscription is not None else None
+        ),
+    )
+
+
+@router.post("/users/{user_id}/billing/cancel", response_model=AdminBillingMutationOut)
+async def admin_user_billing_cancel(
+    user_id: UUID,
+    payload: AdminBillingMutationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_BILLING_WRITE)),
+) -> AdminBillingMutationOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    before_subscription = await get_latest_subscription_for_user(db, target_user.id)
+    before_status = before_subscription.status if before_subscription is not None else None
+    before_cancel = (
+        before_subscription.cancel_at_period_end if before_subscription is not None else None
+    )
+
+    try:
+        after_subscription = await admin_cancel_user_subscription(db, user=target_user)
+    except Exception as exc:
+        _raise_billing_error(exc)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.billing.cancel",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={"subscription": _serialize_subscription_for_audit(before_subscription)},
+        after_payload={"subscription": _serialize_subscription_for_audit(after_subscription)},
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+
+    return AdminBillingMutationOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="cancel",
+        previous_status=before_status,
+        new_status=after_subscription.status,
+        previous_cancel_at_period_end=before_cancel,
+        new_cancel_at_period_end=after_subscription.cancel_at_period_end,
+        subscription_id=after_subscription.stripe_subscription_id,
+    )
+
+
+@router.post("/users/{user_id}/billing/reactivate", response_model=AdminBillingMutationOut)
+async def admin_user_billing_reactivate(
+    user_id: UUID,
+    payload: AdminBillingMutationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_BILLING_WRITE)),
+) -> AdminBillingMutationOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    before_subscription = await get_latest_subscription_for_user(db, target_user.id)
+    before_status = before_subscription.status if before_subscription is not None else None
+    before_cancel = (
+        before_subscription.cancel_at_period_end if before_subscription is not None else None
+    )
+
+    try:
+        after_subscription = await admin_reactivate_user_subscription(db, user=target_user)
+    except Exception as exc:
+        _raise_billing_error(exc)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.billing.reactivate",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={"subscription": _serialize_subscription_for_audit(before_subscription)},
+        after_payload={"subscription": _serialize_subscription_for_audit(after_subscription)},
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+
+    return AdminBillingMutationOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        operation="reactivate",
+        previous_status=before_status,
+        new_status=after_subscription.status,
+        previous_cancel_at_period_end=before_cancel,
+        new_cancel_at_period_end=after_subscription.cancel_at_period_end,
+        subscription_id=after_subscription.stripe_subscription_id,
+    )
 
 
 @router.patch("/users/{user_id}/tier", response_model=AdminUserTierUpdateOut)

@@ -20,9 +20,39 @@ def _set_stripe_api_key() -> None:
     stripe.api_key = settings.stripe_secret_key
 
 
-async def create_checkout_session(db: AsyncSession, user: User) -> str:
+def _require_stripe_configured() -> None:
     if not settings.stripe_secret_key:
         raise RuntimeError("Stripe is not configured")
+
+
+def _extract_price_id(subscription_payload: dict) -> str:
+    items = subscription_payload.get("items", {}).get("data", [])
+    if items:
+        price = items[0].get("price", {})
+        if isinstance(price, dict) and isinstance(price.get("id"), str):
+            return price["id"]
+    return settings.stripe_pro_price_id
+
+
+def _extract_period_end(subscription_payload: dict) -> datetime | None:
+    period_end = subscription_payload.get("current_period_end")
+    if period_end:
+        return datetime.fromtimestamp(period_end, tz=UTC)
+    return None
+
+
+async def get_latest_subscription_for_user(db: AsyncSession, user_id: UUID) -> Subscription | None:
+    stmt = (
+        select(Subscription)
+        .where(Subscription.user_id == user_id)
+        .order_by(Subscription.updated_at.desc(), Subscription.created_at.desc())
+        .limit(1)
+    )
+    return (await db.execute(stmt)).scalar_one_or_none()
+
+
+async def create_checkout_session(db: AsyncSession, user: User) -> str:
+    _require_stripe_configured()
 
     _set_stripe_api_key()
 
@@ -50,8 +80,7 @@ async def create_checkout_session(db: AsyncSession, user: User) -> str:
 
 
 async def create_customer_portal(user: User) -> str:
-    if not settings.stripe_secret_key:
-        raise RuntimeError("Stripe is not configured")
+    _require_stripe_configured()
     if not user.stripe_customer_id:
         raise RuntimeError("No Stripe customer found")
 
@@ -106,8 +135,7 @@ async def process_webhook_event(
     payload: bytes,
     signature: str | None,
 ) -> dict:
-    if not settings.stripe_secret_key:
-        raise RuntimeError("Stripe is not configured")
+    _require_stripe_configured()
 
     _set_stripe_api_key()
 
@@ -170,3 +198,94 @@ async def process_webhook_event(
 
     logger.info("Stripe webhook processed", extra={"type": event_type})
     return {"received": True, "type": event_type}
+
+
+async def admin_resync_user_subscription(
+    db: AsyncSession,
+    *,
+    user: User,
+) -> Subscription | None:
+    _require_stripe_configured()
+    if not user.stripe_customer_id:
+        raise ValueError("User has no Stripe customer ID")
+
+    _set_stripe_api_key()
+    result = await asyncio.to_thread(
+        stripe.Subscription.list,
+        customer=user.stripe_customer_id,
+        status="all",
+        limit=20,
+    )
+    rows = list(result.get("data") or [])
+    if not rows:
+        user.tier = "free"
+        await db.commit()
+        return None
+
+    chosen = max(rows, key=lambda item: int(item.get("created") or 0))
+    subscription_id = str(chosen.get("id") or "")
+    if not subscription_id:
+        raise ValueError("Stripe subscription payload missing id")
+    return await _upsert_subscription(
+        db,
+        user=user,
+        stripe_subscription_id=subscription_id,
+        stripe_price_id=_extract_price_id(chosen),
+        status=str(chosen.get("status") or "canceled"),
+        current_period_end=_extract_period_end(chosen),
+        cancel_at_period_end=bool(chosen.get("cancel_at_period_end", False)),
+    )
+
+
+async def admin_cancel_user_subscription(
+    db: AsyncSession,
+    *,
+    user: User,
+) -> Subscription:
+    _require_stripe_configured()
+    local = await get_latest_subscription_for_user(db, user.id)
+    if local is None:
+        raise ValueError("No local subscription found for user")
+
+    _set_stripe_api_key()
+    updated = await asyncio.to_thread(
+        stripe.Subscription.modify,
+        local.stripe_subscription_id,
+        cancel_at_period_end=True,
+    )
+    return await _upsert_subscription(
+        db,
+        user=user,
+        stripe_subscription_id=str(updated.get("id") or local.stripe_subscription_id),
+        stripe_price_id=_extract_price_id(updated),
+        status=str(updated.get("status") or local.status),
+        current_period_end=_extract_period_end(updated) or local.current_period_end,
+        cancel_at_period_end=bool(updated.get("cancel_at_period_end", True)),
+    )
+
+
+async def admin_reactivate_user_subscription(
+    db: AsyncSession,
+    *,
+    user: User,
+) -> Subscription:
+    _require_stripe_configured()
+    local = await get_latest_subscription_for_user(db, user.id)
+    if local is None:
+        raise ValueError("No local subscription found for user")
+
+    _set_stripe_api_key()
+    updated = await asyncio.to_thread(
+        stripe.Subscription.modify,
+        local.stripe_subscription_id,
+        cancel_at_period_end=False,
+    )
+    return await _upsert_subscription(
+        db,
+        user=user,
+        stripe_subscription_id=str(updated.get("id") or local.stripe_subscription_id),
+        stripe_price_id=_extract_price_id(updated),
+        status=str(updated.get("status") or local.status),
+        current_period_end=_extract_period_end(updated) or local.current_period_end,
+        cancel_at_period_end=bool(updated.get("cancel_at_period_end", False)),
+    )

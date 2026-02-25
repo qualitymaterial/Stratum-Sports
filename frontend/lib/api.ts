@@ -2,6 +2,8 @@ import {
   AdminOverview,
   AdminAuditLogList,
   AdminRole,
+  AdminBillingMutation,
+  AdminBillingOverview,
   AdminUserActiveUpdate,
   AdminUserPasswordReset,
   AdminUserSearchList,
@@ -139,6 +141,61 @@ export async function requestAdminUserPasswordReset(
   },
 ) {
   return apiRequest<AdminUserPasswordReset>(`/admin/users/${userId}/password-reset`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getAdminUserBilling(
+  token: string,
+  userId: string,
+) {
+  return apiRequest<AdminBillingOverview>(`/admin/users/${userId}/billing`, { token });
+}
+
+export async function resyncAdminUserBilling(
+  token: string,
+  userId: string,
+  payload: {
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/resync`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function cancelAdminUserBilling(
+  token: string,
+  userId: string,
+  payload: {
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/cancel`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function reactivateAdminUserBilling(
+  token: string,
+  userId: string,
+  payload: {
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/reactivate`, {
     method: "POST",
     token,
     body: payload,

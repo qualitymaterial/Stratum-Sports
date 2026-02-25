@@ -1,9 +1,13 @@
+from datetime import UTC, datetime
+from unittest.mock import patch
+
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.password_reset_token import PasswordResetToken
+from app.models.subscription import Subscription
 from app.models.user import User
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 
@@ -44,6 +48,24 @@ async def _ensure_password_reset_table(db_session: AsyncSession) -> None:
             bind=sync_session.connection(),
             checkfirst=True,
         )
+    )
+
+
+def _make_subscription(
+    *,
+    user: User,
+    stripe_subscription_id: str,
+    status: str = "active",
+    cancel_at_period_end: bool = False,
+) -> Subscription:
+    return Subscription(
+        user_id=user.id,
+        stripe_customer_id=user.stripe_customer_id or "cus_test_default",
+        stripe_subscription_id=stripe_subscription_id,
+        stripe_price_id="price_test_pro",
+        status=status,
+        current_period_end=datetime(2026, 12, 31, tzinfo=UTC),
+        cancel_at_period_end=cancel_at_period_end,
     )
 
 
@@ -473,6 +495,373 @@ async def test_admin_password_reset_request_writes_audit_log(
     assert audit_row.actor_user_id == admin_user.id
     assert audit_row.reason == "Support-assisted password reset request"
     assert audit_row.request_id == "test-admin-reset"
+
+
+async def test_admin_user_billing_overview_returns_subscription(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-billing-overview-support@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-overview-support@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-overview-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-overview-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_overview_target"
+    db_session.add(
+        _make_subscription(
+            user=target_user,
+            stripe_subscription_id="sub_overview_target",
+            status="active",
+            cancel_at_period_end=False,
+        )
+    )
+    await db_session.commit()
+
+    response = await async_client.get(
+        f"/api/v1/admin/users/{target_user.id}/billing",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["user_id"] == str(target_user.id)
+    assert payload["stripe_customer_id"] == "cus_overview_target"
+    assert payload["subscription"] is not None
+    assert payload["subscription"]["stripe_subscription_id"] == "sub_overview_target"
+    assert payload["subscription"]["status"] == "active"
+
+
+async def test_admin_user_billing_resync_requires_billing_permission(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-billing-resync-support@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-resync-support@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-resync-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-resync-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_resync_target"
+    await db_session.commit()
+
+    response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/billing/resync",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "reason": "Support role should not mutate billing state",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_user_billing_resync_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-billing-resync-admin@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-resync-admin@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-resync-target-2@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-resync-target-2@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_resync_target_2"
+    target_user.tier = "free"
+    await db_session.commit()
+
+    with (
+        patch("app.services.stripe_service.settings") as mock_settings,
+        patch(
+            "stripe.Subscription.list",
+            return_value={
+                "data": [
+                    {
+                        "id": "sub_resync_latest",
+                        "created": 200,
+                        "status": "active",
+                        "cancel_at_period_end": False,
+                        "current_period_end": 1_900_000_000,
+                        "items": {"data": [{"price": {"id": "price_pro_monthly"}}]},
+                    }
+                ]
+            },
+        ),
+    ):
+        mock_settings.stripe_secret_key = "sk_test_fake"
+        mock_settings.stripe_pro_price_id = "price_default"
+        response = await async_client.post(
+            f"/api/v1/admin/users/{target_user.id}/billing/resync",
+            headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-billing-resync"},
+            json={
+                "reason": "Billing reconciliation after partner ticket",
+                **_mutation_security_fields(),
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["operation"] == "resync"
+    assert payload["new_status"] == "active"
+    assert payload["new_cancel_at_period_end"] is False
+    assert payload["subscription_id"] == "sub_resync_latest"
+
+    await db_session.refresh(target_user)
+    assert target_user.tier == "pro"
+
+    subscription_stmt = (
+        select(Subscription)
+        .where(Subscription.user_id == target_user.id)
+        .order_by(Subscription.updated_at.desc())
+        .limit(1)
+    )
+    subscription = (await db_session.execute(subscription_stmt)).scalar_one()
+    assert subscription.status == "active"
+    assert subscription.cancel_at_period_end is False
+    assert subscription.stripe_subscription_id == "sub_resync_latest"
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.billing.resync",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Billing reconciliation after partner ticket"
+    assert audit_row.request_id == "test-billing-resync"
+
+
+async def test_admin_user_billing_cancel_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-billing-cancel@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-billing-cancel@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-cancel-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-cancel-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_cancel_target"
+    target_user.tier = "pro"
+    db_session.add(
+        _make_subscription(
+            user=target_user,
+            stripe_subscription_id="sub_cancel_target",
+            status="active",
+            cancel_at_period_end=False,
+        )
+    )
+    await db_session.commit()
+
+    with (
+        patch("app.services.stripe_service.settings") as mock_settings,
+        patch(
+            "stripe.Subscription.modify",
+            return_value={
+                "id": "sub_cancel_target",
+                "status": "active",
+                "cancel_at_period_end": True,
+                "current_period_end": 1_900_000_000,
+                "items": {"data": [{"price": {"id": "price_pro_monthly"}}]},
+            },
+        ),
+    ):
+        mock_settings.stripe_secret_key = "sk_test_fake"
+        mock_settings.stripe_pro_price_id = "price_default"
+        response = await async_client.post(
+            f"/api/v1/admin/users/{target_user.id}/billing/cancel",
+            headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-billing-cancel"},
+            json={
+                "reason": "Customer requested cancellation at period end",
+                **_mutation_security_fields(),
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["operation"] == "cancel"
+    assert payload["previous_cancel_at_period_end"] is False
+    assert payload["new_cancel_at_period_end"] is True
+    assert payload["subscription_id"] == "sub_cancel_target"
+
+    subscription_stmt = select(Subscription).where(
+        Subscription.user_id == target_user.id,
+        Subscription.stripe_subscription_id == "sub_cancel_target",
+    )
+    subscription = (await db_session.execute(subscription_stmt)).scalar_one()
+    assert subscription.cancel_at_period_end is True
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.billing.cancel",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Customer requested cancellation at period end"
+    assert audit_row.request_id == "test-billing-cancel"
+
+
+async def test_admin_user_billing_reactivate_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-billing-reactivate@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-reactivate@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-reactivate-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-reactivate-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_reactivate_target"
+    target_user.tier = "pro"
+    db_session.add(
+        _make_subscription(
+            user=target_user,
+            stripe_subscription_id="sub_reactivate_target",
+            status="active",
+            cancel_at_period_end=True,
+        )
+    )
+    await db_session.commit()
+
+    with (
+        patch("app.services.stripe_service.settings") as mock_settings,
+        patch(
+            "stripe.Subscription.modify",
+            return_value={
+                "id": "sub_reactivate_target",
+                "status": "active",
+                "cancel_at_period_end": False,
+                "current_period_end": 1_900_000_000,
+                "items": {"data": [{"price": {"id": "price_pro_monthly"}}]},
+            },
+        ),
+    ):
+        mock_settings.stripe_secret_key = "sk_test_fake"
+        mock_settings.stripe_pro_price_id = "price_default"
+        response = await async_client.post(
+            f"/api/v1/admin/users/{target_user.id}/billing/reactivate",
+            headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-billing-reactivate"},
+            json={
+                "reason": "Customer reversed cancellation request",
+                **_mutation_security_fields(),
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["operation"] == "reactivate"
+    assert payload["previous_cancel_at_period_end"] is True
+    assert payload["new_cancel_at_period_end"] is False
+    assert payload["subscription_id"] == "sub_reactivate_target"
+
+    subscription_stmt = select(Subscription).where(
+        Subscription.user_id == target_user.id,
+        Subscription.stripe_subscription_id == "sub_reactivate_target",
+    )
+    subscription = (await db_session.execute(subscription_stmt)).scalar_one()
+    assert subscription.cancel_at_period_end is False
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.billing.reactivate",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Customer reversed cancellation request"
+    assert audit_row.request_id == "test-billing-reactivate"
+
+
+async def test_admin_user_billing_mutation_requires_step_up_password(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-billing-stepup@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-billing-stepup@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-stepup-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-stepup-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = "cus_stepup_target"
+    await db_session.commit()
+
+    response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/billing/resync",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "reason": "Billing operations require step-up authentication",
+            **_mutation_security_fields(password="WrongPass123!"),
+        },
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Step-up authentication failed"
+
+
+async def test_admin_user_billing_resync_requires_stripe_customer_id(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-billing-no-customer@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-no-customer@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-billing-no-customer-target@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-billing-no-customer-target@example.com"))
+    ).scalar_one()
+    target_user.stripe_customer_id = None
+    await db_session.commit()
+
+    with patch("app.services.stripe_service.settings") as mock_settings:
+        mock_settings.stripe_secret_key = "sk_test_fake"
+        response = await async_client.post(
+            f"/api/v1/admin/users/{target_user.id}/billing/resync",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "reason": "Attempt resync without Stripe customer should fail",
+                **_mutation_security_fields(),
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "User has no Stripe customer ID"
 
 
 async def test_admin_user_search_requires_admin(

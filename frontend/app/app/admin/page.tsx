@@ -5,9 +5,13 @@ import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
 import {
+  cancelAdminUserBilling,
   getAdminAuditLogs,
   getAdminOverview,
+  getAdminUserBilling,
   getAdminUsers,
+  reactivateAdminUserBilling,
+  resyncAdminUserBilling,
   requestAdminUserPasswordReset,
   updateAdminUserActive,
   updateAdminUserRole,
@@ -15,7 +19,13 @@ import {
 } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
-import { AdminAuditLogList, AdminOverview, AdminRole, AdminUserSearchItem } from "@/lib/types";
+import {
+  AdminAuditLogList,
+  AdminBillingOverview,
+  AdminOverview,
+  AdminRole,
+  AdminUserSearchItem,
+} from "@/lib/types";
 
 export default function AdminPage() {
   const { user, loading, token } = useCurrentUser(true);
@@ -37,6 +47,9 @@ export default function AdminPage() {
   const [mutationLoading, setMutationLoading] = useState(false);
   const [mutationResult, setMutationResult] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [billingSummary, setBillingSummary] = useState<AdminBillingOverview | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState<string | null>(null);
   const [userSearchQuery, setUserSearchQuery] = useState("");
   const [userSearchResults, setUserSearchResults] = useState<AdminUserSearchItem[]>([]);
   const [userSearchLoading, setUserSearchLoading] = useState(false);
@@ -68,6 +81,25 @@ export default function AdminPage() {
       setError(err instanceof Error ? err.message : "Failed to load admin data");
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const loadBilling = async (authToken: string, userId: string) => {
+    if (!authToken || !userId.trim()) {
+      setBillingSummary(null);
+      setBillingError(null);
+      return;
+    }
+    setBillingLoading(true);
+    setBillingError(null);
+    try {
+      const payload = await getAdminUserBilling(authToken, userId.trim());
+      setBillingSummary(payload);
+    } catch (err) {
+      setBillingSummary(null);
+      setBillingError(err instanceof Error ? err.message : "Failed to load billing state");
+    } finally {
+      setBillingLoading(false);
     }
   };
 
@@ -195,6 +227,87 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Password reset request failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runBillingResync = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await resyncAdminUserBilling(token, mutationUserId.trim(), {
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setMutationResult(
+        `Billing resync completed for ${result.email}, operation ${result.operation}, action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadBilling(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Billing resync failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runBillingCancel = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await cancelAdminUserBilling(token, mutationUserId.trim(), {
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setMutationResult(
+        `Billing cancel scheduled for ${result.email}, action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadBilling(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Billing cancel failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runBillingReactivate = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await reactivateAdminUserBilling(token, mutationUserId.trim(), {
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setMutationResult(
+        `Billing reactivated for ${result.email}, action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await loadBilling(token, mutationUserId.trim());
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Billing reactivation failed");
     } finally {
       setMutationLoading(false);
     }
@@ -515,8 +628,8 @@ export default function AdminPage() {
         <div className="mt-3 space-y-2 text-sm text-textMain">
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
           <p>2. Update user tier, role, and account status with reason + step-up confirmation.</p>
-          <p>3. Review immutable admin audit entries with action and target filters.</p>
-          <p>4. Trigger admin-initiated password reset requests for active users.</p>
+          <p>3. Manage billing state (resync, cancel, reactivate) with auditable controls.</p>
+          <p>4. Review immutable admin audit entries with action and target filters.</p>
         </div>
       </div>
 
@@ -552,6 +665,12 @@ export default function AdminPage() {
                 const nextUserId = event.target.value;
                 setMutationUserId(nextUserId);
                 setMutationError(null);
+                if (token && nextUserId) {
+                  void loadBilling(token, nextUserId);
+                } else {
+                  setBillingSummary(null);
+                  setBillingError(null);
+                }
                 const selected = userSearchResults.find((item) => item.id === nextUserId);
                 if (selected) {
                   setUserSearchQuery(selected.email);
@@ -578,7 +697,11 @@ export default function AdminPage() {
             Target User ID (auto-filled)
             <input
               value={mutationUserId}
-              onChange={(event) => setMutationUserId(event.target.value)}
+              onChange={(event) => {
+                setMutationUserId(event.target.value);
+                setBillingSummary(null);
+                setBillingError(null);
+              }}
               placeholder="uuid"
               className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
             />
@@ -650,6 +773,48 @@ export default function AdminPage() {
           </label>
         </div>
 
+        <div className="mt-4 rounded border border-borderTone bg-panelSoft p-3 text-xs text-textMute">
+          <div className="flex items-center justify-between gap-3">
+            <p className="uppercase tracking-wider">Billing Snapshot</p>
+            <button
+              onClick={() => {
+                if (token && mutationUserId.trim()) {
+                  void loadBilling(token, mutationUserId.trim());
+                }
+              }}
+              disabled={billingLoading || !mutationUserId.trim()}
+              className="rounded border border-borderTone px-2 py-1 text-[10px] uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {billingLoading ? "Loading..." : "Refresh Billing"}
+            </button>
+          </div>
+          {billingError && <p className="mt-2 text-negative">{billingError}</p>}
+          {!billingError && (
+            <div className="mt-2 space-y-1">
+              <p>
+                Customer: <span className="text-textMain">{billingSummary?.stripe_customer_id ?? "-"}</span>
+              </p>
+              <p>
+                Subscription ID:{" "}
+                <span className="text-textMain">
+                  {billingSummary?.subscription?.stripe_subscription_id ?? "-"}
+                </span>
+              </p>
+              <p>
+                Status: <span className="text-textMain">{billingSummary?.subscription?.status ?? "-"}</span>
+                {" • "}Cancel at period end:{" "}
+                <span className="text-textMain">
+                  {billingSummary?.subscription
+                    ? billingSummary.subscription.cancel_at_period_end
+                      ? "yes"
+                      : "no"
+                    : "-"}
+                </span>
+              </p>
+            </div>
+          )}
+        </div>
+
         <div className="mt-4 flex flex-wrap gap-2">
           <button
             onClick={() => {
@@ -686,6 +851,33 @@ export default function AdminPage() {
             className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
           >
             {mutationLoading ? "Working..." : "Initiate Password Reset"}
+          </button>
+          <button
+            onClick={() => {
+              void runBillingResync();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Resync Billing"}
+          </button>
+          <button
+            onClick={() => {
+              void runBillingCancel();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Cancel Subscription"}
+          </button>
+          <button
+            onClick={() => {
+              void runBillingReactivate();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Reactivate Subscription"}
           </button>
         </div>
         {mutationError && <p className="mt-2 text-sm text-negative">{mutationError}</p>}

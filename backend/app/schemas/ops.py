@@ -210,6 +210,49 @@ class AdminUserPasswordResetOut(BaseModel):
     expires_in_minutes: int | None = None
 
 
+class AdminBillingSubscriptionOut(BaseModel):
+    id: UUID
+    stripe_subscription_id: str
+    stripe_price_id: str
+    status: str
+    current_period_end: datetime | None
+    cancel_at_period_end: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AdminUserBillingOverviewOut(BaseModel):
+    user_id: UUID
+    email: str
+    tier: str
+    is_active: bool
+    stripe_customer_id: str | None
+    subscription: AdminBillingSubscriptionOut | None
+
+
+class AdminBillingMutationRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminBillingMutationOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    reason: str
+    operation: Literal["resync", "cancel", "reactivate"]
+    previous_status: str | None = None
+    new_status: str | None = None
+    previous_cancel_at_period_end: bool | None = None
+    new_cancel_at_period_end: bool | None = None
+    subscription_id: str | None = None
+
+
 class AdminAuditLogItemOut(BaseModel):
     id: UUID
     actor_user_id: UUID

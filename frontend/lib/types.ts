@@ -497,6 +497,39 @@ export type AdminUserPasswordReset = {
   expires_in_minutes: number | null;
 };
 
+export type AdminBillingOverview = {
+  user_id: string;
+  email: string;
+  tier: string;
+  is_active: boolean;
+  stripe_customer_id: string | null;
+  subscription: {
+    id: string;
+    stripe_subscription_id: string;
+    stripe_price_id: string;
+    status: string;
+    current_period_end: string | null;
+    cancel_at_period_end: boolean;
+    created_at: string;
+    updated_at: string;
+  } | null;
+};
+
+export type AdminBillingMutation = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  reason: string;
+  operation: "resync" | "cancel" | "reactivate";
+  previous_status: string | null;
+  new_status: string | null;
+  previous_cancel_at_period_end: boolean | null;
+  new_cancel_at_period_end: boolean | null;
+  subscription_id: string | null;
+};
+
 export type AdminAuditLogItem = {
   id: string;
   actor_user_id: string;
