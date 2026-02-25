@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import String, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin_permission, require_admin_user
@@ -19,6 +19,8 @@ from app.schemas.ops import (
     AdminAuditLogItemOut,
     AdminAuditLogListOut,
     AdminOverviewOut,
+    AdminUserSearchItemOut,
+    AdminUserSearchListOut,
     AdminUserRoleUpdateOut,
     AdminUserRoleUpdateRequest,
     AdminUserTierUpdateOut,
@@ -110,6 +112,36 @@ async def admin_audit_logs(
         limit=limit,
         offset=offset,
         items=[AdminAuditLogItemOut.model_validate(row) for row in rows],
+    )
+
+
+@router.get("/users", response_model=AdminUserSearchListOut)
+async def admin_search_users(
+    q: str = Query(..., min_length=2, max_length=128),
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminUserSearchListOut:
+    query = q.strip()
+    if not query:
+        return AdminUserSearchListOut(total=0, limit=limit, items=[])
+
+    lowered = query.lower()
+    filter_expr = or_(
+        func.lower(User.email).like(f"%{lowered}%"),
+        User.id.cast(String).like(f"%{query}%"),
+    )
+
+    count_stmt = select(func.count(User.id)).where(filter_expr)
+    data_stmt = select(User).where(filter_expr).order_by(User.created_at.desc()).limit(limit)
+
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+    rows = list((await db.execute(data_stmt)).scalars().all())
+
+    return AdminUserSearchListOut(
+        total=total,
+        limit=limit,
+        items=[AdminUserSearchItemOut.model_validate(row) for row in rows],
     )
 
 

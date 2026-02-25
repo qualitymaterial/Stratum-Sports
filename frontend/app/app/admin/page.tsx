@@ -4,10 +4,16 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { LoadingState } from "@/components/LoadingState";
-import { getAdminAuditLogs, getAdminOverview, updateAdminUserRole, updateAdminUserTier } from "@/lib/api";
+import {
+  getAdminAuditLogs,
+  getAdminOverview,
+  getAdminUsers,
+  updateAdminUserRole,
+  updateAdminUserTier,
+} from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
-import { AdminAuditLogList, AdminOverview, AdminRole } from "@/lib/types";
+import { AdminAuditLogList, AdminOverview, AdminRole, AdminUserSearchItem } from "@/lib/types";
 
 export default function AdminPage() {
   const { user, loading, token } = useCurrentUser(true);
@@ -26,6 +32,10 @@ export default function AdminPage() {
   const [mutationLoading, setMutationLoading] = useState(false);
   const [mutationResult, setMutationResult] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<AdminUserSearchItem[]>([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [userSearchError, setUserSearchError] = useState<string | null>(null);
 
   const loadAudit = async (authToken: string) => {
     const payload = await getAdminAuditLogs(authToken, {
@@ -111,6 +121,45 @@ export default function AdminPage() {
       setMutationLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!token || !user?.is_admin) {
+      return;
+    }
+    const query = userSearchQuery.trim();
+    if (query.length < 2) {
+      setUserSearchResults([]);
+      setUserSearchError(null);
+      setUserSearchLoading(false);
+      return;
+    }
+
+    let canceled = false;
+    const timer = window.setTimeout(async () => {
+      setUserSearchLoading(true);
+      setUserSearchError(null);
+      try {
+        const payload = await getAdminUsers(token, { q: query, limit: 12 });
+        if (!canceled) {
+          setUserSearchResults(payload.items);
+        }
+      } catch (err) {
+        if (!canceled) {
+          setUserSearchResults([]);
+          setUserSearchError(err instanceof Error ? err.message : "User search failed");
+        }
+      } finally {
+        if (!canceled) {
+          setUserSearchLoading(false);
+        }
+      }
+    }, 250);
+
+    return () => {
+      canceled = true;
+      window.clearTimeout(timer);
+    };
+  }, [token, user?.is_admin, userSearchQuery]);
 
   useEffect(() => {
     if (!loading && token && user?.is_admin) {
@@ -401,7 +450,48 @@ export default function AdminPage() {
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <label className="text-xs text-textMute">
-            Target User ID
+            Find User (Email or UUID)
+            <input
+              value={userSearchQuery}
+              onChange={(event) => setUserSearchQuery(event.target.value)}
+              placeholder="search@example.com or uuid"
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            />
+            <p className="mt-1 text-[11px] text-textMute">
+              {userSearchLoading
+                ? "Searching..."
+                : userSearchQuery.trim().length < 2
+                  ? "Enter at least 2 characters."
+                  : `${userSearchResults.length} match(es)`}
+            </p>
+            {userSearchError && <p className="mt-1 text-[11px] text-negative">{userSearchError}</p>}
+          </label>
+          <label className="text-xs text-textMute">
+            Search Results
+            <select
+              value={mutationUserId}
+              onChange={(event) => {
+                const nextUserId = event.target.value;
+                setMutationUserId(nextUserId);
+                setMutationError(null);
+                const selected = userSearchResults.find((item) => item.id === nextUserId);
+                if (selected) {
+                  setUserSearchQuery(selected.email);
+                }
+              }}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="">Select user</option>
+              {userSearchResults.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.email} • tier:{candidate.tier} • role:
+                  {candidate.admin_role ?? (candidate.is_admin ? "super_admin" : "none")}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-textMute">
+            Target User ID (auto-filled)
             <input
               value={mutationUserId}
               onChange={(event) => setMutationUserId(event.target.value)}

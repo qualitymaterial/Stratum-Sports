@@ -2,6 +2,7 @@ import {
   AdminOverview,
   AdminAuditLogList,
   AdminRole,
+  AdminUserSearchList,
   AdminUserRoleUpdate,
   AdminUserTierUpdate,
   ActionableBookCard,
@@ -127,6 +128,19 @@ export async function getAdminAuditLogs(
   appendOptionalParam(params, "since", options.since);
   const query = params.toString();
   return apiRequest<AdminAuditLogList>(`/admin/audit/logs${query ? `?${query}` : ""}`, { token });
+}
+
+export async function getAdminUsers(
+  token: string,
+  options: {
+    q: string;
+    limit?: number;
+  },
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "q", options.q);
+  appendOptionalParam(params, "limit", options.limit);
+  return apiRequest<AdminUserSearchList>(`/admin/users?${params.toString()}`, { token });
 }
 
 export async function getDiscordAuthUrl() {

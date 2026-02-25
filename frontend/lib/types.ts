@@ -434,6 +434,21 @@ export type AdminOverview = {
 
 export type AdminRole = "super_admin" | "ops_admin" | "support_admin" | "billing_admin";
 
+export type AdminUserSearchItem = {
+  id: string;
+  email: string;
+  tier: "free" | "pro" | string;
+  is_admin: boolean;
+  admin_role: AdminRole | null;
+  created_at: string;
+};
+
+export type AdminUserSearchList = {
+  total: number;
+  limit: number;
+  items: AdminUserSearchItem[];
+};
+
 export type AdminUserTierUpdate = {
   action_id: string;
   acted_at: string;

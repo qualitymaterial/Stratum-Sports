@@ -118,6 +118,23 @@ class AdminOverviewOut(BaseModel):
     conversion: ConversionFunnelOut
 
 
+class AdminUserSearchItemOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    email: str
+    tier: str
+    is_admin: bool
+    admin_role: str | None
+    created_at: datetime
+
+
+class AdminUserSearchListOut(BaseModel):
+    total: int
+    limit: int
+    items: list[AdminUserSearchItemOut]
+
+
 class AdminUserTierUpdateRequest(BaseModel):
     tier: Literal["free", "pro"]
     reason: str = Field(min_length=8, max_length=500)

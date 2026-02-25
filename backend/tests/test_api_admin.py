@@ -261,6 +261,59 @@ async def test_admin_update_user_role_writes_audit_log(
     assert audit_row.request_id == "test-role-update"
 
 
+async def test_admin_user_search_requires_admin(
+    async_client: AsyncClient,
+) -> None:
+    token = await _register(async_client, "admin-user-search-free@example.com")
+    response = await async_client.get(
+        "/api/v1/admin/users?q=admin-user-search-free",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_user_search_returns_matches(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-user-search-admin@example.com")
+    admin_user = (
+        await db_session.execute(select(User).where(User.email == "admin-user-search-admin@example.com"))
+    ).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-user-search-target@example.com")
+    await _register(async_client, "admin-user-search-target-two@example.com")
+    target_user = (
+        await db_session.execute(select(User).where(User.email == "admin-user-search-target@example.com"))
+    ).scalar_one()
+    await db_session.commit()
+
+    email_resp = await async_client.get(
+        "/api/v1/admin/users?q=admin-user-search-target&limit=5",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert email_resp.status_code == 200, email_resp.text
+    email_payload = email_resp.json()
+    assert email_payload["limit"] == 5
+    assert email_payload["total"] >= 1
+    assert any(row["email"] == "admin-user-search-target@example.com" for row in email_payload["items"])
+
+    uuid_fragment = str(target_user.id).split("-")[0]
+    uuid_resp = await async_client.get(
+        f"/api/v1/admin/users?q={uuid_fragment}&limit=1",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert uuid_resp.status_code == 200, uuid_resp.text
+    uuid_payload = uuid_resp.json()
+    assert uuid_payload["limit"] == 1
+    assert len(uuid_payload["items"]) <= 1
+    assert any(row["id"] == str(target_user.id) for row in uuid_payload["items"])
+
+
 async def test_admin_audit_logs_filters_and_pagination(
     async_client: AsyncClient,
     db_session: AsyncSession,
