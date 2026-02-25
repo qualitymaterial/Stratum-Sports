@@ -8,6 +8,8 @@ import {
   getAdminAuditLogs,
   getAdminOverview,
   getAdminUsers,
+  requestAdminUserPasswordReset,
+  updateAdminUserActive,
   updateAdminUserRole,
   updateAdminUserTier,
 } from "@/lib/api";
@@ -29,6 +31,7 @@ export default function AdminPage() {
   const [mutationReason, setMutationReason] = useState("");
   const [mutationTier, setMutationTier] = useState<"free" | "pro">("pro");
   const [mutationRole, setMutationRole] = useState<AdminRole | "none">("support_admin");
+  const [mutationActive, setMutationActive] = useState<"active" | "inactive">("active");
   const [mutationStepUpPassword, setMutationStepUpPassword] = useState("");
   const [mutationConfirmPhrase, setMutationConfirmPhrase] = useState("");
   const [mutationLoading, setMutationLoading] = useState(false);
@@ -68,21 +71,28 @@ export default function AdminPage() {
     }
   };
 
-  const runTierUpdate = async () => {
+  const canProceedMutation = (): boolean => {
     if (!token || !mutationUserId.trim()) {
       setMutationError("User ID is required.");
-      return;
+      return false;
     }
     if (mutationReason.trim().length < 8) {
       setMutationError("Reason must be at least 8 characters.");
-      return;
+      return false;
     }
     if (mutationStepUpPassword.trim().length < 8) {
       setMutationError("Step-up password is required.");
-      return;
+      return false;
     }
     if (mutationConfirmPhrase.trim().toUpperCase() !== "CONFIRM") {
       setMutationError("Type CONFIRM to proceed.");
+      return false;
+    }
+    return true;
+  };
+
+  const runTierUpdate = async () => {
+    if (!token || !canProceedMutation()) {
       return;
     }
     setMutationLoading(true);
@@ -109,20 +119,7 @@ export default function AdminPage() {
   };
 
   const runRoleUpdate = async () => {
-    if (!token || !mutationUserId.trim()) {
-      setMutationError("User ID is required.");
-      return;
-    }
-    if (mutationReason.trim().length < 8) {
-      setMutationError("Reason must be at least 8 characters.");
-      return;
-    }
-    if (mutationStepUpPassword.trim().length < 8) {
-      setMutationError("Step-up password is required.");
-      return;
-    }
-    if (mutationConfirmPhrase.trim().toUpperCase() !== "CONFIRM") {
-      setMutationError("Type CONFIRM to proceed.");
+    if (!token || !canProceedMutation()) {
       return;
     }
     setMutationLoading(true);
@@ -143,6 +140,61 @@ export default function AdminPage() {
       await load();
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Role update failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runActiveUpdate = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await updateAdminUserActive(token, mutationUserId.trim(), {
+        is_active: mutationActive === "active",
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      setMutationResult(
+        `Account status updated: ${result.email} (${result.old_is_active ? "active" : "inactive"} -> ${result.new_is_active ? "active" : "inactive"}), action ${result.action_id}`,
+      );
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Account status update failed");
+    } finally {
+      setMutationLoading(false);
+    }
+  };
+
+  const runPasswordResetRequest = async () => {
+    if (!token || !canProceedMutation()) {
+      return;
+    }
+    setMutationLoading(true);
+    setMutationError(null);
+    setMutationResult(null);
+    try {
+      const result = await requestAdminUserPasswordReset(token, mutationUserId.trim(), {
+        reason: mutationReason.trim(),
+        step_up_password: mutationStepUpPassword,
+        confirm_phrase: mutationConfirmPhrase.trim(),
+      });
+      const tokenSuffix =
+        result.reset_token && result.expires_in_minutes
+          ? ` Reset token: ${result.reset_token} (expires in ${result.expires_in_minutes}m).`
+          : "";
+      setMutationResult(`Password reset initiated for ${result.email}, action ${result.action_id}.${tokenSuffix}`);
+      setMutationStepUpPassword("");
+      setMutationConfirmPhrase("");
+      await load();
+    } catch (err) {
+      setMutationError(err instanceof Error ? err.message : "Password reset request failed");
     } finally {
       setMutationLoading(false);
     }
@@ -462,9 +514,9 @@ export default function AdminPage() {
         <p className="text-xs uppercase tracking-wider text-textMute">What Admin Can Do Today</p>
         <div className="mt-3 space-y-2 text-sm text-textMain">
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
-          <p>2. Update user tier and admin role with reason + step-up confirmation.</p>
+          <p>2. Update user tier, role, and account status with reason + step-up confirmation.</p>
           <p>3. Review immutable admin audit entries with action and target filters.</p>
-          <p>4. Use internal ops tooling only when paired with the ops internal token gate.</p>
+          <p>4. Trigger admin-initiated password reset requests for active users.</p>
         </div>
       </div>
 
@@ -503,6 +555,11 @@ export default function AdminPage() {
                 const selected = userSearchResults.find((item) => item.id === nextUserId);
                 if (selected) {
                   setUserSearchQuery(selected.email);
+                  setMutationTier(selected.tier === "pro" ? "pro" : "free");
+                  setMutationRole(
+                    selected.admin_role ?? (selected.is_admin ? "super_admin" : "none"),
+                  );
+                  setMutationActive(selected.is_active ? "active" : "inactive");
                 }
               }}
               className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
@@ -511,7 +568,8 @@ export default function AdminPage() {
               {userSearchResults.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
                   {candidate.email} • tier:{candidate.tier} • role:
-                  {candidate.admin_role ?? (candidate.is_admin ? "super_admin" : "none")}
+                  {candidate.admin_role ?? (candidate.is_admin ? "super_admin" : "none")} • status:
+                  {candidate.is_active ? "active" : "inactive"}
                 </option>
               ))}
             </select>
@@ -579,6 +637,17 @@ export default function AdminPage() {
               <option value="billing_admin">billing_admin</option>
             </select>
           </label>
+          <label className="text-xs text-textMute">
+            Account Status
+            <select
+              value={mutationActive}
+              onChange={(event) => setMutationActive(event.target.value as "active" | "inactive")}
+              className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 text-sm text-textMain"
+            >
+              <option value="active">active</option>
+              <option value="inactive">inactive</option>
+            </select>
+          </label>
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -599,6 +668,24 @@ export default function AdminPage() {
             className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
           >
             {mutationLoading ? "Working..." : "Update Role"}
+          </button>
+          <button
+            onClick={() => {
+              void runActiveUpdate();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Update Status"}
+          </button>
+          <button
+            onClick={() => {
+              void runPasswordResetRequest();
+            }}
+            disabled={mutationLoading}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+          >
+            {mutationLoading ? "Working..." : "Initiate Password Reset"}
           </button>
         </div>
         {mutationError && <p className="mt-2 text-sm text-negative">{mutationError}</p>}

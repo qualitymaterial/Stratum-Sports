@@ -2,24 +2,36 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import String, func, or_, select
+from sqlalchemy import String, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin_permission, require_admin_user
 from app.core.admin_roles import (
     PERMISSION_ADMIN_READ,
+    PERMISSION_USER_PASSWORD_RESET_WRITE,
     PERMISSION_USER_ROLE_WRITE,
+    PERMISSION_USER_STATUS_WRITE,
     PERMISSION_USER_TIER_WRITE,
 )
+from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.security import verify_password
+from app.core.security import (
+    generate_password_reset_token,
+    hash_password_reset_token,
+    verify_password,
+)
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.cycle_kpi import CycleKpi
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.ops import (
+    AdminUserActiveUpdateOut,
+    AdminUserActiveUpdateRequest,
     AdminAuditLogItemOut,
     AdminAuditLogListOut,
     AdminOverviewOut,
+    AdminUserPasswordResetOut,
+    AdminUserPasswordResetRequest,
     AdminUserSearchItemOut,
     AdminUserSearchListOut,
     AdminUserRoleUpdateOut,
@@ -35,6 +47,7 @@ from app.services.operator_report import build_operator_report
 from app.services.teaser_analytics import get_teaser_conversion_funnel
 
 router = APIRouter()
+settings = get_settings()
 ADMIN_MUTATION_CONFIRM_PHRASE = "CONFIRM"
 
 
@@ -163,6 +176,125 @@ async def admin_search_users(
         limit=limit,
         items=[AdminUserSearchItemOut.model_validate(row) for row in rows],
     )
+
+
+@router.patch("/users/{user_id}/active", response_model=AdminUserActiveUpdateOut)
+async def admin_update_user_active(
+    user_id: UUID,
+    payload: AdminUserActiveUpdateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_USER_STATUS_WRITE)),
+) -> AdminUserActiveUpdateOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    old_is_active = target_user.is_active
+    target_user.is_active = payload.is_active
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.user.active.update",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={"is_active": old_is_active},
+        after_payload={"is_active": target_user.is_active},
+        request_id=request.headers.get("x-request-id"),
+    )
+
+    await db.commit()
+    await db.refresh(target_user)
+    await db.refresh(audit)
+
+    return AdminUserActiveUpdateOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        old_is_active=old_is_active,
+        new_is_active=target_user.is_active,
+        reason=audit.reason,
+    )
+
+
+@router.post("/users/{user_id}/password-reset", response_model=AdminUserPasswordResetOut)
+async def admin_request_user_password_reset(
+    user_id: UUID,
+    payload: AdminUserPasswordResetRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_USER_PASSWORD_RESET_WRITE)),
+) -> AdminUserPasswordResetOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if not target_user.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Target user is inactive")
+
+    now = datetime.now(UTC)
+    reset_invalidate_result = await db.execute(
+        update(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == target_user.id,
+            PasswordResetToken.used_at.is_(None),
+            PasswordResetToken.expires_at > now,
+        )
+        .values(used_at=now)
+    )
+    had_active_reset_token = bool((reset_invalidate_result.rowcount or 0) > 0)
+
+    raw_token = generate_password_reset_token()
+    reset_token = PasswordResetToken(
+        user_id=target_user.id,
+        token_hash=hash_password_reset_token(raw_token),
+        expires_at=now + timedelta(minutes=settings.password_reset_token_expire_minutes),
+    )
+    db.add(reset_token)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.user.password_reset.request",
+        target_type="user",
+        target_id=str(target_user.id),
+        reason=payload.reason.strip(),
+        before_payload={"had_active_reset_token": had_active_reset_token},
+        after_payload={"reset_token_issued": True},
+        request_id=request.headers.get("x-request-id"),
+    )
+
+    await db.commit()
+    await db.refresh(audit)
+
+    response = AdminUserPasswordResetOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        user_id=target_user.id,
+        email=target_user.email,
+        reason=audit.reason,
+        message="Password reset requested successfully",
+    )
+    if settings.app_env != "production":
+        response.reset_token = raw_token
+        response.expires_in_minutes = settings.password_reset_token_expire_minutes
+    return response
 
 
 @router.patch("/users/{user_id}/tier", response_model=AdminUserTierUpdateOut)

@@ -124,6 +124,7 @@ class AdminUserSearchItemOut(BaseModel):
     id: UUID
     email: str
     tier: str
+    is_active: bool
     is_admin: bool
     admin_role: str | None
     created_at: datetime
@@ -171,6 +172,42 @@ class AdminUserRoleUpdateOut(BaseModel):
     old_is_admin: bool
     new_is_admin: bool
     reason: str
+
+
+class AdminUserActiveUpdateRequest(BaseModel):
+    is_active: bool
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminUserActiveUpdateOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    old_is_active: bool
+    new_is_active: bool
+    reason: str
+
+
+class AdminUserPasswordResetRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminUserPasswordResetOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    reason: str
+    message: str
+    reset_token: str | None = None
+    expires_in_minutes: int | None = None
 
 
 class AdminAuditLogItemOut(BaseModel):

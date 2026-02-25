@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.admin_audit_log import AdminAuditLog
+from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 
@@ -31,6 +32,15 @@ async def _ensure_teaser_events_table(db_session: AsyncSession) -> None:
 async def _ensure_admin_audit_table(db_session: AsyncSession) -> None:
     await db_session.run_sync(
         lambda sync_session: AdminAuditLog.__table__.create(
+            bind=sync_session.connection(),
+            checkfirst=True,
+        )
+    )
+
+
+async def _ensure_password_reset_table(db_session: AsyncSession) -> None:
+    await db_session.run_sync(
+        lambda sync_session: PasswordResetToken.__table__.create(
             bind=sync_session.connection(),
             checkfirst=True,
         )
@@ -347,6 +357,122 @@ async def test_admin_update_user_role_requires_confirm_phrase(
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Confirmation phrase must be 'CONFIRM'"
+
+
+async def test_admin_update_user_active_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-active-support@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-active-support@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-active-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-active-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/active",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-active-update"},
+        json={
+            "is_active": False,
+            "reason": "Deactivate account for security review",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["old_is_active"] is True
+    assert payload["new_is_active"] is False
+
+    refreshed_target = await db_session.get(User, target_user.id)
+    assert refreshed_target is not None
+    assert refreshed_target.is_active is False
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.user.active.update",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Deactivate account for security review"
+    assert audit_row.before_payload == {"is_active": True}
+    assert audit_row.after_payload == {"is_active": False}
+    assert audit_row.request_id == "test-active-update"
+
+
+async def test_admin_update_user_active_requires_permission(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-active-billing@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-active-billing@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "billing_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-active-perm-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-active-perm-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/active",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "is_active": False,
+            "reason": "Billing role should not deactivate accounts",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_password_reset_request_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    await _ensure_password_reset_table(db_session)
+    token = await _register(async_client, "admin-reset-support@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-reset-support@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "support_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-reset-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-reset-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.post(
+        f"/api/v1/admin/users/{target_user.id}/password-reset",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-admin-reset"},
+        json={
+            "reason": "Support-assisted password reset request",
+            **_mutation_security_fields(),
+        },
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["email"] == "admin-reset-target@example.com"
+    assert payload["message"] == "Password reset requested successfully"
+
+    token_stmt = select(PasswordResetToken).where(PasswordResetToken.user_id == target_user.id)
+    token_row = (await db_session.execute(token_stmt)).scalars().first()
+    assert token_row is not None
+    assert token_row.used_at is None
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.user.password_reset.request",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Support-assisted password reset request"
+    assert audit_row.request_id == "test-admin-reset"
 
 
 async def test_admin_user_search_requires_admin(

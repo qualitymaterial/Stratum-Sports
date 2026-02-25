@@ -2,6 +2,8 @@ import {
   AdminOverview,
   AdminAuditLogList,
   AdminRole,
+  AdminUserActiveUpdate,
+  AdminUserPasswordReset,
   AdminUserSearchList,
   AdminUserRoleUpdate,
   AdminUserTierUpdate,
@@ -105,6 +107,39 @@ export async function updateAdminUserRole(
 ) {
   return apiRequest<AdminUserRoleUpdate>(`/admin/users/${userId}/role`, {
     method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export async function updateAdminUserActive(
+  token: string,
+  userId: string,
+  payload: {
+    is_active: boolean;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminUserActiveUpdate>(`/admin/users/${userId}/active`, {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export async function requestAdminUserPasswordReset(
+  token: string,
+  userId: string,
+  payload: {
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+  },
+) {
+  return apiRequest<AdminUserPasswordReset>(`/admin/users/${userId}/password-reset`, {
+    method: "POST",
     token,
     body: payload,
   });

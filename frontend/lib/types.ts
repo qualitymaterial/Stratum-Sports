@@ -438,6 +438,7 @@ export type AdminUserSearchItem = {
   id: string;
   email: string;
   tier: "free" | "pro" | string;
+  is_active: boolean;
   is_admin: boolean;
   admin_role: AdminRole | null;
   created_at: string;
@@ -471,6 +472,29 @@ export type AdminUserRoleUpdate = {
   old_is_admin: boolean;
   new_is_admin: boolean;
   reason: string;
+};
+
+export type AdminUserActiveUpdate = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  old_is_active: boolean;
+  new_is_active: boolean;
+  reason: string;
+};
+
+export type AdminUserPasswordReset = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  user_id: string;
+  email: string;
+  reason: string;
+  message: string;
+  reset_token: string | null;
+  expires_in_minutes: number | null;
 };
 
 export type AdminAuditLogItem = {
