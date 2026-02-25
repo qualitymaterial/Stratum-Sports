@@ -14,6 +14,22 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 
 ---
 
+## Stratum API Product Definition (v1)
+- **What it is:** Intel API is a ranked signal feed plus quality filters for partners and private integrations.
+- **Primary consumers:** builders shipping apps, internal trading dashboards, automation workflows, and analytics teams.
+- **Core value:** fast access to structured market movement context with consistent, machine-readable output.
+- **What it is not:** not guaranteed predictions.
+- **What it is not:** not gambling advice.
+- **What it is not:** not a guaranteed-profit system.
+- **Differentiator:** timing context (`minutes_to_tip`, `time_bucket`) plus velocity and composite ranking.
+- **Scoring approach:** additive, deterministic v1 heuristic designed for prioritization.
+- **Integration model:** API subscription is independent from Pro web subscription.
+- **Compatibility promise:** default evolution is additive fields/filters without breaking existing clients.
+- **Commercial model:** partner access with plan + usage policy controls.
+- **Operator stance:** reliability, auditability, and explainability over opaque black-box outputs.
+
+---
+
 ## 2) Current System Baseline
 
 ### 2.1 Module Map
@@ -279,6 +295,19 @@ This sequence maximizes monetizable analytics value while controlling API spend 
    - nullable-safe response fields
    - additive-only schema changes for existing clients.
 
+## Composite Score Interpretation (v1)
+Composite Score is a deterministic ranking heuristic for prioritization, not a probability of winning.
+
+- v1 uses a rules/weights heuristic and no ML model.
+- Tiers are operational priority bands:
+  - High: `>= 75`
+  - Medium: `55-74`
+  - Low: `< 55`
+- Backtest and summary views should expose `score_source` so operators can distinguish:
+  - `composite` (enriched score)
+  - `strength_fallback` (legacy fallback)
+- CLV calculation pipeline is unchanged by enrichment.
+
 ### 6.7 Rate Limiting, Quotas, and SLA Boundaries
 1. Enforce per-key rate limits separate from public/IP limits.
 2. Return standard limit headers:
@@ -318,6 +347,20 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 4. Over-limit traffic is served and billed as overage.
 5. Failed payment transitions account out of paid API access per policy.
 6. All partner API responses remain backward-compatible and nullable-safe.
+
+## API Usage Policy (v1)
+- Acceptable use includes internal tools, dashboards, automation, and analytics workflows.
+- Reselling, rebroadcasting, or syndicating API outputs requires a separate commercial agreement.
+- Access is subject to rate limits, traffic heuristics, and abuse monitoring.
+- Automation is permitted when clients respect limits and retry discipline.
+- Abuse, credential sharing, scraping misuse, or policy evasion can result in suspension or termination.
+
+## Release Governance (v1)
+- Versioning policy favors additive updates by default.
+- Breaking changes require an explicit API version bump.
+- Deprecation window target for breaking removals is minimum 30 days.
+- Changelog of record remains in `CHANGELOG.md`.
+- Rollout discipline stays staging -> verification -> production promotion.
 
 ---
 
@@ -592,3 +635,9 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 6. If historical coverage is confirmed, merge PR5 and validate CLV consistency.
 7. Ship Admin Phase A and B before broad customer/partner ops scaling.
 8. Add KPI alerts before enabling live/historical/props in production.
+
+## Future Surface Area (Not in scope now)
+- Historical API access with explicit date-range query support.
+- Aggregate endpoints (daily performance, bucket summaries, cohort-level rollups).
+- Partner keys/entitlements lifecycle and overage billing controls (expand from current monetization track).
+- Score calibration/normalization by market type (moneyline vs spreads vs totals).
