@@ -387,8 +387,9 @@ export default function AdminPage() {
         <p className="text-xs uppercase tracking-wider text-textMute">What Admin Can Do Today</p>
         <div className="mt-3 space-y-2 text-sm text-textMain">
           <p>1. Access all Pro-gated product surfaces and real-time feeds.</p>
-          <p>2. Receive and configure Discord alert features.</p>
-          <p>3. Use internal ops tooling only when paired with the ops internal token gate.</p>
+          <p>2. Update user tier and admin role with required audit reason.</p>
+          <p>3. Review immutable admin audit entries with action and target filters.</p>
+          <p>4. Use internal ops tooling only when paired with the ops internal token gate.</p>
         </div>
       </div>
 
@@ -552,9 +553,10 @@ export default function AdminPage() {
       <div className="rounded-xl border border-borderTone bg-panel p-5 shadow-terminal">
         <p className="text-xs uppercase tracking-wider text-textMute">Important Notes</p>
         <div className="mt-3 space-y-2 text-sm text-textMute">
-          <p>There is no full admin CRUD console in the UI yet.</p>
+          <p>Admin UI currently focuses on access control mutations and audit visibility.</p>
+          <p>Role changes require super-admin permission; tier updates allow broader admin roles.</p>
           <p>
-            Most operational actions (deploy, backfill, promotions) are still handled through scripts and protected
+            Most operational actions (deploy, backfill, partner key lifecycle) remain script-driven or protected
             internal endpoints.
           </p>
         </div>
