@@ -192,3 +192,121 @@ async def test_admin_update_user_tier_requires_reason(
         json={"tier": "pro", "reason": "short"},
     )
     assert response.status_code == 422
+
+
+async def test_admin_update_user_role_requires_permission(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    token = await _register(async_client, "admin-role-ops@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-role-ops@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "ops_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-role-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-role-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/role",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"admin_role": "support_admin", "reason": "Ops should not assign admin roles"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Insufficient admin permissions"
+
+
+async def test_admin_update_user_role_writes_audit_log(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-role-super@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-role-super@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "super_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-role-target-2@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-role-target-2@example.com"))).scalar_one()
+    await db_session.commit()
+
+    response = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/role",
+        headers={"Authorization": f"Bearer {token}", "X-Request-ID": "test-role-update"},
+        json={"admin_role": "support_admin", "reason": "Assign support access for customer operations"},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["old_admin_role"] is None
+    assert payload["new_admin_role"] == "support_admin"
+    assert payload["old_is_admin"] is False
+    assert payload["new_is_admin"] is True
+
+    refreshed_target = await db_session.get(User, target_user.id)
+    assert refreshed_target is not None
+    assert refreshed_target.admin_role == "support_admin"
+    assert refreshed_target.is_admin is True
+
+    audit_stmt = select(AdminAuditLog).where(
+        AdminAuditLog.target_id == str(target_user.id),
+        AdminAuditLog.action_type == "admin.user.role.update",
+    )
+    audit_row = (await db_session.execute(audit_stmt)).scalar_one()
+    assert audit_row.actor_user_id == admin_user.id
+    assert audit_row.reason == "Assign support access for customer operations"
+    assert audit_row.before_payload == {"admin_role": None, "is_admin": False}
+    assert audit_row.after_payload == {"admin_role": "support_admin", "is_admin": True}
+    assert audit_row.request_id == "test-role-update"
+
+
+async def test_admin_audit_logs_filters_and_pagination(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    await _ensure_admin_audit_table(db_session)
+    token = await _register(async_client, "admin-audit-super@example.com")
+    admin_user = (await db_session.execute(select(User).where(User.email == "admin-audit-super@example.com"))).scalar_one()
+    admin_user.is_admin = False
+    admin_user.admin_role = "super_admin"
+    admin_user.tier = "pro"
+
+    await _register(async_client, "admin-audit-target@example.com")
+    target_user = (await db_session.execute(select(User).where(User.email == "admin-audit-target@example.com"))).scalar_one()
+    await db_session.commit()
+
+    role_resp = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/role",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"admin_role": "support_admin", "reason": "Role assignment for test coverage"},
+    )
+    assert role_resp.status_code == 200
+
+    tier_resp = await async_client.patch(
+        f"/api/v1/admin/users/{target_user.id}/tier",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"tier": "pro", "reason": "Tier update for test coverage"},
+    )
+    assert tier_resp.status_code == 200
+
+    logs_resp = await async_client.get(
+        "/api/v1/admin/audit/logs?action_type=admin.user.role.update&limit=10&offset=0",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert logs_resp.status_code == 200, logs_resp.text
+    payload = logs_resp.json()
+    assert payload["total"] >= 1
+    assert payload["limit"] == 10
+    assert payload["offset"] == 0
+    assert len(payload["items"]) >= 1
+    assert all(item["action_type"] == "admin.user.role.update" for item in payload["items"])
+
+    paged_resp = await async_client.get(
+        "/api/v1/admin/audit/logs?limit=1&offset=0",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert paged_resp.status_code == 200
+    paged_payload = paged_resp.json()
+    assert paged_payload["limit"] == 1
+    assert len(paged_payload["items"]) <= 1

@@ -132,3 +132,43 @@ class AdminUserTierUpdateOut(BaseModel):
     old_tier: str
     new_tier: str
     reason: str
+
+
+class AdminUserRoleUpdateRequest(BaseModel):
+    admin_role: Literal["super_admin", "ops_admin", "support_admin", "billing_admin"] | None = None
+    reason: str = Field(min_length=8, max_length=500)
+
+
+class AdminUserRoleUpdateOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    user_id: UUID
+    email: str
+    old_admin_role: str | None
+    new_admin_role: str | None
+    old_is_admin: bool
+    new_is_admin: bool
+    reason: str
+
+
+class AdminAuditLogItemOut(BaseModel):
+    id: UUID
+    actor_user_id: UUID
+    action_type: str
+    target_type: str
+    target_id: str | None
+    reason: str
+    before_payload: dict | None
+    after_payload: dict | None
+    request_id: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AdminAuditLogListOut(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[AdminAuditLogItemOut]
