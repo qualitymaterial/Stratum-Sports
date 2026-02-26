@@ -71,3 +71,23 @@ def test_strength_score_clamped() -> None:
         "speed_component",
         "books_component",
     }
+
+
+def test_strength_score_rewards_earlier_timing() -> None:
+    early_score, early_components = compute_strength_score(
+        magnitude=1.2,
+        velocity_minutes=2.0,
+        window_minutes=10,
+        books_affected=4,
+        minutes_to_tip=180.0,
+    )
+    late_score, late_components = compute_strength_score(
+        magnitude=1.2,
+        velocity_minutes=2.0,
+        window_minutes=10,
+        books_affected=4,
+        minutes_to_tip=10.0,
+    )
+
+    assert early_score > late_score
+    assert early_components["timing_component"] > late_components["timing_component"]
