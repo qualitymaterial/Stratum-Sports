@@ -33,21 +33,65 @@ jobs:
     outputs:
       deploy_sha: ${{ steps.prepare.outputs.deploy_sha }}
       skip_ci_wait: ${{ steps.prepare.outputs.skip_ci_wait }}
+      skip_ci_wait_reason: ${{ steps.prepare.outputs.skip_ci_wait_reason }}
     steps:
       - name: Resolve deploy SHA
         id: prepare
         run: |
           set -eu
+          REF_NAME="${{ github.ref_name }}"
           SHA_INPUT="${{ inputs.deploy_sha }}"
           if [ -n "$SHA_INPUT" ]; then
             echo "deploy_sha=$SHA_INPUT" >> "$GITHUB_OUTPUT"
           else
             echo "deploy_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
           fi
+
           if [ "${{ inputs.skip_ci_wait }}" = "true" ]; then
             echo "skip_ci_wait=true" >> "$GITHUB_OUTPUT"
+            echo "skip_ci_wait_reason=manual_override" >> "$GITHUB_OUTPUT"
+          elif [ "$REF_NAME" != "main" ]; then
+            echo "skip_ci_wait=true" >> "$GITHUB_OUTPUT"
+            echo "skip_ci_wait_reason=non_main_ref:$REF_NAME" >> "$GITHUB_OUTPUT"
           else
             echo "skip_ci_wait=false" >> "$GITHUB_OUTPUT"
+            echo "skip_ci_wait_reason=main_ref_requires_ci" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout for SHA validation
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate deploy SHA exists on remote and is branch-reachable
+        env:
+          DEPLOY_SHA: ${{ steps.prepare.outputs.deploy_sha }}
+          DEPLOY_REF: ${{ github.ref_name }}
+        run: |
+          set -eu
+          git fetch origin "+refs/heads/*:refs/remotes/origin/*" --prune
+
+          if ! git cat-file -e "${DEPLOY_SHA}^{commit}" 2>/dev/null; then
+            echo "ERROR: deploy SHA ${DEPLOY_SHA} does not exist on origin."
+            echo "Hint: push the commit first, or leave deploy_sha empty to use the selected branch HEAD."
+            exit 1
+          fi
+
+          containing_refs="$(git branch -r --contains "$DEPLOY_SHA" | sed '/^[[:space:]]*$/d')"
+          if [ -z "$containing_refs" ]; then
+            echo "ERROR: deploy SHA ${DEPLOY_SHA} is not reachable from any remote branch."
+            echo "This usually means the SHA was force-pushed away or never pushed."
+            exit 1
+          fi
+
+          echo "Validated deploy SHA ${DEPLOY_SHA}. Reachable from:"
+          echo "$containing_refs"
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${DEPLOY_REF}"; then
+            if ! git merge-base --is-ancestor "$DEPLOY_SHA" "origin/${DEPLOY_REF}"; then
+              echo "WARNING: deploy SHA ${DEPLOY_SHA} is not on origin/${DEPLOY_REF} history."
+              echo "Deployment will still continue because the SHA is reachable on origin."
+            fi
           fi
 
   verify-ci:
@@ -64,8 +108,9 @@ jobs:
             const repo = context.repo.repo;
             const headSha = "${{ needs.prepare.outputs.deploy_sha }}";
             const skipCiWait = "${{ needs.prepare.outputs.skip_ci_wait }}" === "true";
+            const skipCiWaitReason = "${{ needs.prepare.outputs.skip_ci_wait_reason }}";
             if (skipCiWait) {
-              core.warning(`Skipping CI verification for ${headSha} by workflow input override.`);
+              core.warning(`Skipping CI verification for ${headSha}. Reason: ${skipCiWaitReason}`);
               return;
             }
             const maxAttempts = 60; // 10 minutes at 10s cadence

@@ -9,6 +9,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DATABASE_URL_PLACEHOLDER = "REPLACE_WITH_STRONG_DB_PASSWORD"
 
+BOOK_TIERS: dict[str, str] = {
+    "pinnacle": "T1",
+    "circa": "T1",
+    "betcris": "T2",
+    "draftkings": "T3",
+    "fanduel": "T3",
+}
+
+DEFAULT_BOOK_TIER = "T3"
+
+
+def get_venue_tier(venue: str) -> str:
+    return BOOK_TIERS.get(venue, DEFAULT_BOOK_TIER)
+
 
 def resolve_database_url(
     *,

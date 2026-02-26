@@ -23,6 +23,7 @@ from app.services.historical_backfill import backfill_missing_closing_consensus
 from app.services.ingestion import cleanup_old_signals, cleanup_old_snapshots, ingest_odds_cycle
 from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_cycle_kpi
 from app.services.ops_digest import maybe_send_weekly_ops_digest
+from app.services.propagation import detect_propagation_events
 from app.services.signals import detect_market_movements, summarize_signals_by_type
 
 settings = get_settings()
@@ -294,12 +295,24 @@ async def run_polling_cycle(
 
         signals = await detect_market_movements(db, redis, event_ids)
         signal_counts = summarize_signals_by_type(signals)
+
+        # --- Propagation detection (additive, does not affect signals) ---
+        propagation_count = 0
+        try:
+            prop_events = await detect_propagation_events(db, event_ids)
+            propagation_count = len(prop_events)
+            if prop_events:
+                await db.commit()
+        except Exception:
+            logger.exception("Propagation detection failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
         ingest_result["signals_created_by_type"] = signal_counts
         ingest_result["alerts_sent"] = int(alert_stats.get("sent", 0))
         ingest_result["alerts_failed"] = int(alert_stats.get("failed", 0))
+        ingest_result["propagation_events_created"] = propagation_count
         return ingest_result
 
 

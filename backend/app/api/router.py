@@ -12,6 +12,7 @@ from app.api.routes import (
     intel,
     ops,
     public,
+    structure,
     watchlist,
     ws,
 )
@@ -29,4 +30,5 @@ api_router.include_router(public.router, prefix="/public", tags=["public"])
 api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(watchlist.router, prefix="/watchlist", tags=["watchlist"])
 api_router.include_router(discord.router, prefix="/discord", tags=["discord"])
+api_router.include_router(structure.router, prefix="/structure", tags=["structure"])
 api_router.include_router(ws.router, prefix="/realtime", tags=["realtime"])
