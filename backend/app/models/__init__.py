@@ -14,6 +14,8 @@ from app.models.propagation_event import PropagationEvent
 from app.models.quote_move_event import QuoteMoveEvent
 from app.models.signal import Signal
 from app.models.subscription import Subscription
+from app.models.structural_event import StructuralEvent
+from app.models.structural_event_venue_participation import StructuralEventVenueParticipation
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 from app.models.user import User
 from app.models.watchlist import Watchlist
@@ -36,6 +38,8 @@ __all__ = [
     "PropagationEvent",
     "QuoteMoveEvent",
     "Signal",
+    "StructuralEvent",
+    "StructuralEventVenueParticipation",
     "Watchlist",
     "DiscordConnection",
     "PasswordResetToken",
