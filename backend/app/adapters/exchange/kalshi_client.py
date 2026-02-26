@@ -111,3 +111,28 @@ class KalshiClient:
             extra={"market_id": market_id, "outcomes_count": len(outcomes)},
         )
         return result
+
+    async def get_events(self, series_ticker: str, status: str = "open", limit: int = 100) -> dict:
+        """Fetch general events (not just a single market) for a given series.
+        
+        Used by the auto-alignment service to discover Kalshi's event tickers.
+        """
+        url = f"{self._base_url}/trade-api/v2/events"
+        headers: dict[str, str] = {"Accept": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        params = {"series_ticker": series_ticker, "status": status, "limit": limit}
+
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                response = await client.get(url, headers=headers, params=params)
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Kalshi get_events failed",
+                extra={"series": series_ticker, "error": str(exc)},
+            )
+            # Alignment service handles the exception, just raise it
+            raise

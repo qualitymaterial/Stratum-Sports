@@ -81,12 +81,10 @@ class EventAlignmentService:
 
         # 2. Fetch open Kalshi NBA game events
         try:
-            kalshi_events = await self.kalshi_client._client.get(
-                "/events",
-                params={"series_ticker": "KXNBAGAME", "status": "open", "limit": 100},
+            kalshi_events_payload = await self.kalshi_client.get_events(
+                series_ticker="KXNBAGAME", status="open", limit=100
             )
-            kalshi_events.raise_for_status()
-            events_data = kalshi_events.json().get("events", [])
+            events_data = kalshi_events_payload.get("events", [])
         except Exception as e:
             logger.error(f"Failed to fetch Kalshi events for alignment: {e}")
             return 0
