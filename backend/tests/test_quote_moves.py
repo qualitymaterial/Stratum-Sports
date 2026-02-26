@@ -2,11 +2,9 @@
 
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.odds_snapshot import OddsSnapshot
-from app.models.quote_move_event import QuoteMoveEvent
 from app.services.quote_moves import detect_quote_moves
 
 

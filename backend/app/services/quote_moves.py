@@ -1,7 +1,7 @@
 """Quote Move Ledger — detects line/price changes per venue and logs them."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
