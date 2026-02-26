@@ -11,6 +11,7 @@ class SignalOut(BaseModel):
     event_id: str
     market: str
     signal_type: str
+    display_type: str | None = None
     direction: str
     from_value: float
     to_value: float

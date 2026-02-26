@@ -16,6 +16,13 @@ from app.models.signal import Signal
 from app.models.teaser_interaction_event import TeaserInteractionEvent
 from app.models.user import User
 from app.services import performance_intel
+from app.services import public_signal_surface
+
+
+@pytest.fixture(autouse=True)
+def _disable_public_structural_core_mode(monkeypatch) -> None:
+    monkeypatch.setattr(performance_intel.settings, "public_structural_core_mode", False)
+    monkeypatch.setattr(public_signal_surface.settings, "public_structural_core_mode", False)
 
 
 def _signal(
@@ -1680,6 +1687,7 @@ async def test_public_teaser_opportunities_anonymous_ok(
         "game_label",
         "commence_time",
         "signal_type",
+        "display_type",
         "market",
         "outcome_name",
         "score_status",

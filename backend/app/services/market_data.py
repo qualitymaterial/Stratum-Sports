@@ -11,6 +11,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.models.user import User
 from app.services.context_score import build_context_score
+from app.services.public_signal_surface import is_structural_core_visible
 from app.services.signals import serialize_signal
 
 
@@ -67,6 +68,17 @@ async def build_dashboard_cards(
         .limit(200)
     )
     signals = (await db.execute(signal_stmt)).scalars().all()
+    signals = [
+        signal
+        for signal in signals
+        if is_structural_core_visible(
+            signal_type=signal.signal_type,
+            market=signal.market,
+            strength_score=signal.strength_score,
+            min_samples=None,
+            context="build_dashboard_cards",
+        )
+    ]
 
     snapshots_by_event: dict[str, list[OddsSnapshot]] = defaultdict(list)
     for snap in snapshots:
@@ -220,6 +232,17 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         .limit(200 if pro_user else 40)
     )
     signals = (await db.execute(signal_stmt)).scalars().all()
+    signals = [
+        signal
+        for signal in signals
+        if is_structural_core_visible(
+            signal_type=signal.signal_type,
+            market=signal.market,
+            strength_score=signal.strength_score,
+            min_samples=None,
+            context="build_game_detail",
+        )
+    ]
 
     return {
         "event_id": game.event_id,

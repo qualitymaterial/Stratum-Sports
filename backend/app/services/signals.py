@@ -14,6 +14,7 @@ from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
+from app.services.public_signal_surface import signal_display_type
 from app.services.time_bucket import compute_time_bucket
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,7 @@ def serialize_signal(signal: Signal, *, pro_user: bool) -> dict:
         "event_id": signal.event_id,
         "market": signal.market,
         "signal_type": signal.signal_type,
+        "display_type": signal_display_type(signal.signal_type),
         "direction": signal.direction,
         "from_value": signal.from_value,
         "to_value": signal.to_value,

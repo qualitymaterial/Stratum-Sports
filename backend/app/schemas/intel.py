@@ -87,6 +87,7 @@ class SignalQualityPoint(BaseModel):
     game_commence_time: datetime | None
     market: str
     signal_type: str
+    display_type: str | None = None
     direction: str
     strength_score: int
     time_bucket: str | None
@@ -146,6 +147,7 @@ class ActionableBookCard(BaseModel):
     event_id: str
     signal_id: UUID
     signal_type: str
+    display_type: str | None = None
     market: str
     outcome_name: str | None
     direction: str
@@ -176,6 +178,7 @@ class OpportunityPoint(BaseModel):
     game_label: str | None
     game_commence_time: datetime | None
     signal_type: str
+    display_type: str | None = None
     market: str
     outcome_name: str | None
     direction: str
@@ -214,6 +217,7 @@ class OpportunityTeaserPoint(BaseModel):
     game_label: str | None
     game_commence_time: datetime | None
     signal_type: str
+    display_type: str | None = None
     market: str
     outcome_name: str | None
     direction: str
@@ -228,6 +232,7 @@ class PublicTeaserOpportunityPoint(BaseModel):
     game_label: str | None
     commence_time: datetime | None
     signal_type: str
+    display_type: str | None = None
     market: str
     outcome_name: str | None
     score_status: Literal["ACTIONABLE", "MONITOR", "STALE"]
