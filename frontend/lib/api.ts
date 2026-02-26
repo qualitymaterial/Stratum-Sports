@@ -625,19 +625,18 @@ export async function getClvTrustScorecards(
   return apiRequest<ClvTrustScorecard[]>(`/intel/clv/scorecards?${params.toString()}`, { token });
 }
 
-export async function getClvRecords(
-  token: string,
-  options: {
-    days?: number;
-    sport_key?: SportKey;
-    event_id?: string;
-    signal_type?: string;
-    market?: string;
-    min_strength?: number;
-    limit?: number;
-    offset?: number;
-  } = {},
-) {
+type ClvRecordFilters = {
+  days?: number;
+  sport_key?: SportKey;
+  event_id?: string;
+  signal_type?: string;
+  market?: string;
+  min_strength?: number;
+  limit?: number;
+  offset?: number;
+};
+
+function buildClvRecordsQuery(options: ClvRecordFilters = {}): string {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", options.days);
   appendOptionalParam(params, "sport_key", options.sport_key);
@@ -647,8 +646,25 @@ export async function getClvRecords(
   appendOptionalParam(params, "min_strength", options.min_strength);
   appendOptionalParam(params, "limit", options.limit);
   appendOptionalParam(params, "offset", options.offset);
+  return params.toString();
+}
 
-  return apiRequest<ClvRecordPoint[]>(`/intel/clv?${params.toString()}`, { token });
+export async function getClvRecords(
+  token: string,
+  options: ClvRecordFilters = {},
+) {
+  const query = buildClvRecordsQuery(options);
+  const suffix = query ? `?${query}` : "";
+  return apiRequest<ClvRecordPoint[]>(`/intel/clv${suffix}`, { token });
+}
+
+export async function downloadClvRecordsCsv(
+  token: string,
+  options: ClvRecordFilters = {},
+) {
+  const query = buildClvRecordsQuery(options);
+  const suffix = query ? `?${query}` : "";
+  await downloadFile(token, `/intel/clv/export.csv${suffix}`, "clv-records.csv");
 }
 
 export async function getSignalQuality(

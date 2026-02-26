@@ -1,9 +1,12 @@
+import csv
+import io
 import logging
 from datetime import datetime
 from time import perf_counter
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +56,7 @@ CANONICAL_MARKETS = {"spreads", "totals", "h2h"}
 CANONICAL_SIGNAL_TYPES = {"MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM"}
 CANONICAL_TIME_BUCKETS = {"OPEN", "MID", "LATE", "PRETIP", "INPLAY", "UNKNOWN"}
 CANONICAL_RECAP_GRAINS = {"day", "week"}
+CLV_EXPORT_MAX_ROWS = 10_000
 
 
 def _resolve_markets(market: str | None) -> list[str]:
@@ -290,6 +294,114 @@ async def get_event_clv(
         },
     )
     return [ClvRecordPoint(**row) for row in rows]
+
+
+def _build_clv_export_filename() -> str:
+    timestamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    return f"clv-records-{timestamp}.csv"
+
+
+def _render_clv_records_csv(rows: list[dict]) -> str:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(
+        [
+            "signal_id",
+            "event_id",
+            "signal_type",
+            "market",
+            "outcome_name",
+            "strength_score",
+            "entry_line",
+            "entry_price",
+            "close_line",
+            "close_price",
+            "clv_line",
+            "clv_prob",
+            "computed_at",
+        ]
+    )
+
+    for row in rows:
+        computed_at = row.get("computed_at")
+        if isinstance(computed_at, datetime):
+            computed_at_str = computed_at.isoformat()
+        else:
+            computed_at_str = str(computed_at or "")
+        writer.writerow(
+            [
+                row.get("signal_id", ""),
+                row.get("event_id", ""),
+                row.get("signal_type", ""),
+                row.get("market", ""),
+                row.get("outcome_name", ""),
+                row.get("strength_score", ""),
+                row.get("entry_line", ""),
+                row.get("entry_price", ""),
+                row.get("close_line", ""),
+                row.get("close_price", ""),
+                row.get("clv_line", ""),
+                row.get("clv_prob", ""),
+                computed_at_str,
+            ]
+        )
+
+    return buffer.getvalue()
+
+
+@router.get("/clv/export.csv")
+async def export_clv_csv(
+    event_id: str | None = Query(None, min_length=1),
+    sport_key: str | None = Query(None),
+    signal_type: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    limit: int = Query(5_000, ge=1, le=CLV_EXPORT_MAX_ROWS),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_user),
+) -> StreamingResponse:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
+    resolved_market = _resolve_single_market(market)
+    resolved_signal_type = _resolve_signal_type(signal_type)
+
+    rows = await get_clv_records_filtered(
+        db,
+        days=days,
+        sport_key=resolved_sport_key,
+        event_id=event_id,
+        signal_type=resolved_signal_type,
+        market=resolved_market,
+        min_strength=min_strength,
+        limit=limit,
+        offset=offset,
+    )
+    csv_content = _render_clv_records_csv(rows)
+    filename = _build_clv_export_filename()
+
+    logger.info(
+        "Intel CLV CSV export generated",
+        extra={
+            "event_id": event_id,
+            "sport_key": resolved_sport_key,
+            "signal_type": resolved_signal_type,
+            "market": resolved_market,
+            "days": days,
+            "limit": limit,
+            "offset": offset,
+            "rows": len(rows),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/clv/summary", response_model=list[ClvSummaryPoint])
