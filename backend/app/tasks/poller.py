@@ -25,6 +25,7 @@ from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_c
 from app.services.ops_digest import maybe_send_weekly_ops_digest
 from app.services.propagation import detect_propagation_events
 from app.services.signals import detect_market_movements, summarize_signals_by_type
+from app.services.cross_market_lead_lag import CrossMarketLeadLagService
 from app.services.structural_events import StructuralEventAnalysisService
 
 settings = get_settings()
@@ -269,6 +270,7 @@ async def run_polling_cycle(
                 "alerts_sent": 0,
                 "alerts_failed": 0,
                 "structural_events_created": 0,
+                "cross_market_events_created": 0,
                 "close_capture_events_considered": close_capture_plan["events_considered"],
                 "close_capture_events_due_total": close_capture_plan["events_due_total"],
                 "close_capture_events_due_selected": close_capture_plan["events_due_selected"],
@@ -294,6 +296,7 @@ async def run_polling_cycle(
             ingest_result["alerts_sent"] = 0
             ingest_result["alerts_failed"] = 0
             ingest_result["structural_events_created"] = 0
+            ingest_result["cross_market_events_created"] = 0
             return ingest_result
 
         signals = await detect_market_movements(db, redis, event_ids)
@@ -321,6 +324,29 @@ async def run_polling_cycle(
                     extra={"event_id": event_id},
                 )
 
+        # --- Cross-market lead-lag (additive) ---
+        cross_market_count = 0
+        try:
+            from app.models.canonical_event_alignment import CanonicalEventAlignment
+
+            lead_lag_service = CrossMarketLeadLagService(db)
+            alignment_stmt = select(CanonicalEventAlignment.canonical_event_key).where(
+                CanonicalEventAlignment.sportsbook_event_id.in_(event_ids)
+            )
+            alignment_rows = (await db.execute(alignment_stmt)).scalars().all()
+            for cek in alignment_rows:
+                try:
+                    cross_market_count += await lead_lag_service.compute_lead_lag(cek)
+                except Exception:
+                    logger.exception(
+                        "Cross-market lead-lag failed; continuing",
+                        extra={"canonical_event_key": cek},
+                    )
+            if cross_market_count > 0:
+                await db.commit()
+        except Exception:
+            logger.exception("Cross-market lead-lag pipeline failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
@@ -329,6 +355,7 @@ async def run_polling_cycle(
         ingest_result["alerts_failed"] = int(alert_stats.get("failed", 0))
         ingest_result["propagation_events_created"] = propagation_count
         ingest_result["structural_events_created"] = structural_count
+        ingest_result["cross_market_events_created"] = cross_market_count
         return ingest_result
 
 
