@@ -10,6 +10,8 @@ from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.ops_digest_sent import OpsDigestSent
+from app.models.propagation_event import PropagationEvent
+from app.models.quote_move_event import QuoteMoveEvent
 from app.models.signal import Signal
 from app.models.subscription import Subscription
 from app.models.teaser_interaction_event import TeaserInteractionEvent
@@ -31,6 +33,8 @@ __all__ = [
     "MarketConsensusSnapshot",
     "OpsDigestSent",
     "OddsSnapshot",
+    "PropagationEvent",
+    "QuoteMoveEvent",
     "Signal",
     "Watchlist",
     "DiscordConnection",

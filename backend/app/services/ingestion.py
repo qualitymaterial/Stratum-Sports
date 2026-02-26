@@ -12,6 +12,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.services.consensus import compute_and_persist_consensus
 from app.services.odds_api import OddsApiClient, OddsFetchResult
+from app.services.quote_moves import detect_quote_moves
 
 logger = logging.getLogger(__name__)
 
@@ -250,6 +251,8 @@ async def ingest_odds_cycle(
     event_ids: set[str] = set()
     consensus_points_written = 0
     consensus_failed = False
+    persisted_snapshots: list[OddsSnapshot] = []
+    commence_time_map: dict[str, datetime] = {}
 
     allowed_markets = {"spreads", "totals", "h2h"}
     for event in events:
@@ -257,6 +260,7 @@ async def ingest_odds_cycle(
             await _upsert_game(db, event)
             event_id = event["id"]
             event_ids.add(event_id)
+            commence_time_map[event_id] = _parse_iso_datetime(event["commence_time"])
             normalized_rows = normalize_event_odds_rows(
                 event,
                 fetched_at=fetched_at,
@@ -294,6 +298,7 @@ async def ingest_odds_cycle(
                 fetched_at=row.fetched_at,
             )
             db.add(snapshot)
+            persisted_snapshots.append(snapshot)
             inserted += 1
 
             # Broadcast update via Redis Pub/Sub
@@ -312,6 +317,17 @@ async def ingest_odds_cycle(
                 await redis.publish("odds_updates", json.dumps(update_payload))
 
     await db.commit()
+
+    # --- Quote Move Ledger (additive) ---
+    quote_moves_logged = 0
+    if persisted_snapshots:
+        try:
+            moves = await detect_quote_moves(db, persisted_snapshots, commence_time_map)
+            quote_moves_logged = len(moves)
+            if moves:
+                await db.commit()
+        except Exception:
+            logger.exception("Quote move detection failed; continuing")
 
     if settings.consensus_enabled and event_ids:
         try:
@@ -350,4 +366,5 @@ async def ingest_odds_cycle(
         "api_requests_limit": api_requests_limit,
         "sports_polled": sport_keys,
         "events_seen_by_sport": per_sport_events_seen,
+        "quote_moves_logged": quote_moves_logged,
     }
