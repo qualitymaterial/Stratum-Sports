@@ -344,8 +344,17 @@ async def run_polling_cycle(
         kalshi_quotes_inserted = 0
         polymarket_markets_polled = 0
         polymarket_quotes_inserted = 0
+        kalshi_alignments_synced = 0
         try:
             from app.models.canonical_event_alignment import CanonicalEventAlignment
+            from app.services.alignment_service import EventAlignmentService
+
+            # Auto-align upcoming sportsbook games with Kalshi markets
+            alignment_service = EventAlignmentService(db, KalshiClient())
+            try:
+                kalshi_alignments_synced = await alignment_service.sync_kalshi_alignments()
+            except Exception:
+                logger.exception("Kalshi alignment sync failed; continuing with existing alignments")
 
             exchange_ingestion = ExchangeIngestionService(db)
 
@@ -467,6 +476,7 @@ async def run_polling_cycle(
         ingest_result["alerts_failed"] = int(alert_stats.get("failed", 0))
         ingest_result["propagation_events_created"] = propagation_count
         ingest_result["structural_events_created"] = structural_count
+        ingest_result["kalshi_alignments_synced"] = kalshi_alignments_synced
         ingest_result["cross_market_events_created"] = cross_market_count
         ingest_result["cross_market_divergence_events_created"] = divergence_count
         ingest_result["kalshi_markets_polled"] = kalshi_markets_polled
