@@ -27,6 +27,9 @@ class QuoteMoveEvent(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
     )
     minutes_to_tip: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
 
 Index(
@@ -42,4 +45,18 @@ Index(
     QuoteMoveEvent.event_id,
     QuoteMoveEvent.market_key,
     QuoteMoveEvent.venue,
+)
+
+Index(
+    "ix_quote_move_events_event_market_outcome_ts_desc",
+    QuoteMoveEvent.event_id,
+    QuoteMoveEvent.market_key,
+    QuoteMoveEvent.outcome_name,
+    QuoteMoveEvent.timestamp.desc(),
+)
+
+Index(
+    "ix_quote_move_events_venue_timestamp_desc",
+    QuoteMoveEvent.venue,
+    QuoteMoveEvent.timestamp.desc(),
 )
