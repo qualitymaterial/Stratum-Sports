@@ -19,6 +19,7 @@ from app.services.closing import cleanup_old_closing_consensus
 from app.services.clv import cleanup_old_clv_records, compute_and_persist_clv
 from app.services.consensus import cleanup_old_consensus_snapshots
 from app.services.discord_alerts import dispatch_discord_alerts_for_signals
+from app.services.historical_backfill import backfill_missing_closing_consensus
 from app.services.ingestion import cleanup_old_signals, cleanup_old_snapshots, ingest_odds_cycle
 from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_cycle_kpi
 from app.services.ops_digest import maybe_send_weekly_ops_digest
@@ -328,6 +329,7 @@ async def main() -> None:
 
     last_cleanup_monotonic = 0.0
     last_clv_monotonic = 0.0
+    last_historical_backfill_monotonic = 0.0
     close_capture_state = CloseCaptureState()
 
     while True:
@@ -365,19 +367,46 @@ async def main() -> None:
                         except Exception:
                             logger.exception("Ops digest job failed")
 
-                    clv_interval_seconds = max(1, settings.clv_job_interval_minutes) * 60
-                    if settings.clv_enabled and (now_monotonic - last_clv_monotonic) >= clv_interval_seconds:
-                        last_clv_monotonic = now_monotonic
-                        try:
-                            async with AsyncSessionLocal() as db:
-                                clv_inserted = await compute_and_persist_clv(
-                                    db,
-                                    days_lookback=settings.clv_lookback_days,
+                    if settings.enable_historical_backfill:
+                        history_job_interval_seconds = max(1, settings.historical_backfill_interval_minutes) * 60
+                        if (now_monotonic - last_historical_backfill_monotonic) >= history_job_interval_seconds:
+                            last_historical_backfill_monotonic = now_monotonic
+                            try:
+                                backfill_metrics = await backfill_missing_closing_consensus(
+                                    lookback_hours=settings.historical_backfill_lookback_hours,
+                                    max_games=settings.historical_backfill_max_games_per_run,
+                                    settings=settings,
                                 )
-                                if clv_inserted > 0:
-                                    logger.info("CLV job completed", extra={"clv_records_inserted": clv_inserted})
-                        except Exception:
-                            logger.exception("CLV job failed")
+                                logger.info("Historical backfill job completed", extra=backfill_metrics)
+                            except Exception:
+                                logger.exception("Historical backfill job failed")
+
+                            if settings.clv_enabled:
+                                last_clv_monotonic = now_monotonic
+                                try:
+                                    async with AsyncSessionLocal() as db:
+                                        clv_inserted = await compute_and_persist_clv(
+                                            db,
+                                            days_lookback=settings.clv_lookback_days,
+                                        )
+                                        if clv_inserted > 0:
+                                            logger.info("CLV job completed", extra={"clv_records_inserted": clv_inserted})
+                                except Exception:
+                                    logger.exception("CLV job failed")
+                    else:
+                        clv_interval_seconds = max(1, settings.clv_job_interval_minutes) * 60
+                        if settings.clv_enabled and (now_monotonic - last_clv_monotonic) >= clv_interval_seconds:
+                            last_clv_monotonic = now_monotonic
+                            try:
+                                async with AsyncSessionLocal() as db:
+                                    clv_inserted = await compute_and_persist_clv(
+                                        db,
+                                        days_lookback=settings.clv_lookback_days,
+                                    )
+                                    if clv_inserted > 0:
+                                        logger.info("CLV job completed", extra={"clv_records_inserted": clv_inserted})
+                            except Exception:
+                                logger.exception("CLV job failed")
 
                     if now_monotonic - last_cleanup_monotonic >= 3600:
                         last_cleanup_monotonic = now_monotonic

@@ -101,8 +101,6 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
     closes_stmt = select(ClosingConsensus).where(ClosingConsensus.event_id.in_(event_ids))
     closes = (await db.execute(closes_stmt)).scalars().all()
     close_map = {(row.event_id, row.market, row.outcome_name): row for row in closes}
-    if not close_map:
-        return 0
 
     signals_stmt = (
         select(Signal)
@@ -121,6 +119,7 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
     inserted = 0
     skipped_missing_outcome = 0
     skipped_missing_close = 0
+    missing_close_event_ids: set[str] = set()
 
     for signal in signals:
         event_commence = commence_by_event.get(signal.event_id)
@@ -135,6 +134,7 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
         close = close_map.get((signal.event_id, signal.market, outcome_name))
         if close is None:
             skipped_missing_close += 1
+            missing_close_event_ids.add(signal.event_id)
             continue
 
         close_line = float(close.close_line) if close.close_line is not None else None
@@ -152,6 +152,7 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
 
         if clv_line is None and clv_prob is None:
             skipped_missing_close += 1
+            missing_close_event_ids.add(signal.event_id)
             continue
 
         db.add(
@@ -183,8 +184,14 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
             "clv_records_inserted": inserted,
             "clv_skipped_missing_outcome": skipped_missing_outcome,
             "clv_skipped_missing_close": skipped_missing_close,
+            "clv_missing_close_events": len(missing_close_event_ids),
         },
     )
+    if missing_close_event_ids:
+        logger.info(
+            "CLV skipped signals due to missing closing consensus",
+            extra={"event_ids": sorted(missing_close_event_ids)[:25]},
+        )
     return inserted
 
 
