@@ -85,25 +85,65 @@ def compute_strength_score(
     velocity_minutes: float,
     window_minutes: int,
     books_affected: int,
+    minutes_to_tip: float | None = None,
 ) -> tuple[int, dict]:
-    magnitude_component = min(50.0, abs(magnitude) * 20.0)
+    if minutes_to_tip is None:
+        magnitude_component = min(50.0, abs(magnitude) * 20.0)
+
+        capped_velocity = min(max(velocity_minutes, 0.01), float(window_minutes))
+        speed_component = min(
+            30.0,
+            ((float(window_minutes) - capped_velocity) / float(window_minutes)) * 30.0,
+        )
+        books_component = min(20.0, float(max(books_affected, 1)) * 4.0)
+
+        score = int(max(1, min(100, round(magnitude_component + speed_component + books_component))))
+        return (
+            score,
+            {
+                "magnitude_component": round(magnitude_component, 2),
+                "speed_component": round(speed_component, 2),
+                "books_component": round(books_component, 2),
+            },
+        )
+
+    magnitude_component = min(40.0, abs(magnitude) * 16.0)
 
     capped_velocity = min(max(velocity_minutes, 0.01), float(window_minutes))
     speed_component = min(
-        30.0,
-        ((float(window_minutes) - capped_velocity) / float(window_minutes)) * 30.0,
+        25.0,
+        ((float(window_minutes) - capped_velocity) / float(window_minutes)) * 25.0,
     )
-    books_component = min(20.0, float(max(books_affected, 1)) * 4.0)
+    books_component = min(15.0, float(max(books_affected, 1)) * 3.0)
+    timing_component = _timing_component(minutes_to_tip)
 
-    score = int(max(1, min(100, round(magnitude_component + speed_component + books_component))))
+    score = int(
+        max(
+            1,
+            min(
+                100,
+                round(magnitude_component + speed_component + books_component + timing_component),
+            ),
+        )
+    )
     return (
         score,
         {
             "magnitude_component": round(magnitude_component, 2),
             "speed_component": round(speed_component, 2),
             "books_component": round(books_component, 2),
+            "timing_component": round(timing_component, 2),
         },
     )
+
+
+def _timing_component(minutes_to_tip: float) -> float:
+    if minutes_to_tip >= 0:
+        pre_tip_minutes = min(minutes_to_tip, 240.0)
+        return 4.0 + (pre_tip_minutes / 240.0) * 16.0
+
+    post_tip_minutes = min(abs(minutes_to_tip), 180.0)
+    return max(-8.0, 4.0 - (post_tip_minutes / 15.0))
 
 
 def american_to_implied_prob(price: int | float | None) -> float | None:
@@ -342,13 +382,6 @@ async def _detect_line_move_signals(
         if await _dedupe_signal(redis, dedupe_key, ttl_seconds=window_minutes * 60):
             continue
 
-        strength, components = compute_strength_score(
-            magnitude=magnitude,
-            velocity_minutes=velocity_minutes,
-            window_minutes=window_minutes,
-            books_affected=len(books),
-        )
-
         minutes_to_tip: float | None = None
         time_bucket = "UNKNOWN"
         try:
@@ -363,6 +396,14 @@ async def _detect_line_move_signals(
                 "Signal time bucket computation failed",
                 extra={"event_id": event_id, "market": market, "signal_type": signal_type},
             )
+
+        strength, components = compute_strength_score(
+            magnitude=magnitude,
+            velocity_minutes=velocity_minutes,
+            window_minutes=window_minutes,
+            books_affected=len(books),
+            minutes_to_tip=minutes_to_tip,
+        )
 
         signal = Signal(
             event_id=event_id,
@@ -397,6 +438,7 @@ async def _detect_multibook_sync_signals(
     db: AsyncSession,
     redis: Redis | None,
     event_ids: list[str],
+    commence_time_map: dict[str, datetime] | None = None,
 ) -> list[Signal]:
     window_minutes = 5
     now = datetime.now(UTC)
@@ -470,14 +512,29 @@ async def _detect_multibook_sync_signals(
         if await _dedupe_signal(redis, dedupe_key, ttl_seconds=window_minutes * 60):
             continue
 
+        books = sorted({m.sportsbook_key for m in moves})
+        minutes_to_tip: float | None = None
+        time_bucket = "UNKNOWN"
+        try:
+            minutes_to_tip = _minutes_to_tip(
+                event_id=event_id,
+                commence_time_map=commence_time_map,
+                now=now,
+            )
+            time_bucket = compute_time_bucket(minutes_to_tip)
+        except Exception:
+            logger.warning(
+                "Signal time bucket computation failed",
+                extra={"event_id": event_id, "market": market, "signal_type": "MULTIBOOK_SYNC"},
+            )
+
         strength, components = compute_strength_score(
             magnitude=magnitude,
             velocity_minutes=velocity,
             window_minutes=window_minutes,
             books_affected=len(moves),
+            minutes_to_tip=minutes_to_tip,
         )
-
-        books = sorted({m.sportsbook_key for m in moves})
         signal = Signal(
             event_id=event_id,
             market=market,
@@ -490,11 +547,13 @@ async def _detect_multibook_sync_signals(
             window_minutes=window_minutes,
             books_affected=len(moves),
             velocity_minutes=float(velocity),
+            time_bucket=time_bucket,
             strength_score=strength,
             metadata_json={
                 "outcome_name": outcome_name,
                 "books": books,
                 "magnitude": round(magnitude, 3),
+                "minutes_to_tip": round(minutes_to_tip, 2) if minutes_to_tip is not None else None,
                 "components": components,
             },
         )
@@ -986,7 +1045,14 @@ async def detect_market_movements(
             commence_time_map=commence_time_map,
         )
     )
-    all_created.extend(await _detect_multibook_sync_signals(db, redis, event_ids))
+    all_created.extend(
+        await _detect_multibook_sync_signals(
+            db,
+            redis,
+            event_ids,
+            commence_time_map=commence_time_map,
+        )
+    )
     all_created.extend(await detect_dislocations(event_ids, db, redis, commence_time_map=commence_time_map))
     all_created.extend(await detect_steam_v2(event_ids, db, redis, commence_time_map=commence_time_map))
 

@@ -426,11 +426,13 @@ def detect_move_at_t(
                 (to_snapshot.effective_timestamp - from_snapshot.effective_timestamp).total_seconds() / 60.0,
             )
             books = sorted({snap.sportsbook_key for snap in line_rows})
+            minutes_to_tip = (event_data.commence_time - now_utc).total_seconds() / 60.0
             strength_score, components = compute_strength_score(
                 magnitude=magnitude,
                 velocity_minutes=velocity_minutes,
                 window_minutes=window_minutes,
                 books_affected=len(books),
+                minutes_to_tip=minutes_to_tip,
             )
 
             created.append(
@@ -456,6 +458,7 @@ def detect_move_at_t(
                         "magnitude": round(float(magnitude), 6),
                         "key_cross": bool(key_cross),
                         "books": books,
+                        "minutes_to_tip": round(minutes_to_tip, 2),
                         "components": components,
                     },
                 )
@@ -539,11 +542,13 @@ def detect_multibook_sync_at_t(
         ):
             continue
 
+        minutes_to_tip = (event_data.commence_time - now_utc).total_seconds() / 60.0
         strength_score, components = compute_strength_score(
             magnitude=magnitude,
             velocity_minutes=velocity,
             window_minutes=window_minutes,
             books_affected=len(moves),
+            minutes_to_tip=minutes_to_tip,
         )
         books = sorted(str(move["sportsbook_key"]) for move in moves)
 
@@ -569,6 +574,7 @@ def detect_multibook_sync_at_t(
                     "outcome_name": outcome_name,
                     "books": books,
                     "magnitude": round(magnitude, 6),
+                    "minutes_to_tip": round(minutes_to_tip, 2),
                     "components": components,
                 },
             )
@@ -923,4 +929,3 @@ def sort_simulated_signals(signals: list[SimulatedSignal]) -> list[SimulatedSign
             signal.metadata.get("book_key", ""),
         ),
     )
-
