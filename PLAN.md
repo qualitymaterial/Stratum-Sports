@@ -442,7 +442,43 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. New steam signals are explainable and deduped.
 3. API and Discord include new type without regressions.
 
-### PR5 (optional) — Historical close + CLV reporting
+### PR5 — Regime layer (metadata-only, feature-flagged)
+**Scope**
+- Add a modular 2-state regime model (`stable`, `unstable`) that runs alongside the current pipeline.
+- Keep existing signal detection/classification untouched.
+- Keep existing naming and terminology untouched (`signals`, `moves`, `context_score`, `confidence`, etc.).
+- Attach regime data only as optional metadata under `signal["meta"]["regime"]`.
+
+**Files**
+- New package: `backend/app/regime/`
+  - `config.py`
+  - `features.py`
+  - `hmm.py`
+  - `service.py`
+  - `metrics.py`
+  - `tests/test_regime.py`
+- Integration points:
+  - `backend/app/core/config.py` (feature flag)
+  - `backend/app/services/market_data.py` (metadata attachment point)
+- Optional persistence:
+  - New model `backend/app/models/regime_snapshot.py`
+  - Migration `backend/alembic/versions/<rev>_add_regime_snapshots.py`
+
+**Config**
+- `ENABLE_REGIME_LAYER=false` (default)
+
+**Acceptance**
+1. With flag OFF, output schemas and behavior remain unchanged.
+2. With flag ON, regime metadata appears only at `meta.regime` and does not alter existing top-level fields.
+3. Regime output contract:
+   - `regime_label`
+   - `regime_probability`
+   - `transition_risk`
+   - `stability_score`
+   - `model_version`
+4. Unit tests cover feature extraction, deterministic inference, and feature-flag OFF behavior.
+
+### PR6 (optional) — Historical close + CLV reporting
 **Scope**
 - Ingest closing lines and compute CLV per signal/event/market.
 
