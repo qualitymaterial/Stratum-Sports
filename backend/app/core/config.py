@@ -154,6 +154,11 @@ class Settings(BaseSettings):
     clv_lookback_days: int = 7
     clv_retention_days: int = 60
     clv_job_interval_minutes: int = 60
+    enable_historical_backfill: bool = True
+    historical_backfill_lookback_hours: int = 72
+    historical_backfill_interval_minutes: int = 60
+    clv_close_cutoff: str = "TIPOFF"
+    historical_backfill_max_games_per_run: int = 25
     kpi_enabled: bool = True
     kpi_retention_days: int = 30
     kpi_write_failures_soft: bool = True

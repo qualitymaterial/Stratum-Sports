@@ -331,6 +331,19 @@ class OddsApiClient:
             logger.warning("ODDS_API_KEY missing; skipping history fetch")
             return OddsFetchResult(events=[])
 
+        now = datetime.now(UTC)
+        if self._is_circuit_open(now):
+            logger.warning(
+                "Odds API circuit is open; skipping history fetch",
+                extra={
+                    "circuit_open_until": self._circuit_open_until.isoformat()
+                    if self._circuit_open_until is not None
+                    else None,
+                    "consecutive_failures": self._consecutive_failures,
+                },
+            )
+            return OddsFetchResult(events=[])
+
         url = self._history_url(
             sport_key=sport_key,
             endpoint_variant=endpoint_variant,
@@ -343,10 +356,39 @@ class OddsApiClient:
             date=date,
         )
 
-        async with httpx.AsyncClient(timeout=25.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            payload = response.json()
+        attempts = max(1, settings.odds_api_retry_attempts)
+        backoff_base = max(0.1, settings.odds_api_retry_backoff_seconds)
+        backoff_cap = max(backoff_base, settings.odds_api_retry_backoff_max_seconds)
+
+        response: httpx.Response | None = None
+        payload: object | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
+                    payload = response.json()
+                self._record_success()
+                break
+            except (httpx.HTTPError, ValueError):
+                self._record_failure()
+                logger.warning(
+                    "Odds API history fetch attempt failed",
+                    exc_info=True,
+                    extra={
+                        "attempt": attempt,
+                        "attempts_total": attempts,
+                        "consecutive_failures": self._consecutive_failures,
+                    },
+                )
+                if attempt >= attempts or self._is_circuit_open(datetime.now(UTC)):
+                    break
+                sleep_seconds = min(backoff_cap, backoff_base * (2 ** (attempt - 1)))
+                await asyncio.sleep(sleep_seconds)
+
+        if response is None or payload is None:
+            logger.error("Odds API history fetch failed after retries; continuing with no events")
+            return OddsFetchResult(events=[])
 
         events, history_timestamp, previous_timestamp, next_timestamp = _extract_history_events(payload)
         if history_timestamp is None:
@@ -376,3 +418,63 @@ class OddsApiClient:
             },
         )
         return fetch_result
+
+
+async def fetch_nba_odds_history(
+    *,
+    event_id: str,
+    markets: list[str],
+    regions: str | None = None,
+    bookmakers: list[str] | None = None,
+    **kwargs,
+) -> dict:
+    """
+    Fetch historical odds snapshots for a single event.
+
+    Returns a raw payload wrapper compatible with ingestion normalization:
+    {
+        "events": list[dict],
+        "history_timestamp": datetime | None,
+        "previous_timestamp": datetime | None,
+        "next_timestamp": datetime | None,
+        "requests_remaining": int | None,
+        "requests_used": int | None,
+        "requests_last": int | None,
+        "requests_limit": int | None,
+    }
+    """
+    sport_key = str(kwargs.get("sport_key", "basketball_nba"))
+    endpoint_variant_raw = str(kwargs.get("endpoint_variant", "event"))
+    endpoint_variant: Literal["bulk", "event"] = "event"
+    if endpoint_variant_raw == "bulk":
+        endpoint_variant = "bulk"
+    date_value = kwargs.get("date")
+    if not isinstance(date_value, datetime):
+        raise ValueError("date datetime is required for historical odds fetch")
+
+    bookmakers_csv = None
+    if bookmakers:
+        normalized = [book.strip() for book in bookmakers if isinstance(book, str) and book.strip()]
+        bookmakers_csv = ",".join(normalized) if normalized else None
+
+    markets_csv = ",".join([market.strip() for market in markets if market.strip()])
+    client = OddsApiClient()
+    result = await client.fetch_nba_odds_history(
+        sport_key=sport_key,
+        endpoint_variant=endpoint_variant,
+        event_id=event_id,
+        markets=markets_csv,
+        regions=regions,
+        bookmakers=bookmakers_csv,
+        date=date_value,
+    )
+    return {
+        "events": result.events,
+        "history_timestamp": result.history_timestamp,
+        "previous_timestamp": result.previous_timestamp,
+        "next_timestamp": result.next_timestamp,
+        "requests_remaining": result.requests_remaining,
+        "requests_used": result.requests_used,
+        "requests_last": result.requests_last,
+        "requests_limit": result.requests_limit,
+    }
