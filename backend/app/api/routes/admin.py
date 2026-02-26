@@ -30,6 +30,7 @@ from app.core.security import (
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
+from app.models.cross_market_divergence_event import CrossMarketDivergenceEvent
 from app.models.cycle_kpi import CycleKpi
 from app.models.password_reset_token import PasswordResetToken
 from app.models.subscription import Subscription
@@ -95,6 +96,7 @@ router = APIRouter()
 settings = get_settings()
 ADMIN_MUTATION_CONFIRM_PHRASE = "CONFIRM"
 OUTCOMES_EXPORT_MAX_ROWS = 10_000
+DIVERGENCE_EXPORT_MAX_ROWS = 10_000
 logger = logging.getLogger(__name__)
 
 
@@ -1212,3 +1214,112 @@ async def admin_update_user_role(
         new_is_admin=target_user.is_admin,
         reason=audit.reason,
     )
+
+
+# ── Cross-market divergence export ──────────────────────────────────
+
+
+_DIVERGENCE_CSV_COLUMNS = [
+    "created_at",
+    "canonical_event_key",
+    "divergence_type",
+    "lead_source",
+    "sportsbook_threshold_value",
+    "exchange_probability_threshold",
+    "sportsbook_break_timestamp",
+    "exchange_break_timestamp",
+    "lag_seconds",
+    "resolved",
+    "resolved_at",
+    "resolution_type",
+    "idempotency_key",
+]
+
+
+@router.get("/divergence/list")
+async def admin_divergence_list(
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    divergence_type: str | None = Query(None, min_length=3, max_length=30),
+    canonical_event_key: str | None = Query(None, min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> dict:
+    filters: list = []
+    if divergence_type:
+        filters.append(CrossMarketDivergenceEvent.divergence_type == divergence_type.strip().upper())
+    if canonical_event_key:
+        filters.append(CrossMarketDivergenceEvent.canonical_event_key == canonical_event_key.strip())
+
+    count_stmt = select(func.count(CrossMarketDivergenceEvent.id))
+    data_stmt = select(CrossMarketDivergenceEvent)
+    if filters:
+        count_stmt = count_stmt.where(*filters)
+        data_stmt = data_stmt.where(*filters)
+    data_stmt = data_stmt.order_by(CrossMarketDivergenceEvent.created_at.desc()).limit(limit).offset(offset)
+
+    total = int((await db.execute(count_stmt)).scalar() or 0)
+    rows = list((await db.execute(data_stmt)).scalars().all())
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {col: _serialize_divergence_field(getattr(row, col)) for col in _DIVERGENCE_CSV_COLUMNS}
+            for row in rows
+        ],
+    }
+
+
+@router.get("/divergence/export.csv")
+async def admin_divergence_export_csv(
+    days: int = Query(7, ge=1, le=90),
+    divergence_type: str | None = Query(None, min_length=3, max_length=30),
+    canonical_event_key: str | None = Query(None, min_length=1, max_length=255),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> StreamingResponse:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    filters = [CrossMarketDivergenceEvent.created_at >= cutoff]
+    if divergence_type:
+        filters.append(CrossMarketDivergenceEvent.divergence_type == divergence_type.strip().upper())
+    if canonical_event_key:
+        filters.append(CrossMarketDivergenceEvent.canonical_event_key == canonical_event_key.strip())
+
+    stmt = (
+        select(CrossMarketDivergenceEvent)
+        .where(*filters)
+        .order_by(CrossMarketDivergenceEvent.created_at.desc())
+        .limit(DIVERGENCE_EXPORT_MAX_ROWS)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_DIVERGENCE_CSV_COLUMNS)
+    for row in rows:
+        writer.writerow([_serialize_divergence_field(getattr(row, col)) for col in _DIVERGENCE_CSV_COLUMNS])
+
+    csv_content = buffer.getvalue()
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"admin-divergence-export-{timestamp}.csv"
+
+    logger.info(
+        "admin_divergence_export_csv_generated",
+        extra={"days": days, "rows": len(rows), "divergence_type": divergence_type},
+    )
+    return StreamingResponse(
+        iter([csv_content]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _serialize_divergence_field(value: object) -> str:
+    """Serialize a single field value for CSV/JSON output."""
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)

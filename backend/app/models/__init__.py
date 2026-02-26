@@ -5,6 +5,7 @@ from app.models.api_partner_key import ApiPartnerKey
 from app.models.canonical_event_alignment import CanonicalEventAlignment
 from app.models.closing_consensus import ClosingConsensus
 from app.models.clv_record import ClvRecord
+from app.models.cross_market_divergence_event import CrossMarketDivergenceEvent
 from app.models.cross_market_lead_lag_event import CrossMarketLeadLagEvent
 from app.models.cycle_kpi import CycleKpi
 from app.models.discord_connection import DiscordConnection
@@ -30,6 +31,7 @@ __all__ = [
     "ApiPartnerEntitlement",
     "ApiPartnerKey",
     "CanonicalEventAlignment",
+    "CrossMarketDivergenceEvent",
     "CrossMarketLeadLagEvent",
     "User",
     "Subscription",

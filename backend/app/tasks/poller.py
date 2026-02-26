@@ -25,6 +25,7 @@ from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_c
 from app.services.ops_digest import maybe_send_weekly_ops_digest
 from app.services.propagation import detect_propagation_events
 from app.services.signals import detect_market_movements, summarize_signals_by_type
+from app.services.cross_market_divergence import CrossMarketDivergenceService
 from app.services.cross_market_lead_lag import CrossMarketLeadLagService
 from app.services.structural_events import StructuralEventAnalysisService
 
@@ -271,6 +272,7 @@ async def run_polling_cycle(
                 "alerts_failed": 0,
                 "structural_events_created": 0,
                 "cross_market_events_created": 0,
+                "cross_market_divergence_events_created": 0,
                 "close_capture_events_considered": close_capture_plan["events_considered"],
                 "close_capture_events_due_total": close_capture_plan["events_due_total"],
                 "close_capture_events_due_selected": close_capture_plan["events_due_selected"],
@@ -297,6 +299,7 @@ async def run_polling_cycle(
             ingest_result["alerts_failed"] = 0
             ingest_result["structural_events_created"] = 0
             ingest_result["cross_market_events_created"] = 0
+            ingest_result["cross_market_divergence_events_created"] = 0
             return ingest_result
 
         signals = await detect_market_movements(db, redis, event_ids)
@@ -347,6 +350,23 @@ async def run_polling_cycle(
         except Exception:
             logger.exception("Cross-market lead-lag pipeline failed; continuing")
 
+        # --- Cross-market divergence (additive) ---
+        divergence_count = 0
+        try:
+            divergence_service = CrossMarketDivergenceService(db)
+            for cek in alignment_rows:
+                try:
+                    divergence_count += await divergence_service.compute_divergence(cek)
+                except Exception:
+                    logger.exception(
+                        "Cross-market divergence failed; continuing",
+                        extra={"canonical_event_key": cek},
+                    )
+            if divergence_count > 0:
+                await db.commit()
+        except Exception:
+            logger.exception("Cross-market divergence pipeline failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
@@ -356,6 +376,7 @@ async def run_polling_cycle(
         ingest_result["propagation_events_created"] = propagation_count
         ingest_result["structural_events_created"] = structural_count
         ingest_result["cross_market_events_created"] = cross_market_count
+        ingest_result["cross_market_divergence_events_created"] = divergence_count
         return ingest_result
 
 
