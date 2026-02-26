@@ -25,6 +25,7 @@ from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_c
 from app.services.ops_digest import maybe_send_weekly_ops_digest
 from app.services.propagation import detect_propagation_events
 from app.services.signals import detect_market_movements, summarize_signals_by_type
+from app.services.structural_events import StructuralEventAnalysisService
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -267,6 +268,7 @@ async def run_polling_cycle(
                 "signals_created_by_type": {},
                 "alerts_sent": 0,
                 "alerts_failed": 0,
+                "structural_events_created": 0,
                 "close_capture_events_considered": close_capture_plan["events_considered"],
                 "close_capture_events_due_total": close_capture_plan["events_due_total"],
                 "close_capture_events_due_selected": close_capture_plan["events_due_selected"],
@@ -291,6 +293,7 @@ async def run_polling_cycle(
             ingest_result["signals_created_by_type"] = {}
             ingest_result["alerts_sent"] = 0
             ingest_result["alerts_failed"] = 0
+            ingest_result["structural_events_created"] = 0
             return ingest_result
 
         signals = await detect_market_movements(db, redis, event_ids)
@@ -306,6 +309,18 @@ async def run_polling_cycle(
         except Exception:
             logger.exception("Propagation detection failed; continuing")
 
+        structural_count = 0
+        structural_service = StructuralEventAnalysisService(db)
+        for event_id in event_ids:
+            try:
+                structural_events = await structural_service.detect_structural_events(event_id)
+                structural_count += len(structural_events)
+            except Exception:
+                logger.exception(
+                    "Structural event detection failed; continuing",
+                    extra={"event_id": event_id},
+                )
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
@@ -313,6 +328,7 @@ async def run_polling_cycle(
         ingest_result["alerts_sent"] = int(alert_stats.get("sent", 0))
         ingest_result["alerts_failed"] = int(alert_stats.get("failed", 0))
         ingest_result["propagation_events_created"] = propagation_count
+        ingest_result["structural_events_created"] = structural_count
         return ingest_result
 
 

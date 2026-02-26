@@ -11,6 +11,7 @@ import { hasProAccess } from "@/lib/access";
 import { getApiBaseUrl } from "@/lib/apiClient";
 import { useCurrentUser } from "@/lib/auth";
 import { formatLine, formatMoneyline, formatSigned } from "@/lib/oddsFormat";
+import { displaySignalType } from "@/lib/signalDisplay";
 import { ActionableBookCard, GameDetail, Signal } from "@/lib/types";
 
 const API_BASE = getApiBaseUrl();
@@ -427,7 +428,7 @@ export default function GameDetailPage() {
             <div className="rounded border border-borderTone bg-panelSoft p-3 text-sm">
               <p className="text-xs uppercase tracking-wider text-textMute">Signal</p>
               <p className="mt-1 text-textMain">
-                {focusedSignal.signal_type} {focusedSignal.direction} • {focusedSignal.market} •{" "}
+                {displaySignalType(focusedSignal.signal_type, focusedSignal.display_type)} {focusedSignal.direction} • {focusedSignal.market} •{" "}
                 {getSignalOutcomeName(focusedSignal) ?? "-"}
               </p>
               <p className="mt-1 text-xs text-textMute">

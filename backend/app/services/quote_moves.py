@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_venue_tier
+from app.core.config import venue_tier
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.quote_move_event import QuoteMoveEvent
 
@@ -74,7 +74,7 @@ async def detect_quote_moves(
             market_key=snap.market,
             outcome_name=snap.outcome_name,
             venue=snap.sportsbook_key,
-            venue_tier=get_venue_tier(snap.sportsbook_key),
+            venue_tier=venue_tier(snap.sportsbook_key),
             old_line=prev.line,
             new_line=snap.line,
             delta=delta,

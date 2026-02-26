@@ -79,6 +79,7 @@ async def get_public_teaser_opportunities(
             game_label=row.get("game_label"),
             commence_time=row.get("game_commence_time"),
             signal_type=str(row.get("signal_type") or ""),
+            display_type=str(row.get("display_type") or row.get("signal_type") or ""),
             market=str(row.get("market") or ""),
             outcome_name=row.get("outcome_name"),
             score_status=status_map.get(str(row.get("opportunity_status") or "").lower(), "MONITOR"),

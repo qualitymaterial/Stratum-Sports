@@ -14,6 +14,36 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 
 ---
 
+## 1.1) Recent Shipments (2026-02-26)
+### V1 Structural Core Exposure Gate (shipped)
+- Branch: `feature/v1-structural-core-gate`
+- Commit: `fcf6d5ff3b6b1e49536e66c42ce1932d519285df`
+- Scope delivered:
+  1. Public exposure is gated by `public_structural_core_mode=true` (default ON).
+  2. Public-facing feeds now expose structural-core rows only:
+     - `signal_type == KEY_CROSS`
+     - `market == spreads`
+     - `strength_score >= 55`
+     - `min_samples >= 15` when sample data exists (graceful skip/log when absent).
+  3. User-facing relabel added without DB enum change:
+     - `display_type = "STRUCTURAL THRESHOLD EVENT"` for `KEY_CROSS`.
+  4. Discord dispatch is filtered to structural-core when mode is ON.
+  5. Public/dashboard/game signal surfaces consume the same gate.
+  6. Introspection utility added:
+     - `scripts/trace_signal_feed.py`
+     - `scripts/README.md` usage docs.
+  7. Tests added/updated:
+     - `backend/tests/test_public_structural_core_gate.py`
+     - `backend/tests/test_performance_intel.py`
+     - `backend/tests/test_discord_alert_payloads.py` coverage retained/passing in targeted run.
+
+### Immediate follow-ups
+1. Confirm full DB-backed test suite in CI (local run requires test DB host `db`).
+2. Decide whether to apply structural-core gating to additional analytics endpoints (`/intel/signals/*`) or keep them as internal/pro analytics surfaces.
+3. Frontend can prefer `display_type` over `signal_type` for user copy consistency.
+
+---
+
 ## Stratum API Product Definition (v1)
 - **What it is:** Intel API is a ranked signal feed plus quality filters for partners and private integrations.
 - **Primary consumers:** builders shipping apps, internal trading dashboards, automation workflows, and analytics teams.

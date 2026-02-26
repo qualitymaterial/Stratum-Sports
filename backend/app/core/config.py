@@ -20,8 +20,14 @@ BOOK_TIERS: dict[str, str] = {
 DEFAULT_BOOK_TIER = "T3"
 
 
+def venue_tier(venue: str) -> str:
+    if not venue:
+        return DEFAULT_BOOK_TIER
+    return BOOK_TIERS.get(venue.lower(), DEFAULT_BOOK_TIER)
+
+
 def get_venue_tier(venue: str) -> str:
-    return BOOK_TIERS.get(venue, DEFAULT_BOOK_TIER)
+    return venue_tier(venue)
 
 
 def resolve_database_url(
@@ -181,6 +187,7 @@ class Settings(BaseSettings):
     performance_default_days: int = 30
     performance_max_limit: int = 200
     signal_filter_default_min_strength: int = 60
+    public_structural_core_mode: bool = True
     time_bucket_expose_inplay: bool = True
     actionable_book_max_books: int = 8
     free_teaser_enabled: bool = True

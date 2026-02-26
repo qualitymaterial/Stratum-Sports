@@ -18,6 +18,11 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.services.alert_rules import evaluate_signal_for_connection
 from app.services.context_score import build_context_score
+from app.services.public_signal_surface import (
+    apply_structural_core_query_filters,
+    is_structural_core_visible,
+    signal_display_type,
+)
 from app.services.signals import american_to_implied_prob
 from app.services.time_bucket import compute_time_bucket
 
@@ -694,6 +699,7 @@ async def get_signal_quality_rows(
                 "game_commence_time": game_commence_time,
                 "market": signal.market,
                 "signal_type": signal.signal_type,
+                "display_type": signal_display_type(signal.signal_type),
                 "direction": signal.direction,
                 "strength_score": signal.strength_score,
                 "time_bucket": resolved_time_bucket,
@@ -1067,6 +1073,7 @@ async def get_actionable_book_card(
             "event_id": event_id,
             "signal_id": signal.id,
             "signal_type": signal.signal_type,
+            "display_type": signal_display_type(signal.signal_type),
             "market": signal.market,
             "outcome_name": outcome_name,
             "direction": signal.direction,
@@ -1147,6 +1154,7 @@ async def get_actionable_book_card(
         "event_id": event_id,
         "signal_id": signal.id,
         "signal_type": signal.signal_type,
+        "display_type": signal_display_type(signal.signal_type),
         "market": signal.market,
         "outcome_name": outcome_name,
         "direction": signal.direction,
@@ -1482,6 +1490,12 @@ async def get_best_opportunities(
         stmt = stmt.where(Signal.signal_type == signal_type)
     if market:
         stmt = stmt.where(Signal.market == market)
+    stmt = apply_structural_core_query_filters(
+        stmt,
+        signal_model=Signal,
+        context="get_best_opportunities",
+        min_strength=effective_min_strength,
+    )
 
     signals = (await db.execute(stmt)).scalars().all()
     if not signals:
@@ -1538,6 +1552,14 @@ async def get_best_opportunities(
         prior = clv_prior_map.get((signal.signal_type, signal.market))
         prior_samples = int(prior["samples"]) if prior is not None else None
         prior_pct = float(prior["pct_positive"]) if prior is not None else None
+        if not is_structural_core_visible(
+            signal_type=signal.signal_type,
+            market=signal.market,
+            strength_score=signal.strength_score,
+            min_samples=prior_samples,
+            context="get_best_opportunities",
+        ):
+            continue
         opportunity_score, score_components, score_summary = _compute_opportunity_score(
             market=signal.market,
             strength_score=int(signal.strength_score),
@@ -1583,6 +1605,7 @@ async def get_best_opportunities(
             "game_label": (f"{game.away_team} @ {game.home_team}" if game is not None else None),
             "game_commence_time": game.commence_time if game is not None else None,
             "signal_type": signal.signal_type,
+            "display_type": signal_display_type(signal.signal_type),
             "market": signal.market,
             "outcome_name": (outcome_name or None),
             "direction": signal.direction,
@@ -1718,6 +1741,7 @@ async def get_delayed_opportunity_teaser(
                 "game_label": row.get("game_label"),
                 "game_commence_time": row.get("game_commence_time"),
                 "signal_type": row["signal_type"],
+                "display_type": row.get("display_type") or signal_display_type(row.get("signal_type")),
                 "market": row["market"],
                 "outcome_name": row.get("outcome_name"),
                 "direction": row["direction"],
@@ -1750,6 +1774,11 @@ async def get_public_teaser_kpis(
         signal_count_stmt = signal_count_stmt.join(Game, Game.event_id == Signal.event_id).where(
             Game.sport_key == sport_key
         )
+    signal_count_stmt = apply_structural_core_query_filters(
+        signal_count_stmt,
+        signal_model=Signal,
+        context="get_public_teaser_kpis",
+    )
     signals_in_window = int((await db.execute(signal_count_stmt)).scalar() or 0)
 
     books_stmt = select(func.count(func.distinct(OddsSnapshot.sportsbook_key))).where(OddsSnapshot.fetched_at >= cutoff)

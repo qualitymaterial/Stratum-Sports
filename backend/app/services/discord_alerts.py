@@ -11,6 +11,7 @@ from app.models.signal import Signal
 from app.models.user import User
 from app.models.watchlist import Watchlist
 from app.services.alert_rules import evaluate_signal_for_connection
+from app.services.public_signal_surface import is_structural_core_visible, signal_display_type
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,6 +39,7 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
     game_line = "Unknown game"
     if game is not None:
         game_line = f"{game.away_team} @ {game.home_team}"
+    signal_title = signal_display_type(signal.signal_type)
 
     if signal.signal_type == "DISLOCATION":
         meta = signal.metadata_json or {}
@@ -78,6 +80,7 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
 
     return (
         "**STRATUM SIGNAL - NBA**\n"
+        f"Title: {signal_title}\n"
         f"Game: {game_line}\n"
         f"Market: {market_label}\n"
         f"Move: {move}\n"
@@ -92,6 +95,20 @@ async def dispatch_discord_alerts_for_signals(
     signals: list[Signal],
     redis=None,
 ) -> dict[str, int]:
+    if not signals:
+        return {"sent": 0, "failed": 0}
+
+    signals = [
+        signal
+        for signal in signals
+        if is_structural_core_visible(
+            signal_type=signal.signal_type,
+            market=signal.market,
+            strength_score=signal.strength_score,
+            min_samples=None,
+            context="dispatch_discord_alerts_for_signals",
+        )
+    ]
     if not signals:
         return {"sent": 0, "failed": 0}
 
