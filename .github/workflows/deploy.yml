@@ -7,11 +7,20 @@ on:
         description: "Optional commit SHA to deploy (defaults to the selected branch HEAD)."
         required: false
         type: string
+      skip_ci_wait:
+        description: "Skip waiting for CI success (use only for urgent deploys)."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
   contents: read
   packages: write
+
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -23,6 +32,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       deploy_sha: ${{ steps.prepare.outputs.deploy_sha }}
+      skip_ci_wait: ${{ steps.prepare.outputs.skip_ci_wait }}
     steps:
       - name: Resolve deploy SHA
         id: prepare
@@ -33,6 +43,11 @@ jobs:
             echo "deploy_sha=$SHA_INPUT" >> "$GITHUB_OUTPUT"
           else
             echo "deploy_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "${{ inputs.skip_ci_wait }}" = "true" ]; then
+            echo "skip_ci_wait=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_ci_wait=false" >> "$GITHUB_OUTPUT"
           fi
 
   verify-ci:
@@ -48,6 +63,11 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const headSha = "${{ needs.prepare.outputs.deploy_sha }}";
+            const skipCiWait = "${{ needs.prepare.outputs.skip_ci_wait }}" === "true";
+            if (skipCiWait) {
+              core.warning(`Skipping CI verification for ${headSha} by workflow input override.`);
+              return;
+            }
             const maxAttempts = 60; // 10 minutes at 10s cadence
             const sleepMs = 10_000;
 
@@ -120,6 +140,8 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
+          cache-from: type=gha,scope=deploy-backend
+          cache-to: type=gha,mode=max,scope=deploy-backend
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:${{ needs.prepare.outputs.deploy_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:latest
@@ -130,6 +152,8 @@ jobs:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
+          cache-from: type=gha,scope=deploy-frontend
+          cache-to: type=gha,mode=max,scope=deploy-frontend
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:${{ needs.prepare.outputs.deploy_sha }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:latest
