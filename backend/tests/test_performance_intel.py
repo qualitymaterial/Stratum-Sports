@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -173,6 +175,7 @@ async def _ensure_teaser_events_table(db_session: AsyncSession) -> None:
     "path",
     [
         "/api/v1/intel/clv?days=7",
+        "/api/v1/intel/clv/export.csv?days=7",
         "/api/v1/intel/clv/summary?days=7",
         "/api/v1/intel/clv/recap?days=7&grain=day",
         "/api/v1/intel/clv/scorecards?days=7",
@@ -268,6 +271,85 @@ async def test_clv_summary_endpoint_supports_filters(
     assert payload[0]["signal_type"] == "MOVE"
     assert payload[0]["market"] == "spreads"
     assert payload[0]["count"] == 1
+
+
+async def test_clv_export_csv_returns_filtered_rows(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_clv_export"
+
+    move_signal = _signal(
+        event_id=event_id,
+        market="spreads",
+        signal_type="MOVE",
+        strength=90,
+        created_at=now - timedelta(days=2),
+        metadata={"outcome_name": "BOS"},
+    )
+    steam_signal = _signal(
+        event_id=event_id,
+        market="totals",
+        signal_type="STEAM",
+        strength=50,
+        created_at=now - timedelta(days=1),
+        metadata={"outcome_name": "Over"},
+    )
+    db_session.add_all([move_signal, steam_signal])
+    await db_session.flush()
+
+    db_session.add_all(
+        [
+            ClvRecord(
+                signal_id=move_signal.id,
+                event_id=event_id,
+                signal_type="MOVE",
+                market="spreads",
+                outcome_name="BOS",
+                entry_line=-3.0,
+                entry_price=-110,
+                close_line=-3.5,
+                close_price=-108,
+                clv_line=-0.5,
+                clv_prob=0.003,
+                computed_at=now - timedelta(days=2),
+            ),
+            ClvRecord(
+                signal_id=steam_signal.id,
+                event_id=event_id,
+                signal_type="STEAM",
+                market="totals",
+                outcome_name="Over",
+                entry_line=218.5,
+                entry_price=-110,
+                close_line=220.0,
+                close_price=-108,
+                clv_line=1.5,
+                clv_prob=0.002,
+                computed_at=now - timedelta(days=1),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-export@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await async_client.get(
+        "/api/v1/intel/clv/export.csv?days=30&signal_type=MOVE&market=spreads&min_strength=80&limit=100",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    assert "text/csv" in response.headers.get("content-type", "")
+    assert "attachment; filename=" in response.headers.get("content-disposition", "")
+
+    parsed_rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert len(parsed_rows) == 1
+    assert parsed_rows[0]["event_id"] == event_id
+    assert parsed_rows[0]["signal_type"] == "MOVE"
+    assert parsed_rows[0]["market"] == "spreads"
 
 
 async def test_clv_summary_endpoint_filters_by_sport_key(

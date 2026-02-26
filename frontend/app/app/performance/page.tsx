@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { LoadingState } from "@/components/LoadingState";
 import {
   createCheckoutSession,
+  downloadClvRecordsCsv,
   getBestOpportunities,
   getClvRecap,
   getClvSummary,
@@ -412,6 +413,7 @@ export default function PerformancePage() {
   const [freeSampleCards, setFreeSampleCards] = useState<DashboardCard[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [upgrading, setUpgrading] = useState(false);
   const [filtersHydrated, setFiltersHydrated] = useState(false);
 
@@ -864,6 +866,29 @@ export default function PerformancePage() {
     }
   };
 
+  const handleExportClvCsv = async () => {
+    if (!token || !proAccess) {
+      return;
+    }
+    setExportingCsv(true);
+    setError(null);
+    try {
+      await downloadClvRecordsCsv(token, {
+        days,
+        sport_key: selectedSport,
+        signal_type: resolvedSignalType,
+        market: resolvedMarket,
+        min_strength: minStrength,
+        limit: 5000,
+        offset: 0,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export CLV CSV");
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
   useEffect(() => {
     if (!filtersHydrated || !token || proAccess || typeof window === "undefined") {
       return;
@@ -1007,14 +1032,27 @@ export default function PerformancePage() {
               : "Free teaser view. Upgrade to unlock full CLV and quality diagnostics."}
           </p>
         </div>
-        <button
-          onClick={() => {
-            void load();
-          }}
-          className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent"
-        >
-          {refreshing ? "Refreshing" : "Refresh"}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {proAccess ? (
+            <button
+              onClick={() => {
+                void handleExportClvCsv();
+              }}
+              disabled={exportingCsv}
+              className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent disabled:opacity-60"
+            >
+              {exportingCsv ? "Exporting" : "Export CLV CSV"}
+            </button>
+          ) : null}
+          <button
+            onClick={() => {
+              void load();
+            }}
+            className="rounded border border-borderTone px-3 py-1.5 text-xs uppercase tracking-wider text-textMute transition hover:border-accent hover:text-accent"
+          >
+            {refreshing ? "Refreshing" : "Refresh"}
+          </button>
+        </div>
       </header>
 
       <div className="grid gap-3 md:grid-cols-6">
