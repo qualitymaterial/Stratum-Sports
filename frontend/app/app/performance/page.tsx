@@ -23,6 +23,7 @@ import {
 import { hasProAccess } from "@/lib/access";
 import { useCurrentUser } from "@/lib/auth";
 import { applyPresetFilters } from "@/lib/performancePresets";
+import { displaySignalType } from "@/lib/signalDisplay";
 import {
   ClvPerformanceRow,
   ClvRecapRow,
@@ -292,7 +293,7 @@ function buildQualityHoverText(row: SignalQualityRow): string {
       ? "Open game detail to compare current book quotes."
       : "Adjust filters or alert rules if this should be included.";
   return [
-    `Signal: ${row.signal_type} on ${row.market} ${row.outcome_name ?? "-"}`,
+    `Signal: ${displaySignalType(row.signal_type, row.display_type)} on ${row.market} ${row.outcome_name ?? "-"}`,
     `Strength=${row.strength_score}, books=${row.books_affected}, dispersion=${dispersion}`,
     `Decision: ${decision}`,
     `Lifecycle: ${row.lifecycle_stage} (${row.lifecycle_reason})`,
@@ -1268,7 +1269,7 @@ export default function PerformancePage() {
               <tbody>
                 {teaser.rows.map((row) => (
                   <tr key={`${row.signal_type}-${row.market}`}>
-                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{displaySignalType(row.signal_type)}</td>
                     <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
                     <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
                     <td className="border-b border-borderTone/50 py-2 text-textMain">
@@ -1334,7 +1335,7 @@ export default function PerformancePage() {
                         )}
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                        {displaySignalType(row.signal_type, row.display_type)} • {row.market} • {row.outcome_name ?? "-"}
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.strength_score}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
@@ -1433,7 +1434,7 @@ export default function PerformancePage() {
                         </div>
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        {row.signal.signal_type} {row.signal.direction}
+                        {displaySignalType(row.signal.signal_type, row.signal.display_type)} {row.signal.direction}
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{String(outcome)}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal.strength_score}</td>
@@ -1492,7 +1493,7 @@ export default function PerformancePage() {
                 <tbody>
                   {scorecards.map((row) => (
                     <tr key={`scorecard-${row.signal_type}-${row.market}`}>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                      <td className="border-b border-borderTone/50 py-2 text-textMain">{displaySignalType(row.signal_type)}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
@@ -1568,7 +1569,7 @@ export default function PerformancePage() {
                         <td className="border-b border-borderTone/50 py-2 text-textMain">
                           {idx === 0 ? formatRecapPeriod(periodStart, recapGrain) : ""}
                         </td>
-                        <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{displaySignalType(row.signal_type)}</td>
                         <td className="border-b border-borderTone/50 py-2 text-textMain">{row.market}</td>
                         <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
                         <td className="border-b border-borderTone/50 py-2 text-textMain">
@@ -1827,7 +1828,7 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <p>
-                          {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                          {displaySignalType(row.signal_type, row.display_type)} • {row.market} • {row.outcome_name ?? "-"}
                           <span
                             className="ml-2 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
                             title={buildOpportunityHoverText(row)}
@@ -1919,7 +1920,7 @@ export default function PerformancePage() {
                   <tbody>
                     {bySignalType.map((row) => (
                       <tr key={`signal-${row.signal_type}`}>
-                        <td className="border-b border-borderTone/50 py-2 text-textMain">{row.signal_type}</td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{displaySignalType(row.signal_type)}</td>
                         <td className="border-b border-borderTone/50 py-2 text-textMain">{row.count}</td>
                         <td className="border-b border-borderTone/50 py-2 text-textMain">
                           {row.pct_positive_clv.toFixed(1)}%
@@ -2008,7 +2009,7 @@ export default function PerformancePage() {
                     >
                       <td className="border-b border-borderTone/50 py-2 text-textMain">
                         <span className="inline-flex items-center gap-2">
-                          <span>{row.signal_type}</span>
+                          <span>{displaySignalType(row.signal_type, row.display_type)}</span>
                           <span
                             className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
                             title={buildQualityHoverText(row)}

@@ -13,6 +13,7 @@ export type Signal = {
   event_id: string;
   market: string;
   signal_type: "MOVE" | "KEY_CROSS" | "MULTIBOOK_SYNC" | "DISLOCATION" | "STEAM";
+  display_type?: string | null;
   direction: "UP" | "DOWN";
   from_value: number;
   to_value: number;
@@ -183,6 +184,7 @@ export type SignalQualityRow = {
   game_commence_time: string | null;
   market: string;
   signal_type: string;
+  display_type?: string | null;
   direction: string;
   strength_score: number;
   books_affected: number;
@@ -241,6 +243,7 @@ export type ActionableBookCard = {
   event_id: string;
   signal_id: string;
   signal_type: string;
+  display_type?: string | null;
   market: string;
   outcome_name: string | null;
   direction: string;
@@ -271,6 +274,7 @@ export type OpportunityPoint = {
   game_label: string | null;
   game_commence_time: string | null;
   signal_type: string;
+  display_type?: string | null;
   market: string;
   outcome_name: string | null;
   direction: string;
@@ -318,6 +322,7 @@ export type OpportunityTeaserPoint = {
   game_label: string | null;
   game_commence_time: string | null;
   signal_type: string;
+  display_type?: string | null;
   market: string;
   outcome_name: string | null;
   direction: string;
@@ -332,6 +337,7 @@ export type PublicTeaserOpportunity = {
   game_label: string | null;
   commence_time: string | null;
   signal_type: string;
+  display_type?: string | null;
   market: string;
   outcome_name: string | null;
   score_status: "ACTIONABLE" | "MONITOR" | "STALE";

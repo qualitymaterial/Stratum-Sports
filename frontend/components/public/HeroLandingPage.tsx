@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getPublicTeaserKpis, getPublicTeaserOpportunities } from "@/lib/api";
 import { getStoredUser } from "@/lib/auth";
+import { displaySignalType } from "@/lib/signalDisplay";
 import { PublicTeaserKpisResponse, PublicTeaserOpportunity, SportKey } from "@/lib/types";
 
 const SPORTS: Array<{ key: SportKey; label: string }> = [
@@ -351,7 +352,7 @@ export default function HeroLandingPage() {
                         <p>{row.game_label ?? "Unknown matchup"}</p>
                         <p className="text-xs text-textMute">{formatCommenceTime(row.commence_time)} UTC</p>
                       </td>
-                      <td className="px-4 py-3">{row.signal_type}</td>
+                      <td className="px-4 py-3">{displaySignalType(row.signal_type, row.display_type)}</td>
                       <td className="px-4 py-3">{row.market}</td>
                       <td className="px-4 py-3">{row.outcome_name ?? "-"}</td>
                       <td className="px-4 py-3">{row.delta_display}</td>
@@ -370,7 +371,7 @@ export default function HeroLandingPage() {
                     <p className="mt-2 text-sm font-medium">{row.game_label ?? "Unknown matchup"}</p>
                     <p className="text-xs text-textMute">{formatCommenceTime(row.commence_time)} UTC</p>
                     <p className="mt-2 text-xs text-textMute">
-                      {row.signal_type} • {row.market} • {row.outcome_name ?? "-"}
+                      {displaySignalType(row.signal_type, row.display_type)} • {row.market} • {row.outcome_name ?? "-"}
                     </p>
                     <p className="mt-1 text-xs text-textMute">
                       Delta {row.delta_display} • {row.freshness_label}
