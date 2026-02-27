@@ -557,6 +557,7 @@ async def main() -> None:
     last_cleanup_monotonic = 0.0
     last_clv_monotonic = 0.0
     last_historical_backfill_monotonic = 0.0
+    last_api_usage_flush_monotonic = 0.0
     close_capture_state = CloseCaptureState()
 
     while True:
@@ -663,6 +664,18 @@ async def main() -> None:
                                         "cycle_kpis_deleted": deleted_kpis,
                                     },
                                 )
+                    # --- API usage flush (periodic) ---
+                    api_usage_flush_interval = max(60, settings.api_usage_flush_interval_seconds)
+                    if settings.api_usage_tracking_enabled and (now_monotonic - last_api_usage_flush_monotonic) >= api_usage_flush_interval:
+                        last_api_usage_flush_monotonic = now_monotonic
+                        try:
+                            from app.services.stripe_meter_publisher import flush_and_sync_all
+                            flush_result = await flush_and_sync_all(redis)
+                            if flush_result.get("flushed", 0) > 0 or flush_result.get("metered", 0) > 0:
+                                logger.info("API usage flush completed", extra=flush_result)
+                        except Exception:
+                            logger.exception("API usage flush job failed")
+
                 else:
                     acquired_lock = False
                     cycle_notes["lock_held"] = True

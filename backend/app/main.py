@@ -9,6 +9,7 @@ from sentry_sdk.integrations.fastapi import FastApiIntegration
 from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
 from app.api.router import api_router
+from app.core.api_usage_middleware import ApiUsageTrackingMiddleware
 from app.core.config import get_settings
 from app.core.logging import setup_logging
 from app.core.rate_limit import RedisRateLimitMiddleware
@@ -70,5 +71,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "Accept", "Origin"],
 )
 app.add_middleware(RedisRateLimitMiddleware, requests_per_minute=180)
+app.add_middleware(ApiUsageTrackingMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")

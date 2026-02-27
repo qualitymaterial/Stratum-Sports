@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, require_pro_user
+from app.api.deps import get_current_user, require_pro_or_api_partner
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.tier import is_pro
@@ -22,8 +22,8 @@ from app.schemas.intel import (
     ClvRecapResponse,
     ClvRecordPoint,
     ClvSummaryPoint,
-    ClvTrustScorecard,
     ClvTeaserResponse,
+    ClvTrustScorecard,
     ConsensusPoint,
     OpportunityPoint,
     OpportunityTeaserPoint,
@@ -34,15 +34,15 @@ from app.schemas.intel import (
     TeaserInteractionEventOut,
 )
 from app.services.performance_intel import (
-    get_best_opportunities,
-    get_delayed_opportunity_teaser,
     get_actionable_book_card,
     get_actionable_book_cards_batch,
-    get_clv_postgame_recap,
+    get_best_opportunities,
     get_clv_performance_summary,
+    get_clv_postgame_recap,
     get_clv_records_filtered,
-    get_clv_trust_scorecards,
     get_clv_teaser,
+    get_clv_trust_scorecards,
+    get_delayed_opportunity_teaser,
     get_signal_lifecycle_summary,
     get_signal_quality_rows,
     get_signal_quality_weekly_summary,
@@ -234,7 +234,7 @@ async def get_consensus(
     event_id: str = Query(..., min_length=1),
     market: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ConsensusPoint]:
     markets = _resolve_markets(market)
     return await _latest_consensus_rows(db, event_id=event_id, markets=markets)
@@ -244,7 +244,7 @@ async def get_consensus(
 async def get_latest_consensus(
     event_id: str = Query(..., min_length=1),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ConsensusPoint]:
     markets = _resolve_markets(None)
     return await _latest_consensus_rows(db, event_id=event_id, markets=markets)
@@ -261,7 +261,7 @@ async def get_event_clv(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ClvRecordPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -360,7 +360,7 @@ async def export_clv_csv(
     limit: int = Query(5_000, ge=1, le=CLV_EXPORT_MAX_ROWS),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> StreamingResponse:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -413,7 +413,7 @@ async def get_clv_summary(
     min_samples: int = Query(1, ge=1, le=10000),
     min_strength: int | None = Query(None, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ClvSummaryPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -454,7 +454,7 @@ async def get_clv_recap(
     min_samples: int = Query(1, ge=1, le=10000),
     min_strength: int | None = Query(None, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> ClvRecapResponse:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -498,7 +498,7 @@ async def get_clv_scorecards(
     min_samples: int = Query(10, ge=1, le=10000),
     min_strength: int | None = Query(None, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ClvTrustScorecard]:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -568,7 +568,7 @@ async def get_opportunities(
     include_stale: bool = Query(False),
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[OpportunityPoint]:
     _ensure_performance_enabled()
     settings = get_settings()
@@ -703,7 +703,7 @@ async def get_signal_quality(
     apply_alert_rules: bool = Query(True),
     include_hidden: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_pro_user),
+    user: User = Depends(require_pro_or_api_partner),
 ) -> list[SignalQualityPoint]:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -760,7 +760,7 @@ async def get_signal_quality_weekly(
     min_strength: int | None = Query(None, ge=1, le=100),
     apply_alert_rules: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_pro_user),
+    user: User = Depends(require_pro_or_api_partner),
 ) -> SignalQualityWeeklySummary:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -801,7 +801,7 @@ async def get_signal_lifecycle(
     min_strength: int | None = Query(None, ge=1, le=100),
     apply_alert_rules: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_pro_user),
+    user: User = Depends(require_pro_or_api_partner),
 ) -> SignalLifecycleSummary:
     _ensure_performance_enabled()
     start = perf_counter()
@@ -838,7 +838,7 @@ async def get_actionable_books(
     event_id: str = Query(..., min_length=1),
     signal_id: UUID = Query(...),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> ActionableBookCard:
     settings = get_settings()
     if not settings.actionable_book_card_enabled:
@@ -871,7 +871,7 @@ async def get_actionable_books_batch(
     event_id: str = Query(..., min_length=1),
     signal_ids: str = Query(..., min_length=1, description="Comma-separated signal UUIDs"),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_pro_user),
+    _user: User = Depends(require_pro_or_api_partner),
 ) -> list[ActionableBookCard]:
     settings = get_settings()
     if not settings.actionable_book_card_enabled:

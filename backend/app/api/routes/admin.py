@@ -1323,3 +1323,68 @@ def _serialize_divergence_field(value: object) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+# ── API usage metering endpoints ──────────────────────────────────
+
+
+@router.get("/users/{user_id}/api-usage")
+async def admin_user_api_usage(
+    user_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> dict:
+    """Current period usage, limit, remaining, and overage for a partner."""
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Redis unavailable",
+        )
+
+    from app.services.api_usage_tracking import get_usage_and_limits
+
+    usage = await get_usage_and_limits(redis, db, str(target_user.id))
+    return {"user_id": str(target_user.id), "email": target_user.email, **usage}
+
+
+@router.get("/users/{user_id}/api-usage/history")
+async def admin_user_api_usage_history(
+    user_id: UUID,
+    limit: int = Query(12, ge=1, le=60),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> dict:
+    """Historical usage periods for a partner."""
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    from app.services.api_usage_tracking import get_usage_history
+
+    periods = await get_usage_history(db, str(target_user.id), limit=limit, offset=offset)
+    return {
+        "user_id": str(target_user.id),
+        "email": target_user.email,
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "period_start": p.period_start.isoformat(),
+                "period_end": p.period_end.isoformat(),
+                "request_count": p.request_count,
+                "included_limit": p.included_limit,
+                "overage_count": p.overage_count,
+                "stripe_meter_synced_at": p.stripe_meter_synced_at.isoformat() if p.stripe_meter_synced_at else None,
+                "created_at": p.created_at.isoformat(),
+                "updated_at": p.updated_at.isoformat(),
+            }
+            for p in periods
+        ],
+    }

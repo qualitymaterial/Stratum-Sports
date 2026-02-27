@@ -6,7 +6,6 @@ from urllib.parse import quote_plus
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 DATABASE_URL_PLACEHOLDER = "REPLACE_WITH_STRONG_DB_PASSWORD"
 
 BOOK_TIERS: dict[str, str] = {
@@ -221,6 +220,12 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = "price_pro_placeholder"
     stripe_success_url: str = "http://localhost:3000/app/dashboard?billing=success"
     stripe_cancel_url: str = "http://localhost:3000/app/dashboard?billing=cancel"
+
+    # ── API usage metering ─────────────────────────────────────
+    api_usage_tracking_enabled: bool = False
+    stripe_api_meter_event_name: str = "api_partner_requests"
+    api_usage_flush_interval_seconds: int = 300
+    api_usage_redis_key_prefix: str = "api_usage"
 
     # ── Exchange adapter settings ─────────────────────────────────
     kalshi_api_key: str = ""
