@@ -279,6 +279,9 @@ async def run_polling_cycle(
                 "cross_market_divergence_events_created": 0,
                 "kalshi_markets_polled": 0,
                 "kalshi_quotes_inserted": 0,
+                "kalshi_errors": 0,
+                "kalshi_skipped_no_alignment": 0,
+                "kalshi_skipped_no_market_id": 0,
                 "polymarket_markets_polled": 0,
                 "polymarket_quotes_inserted": 0,
                 "close_capture_events_considered": close_capture_plan["events_considered"],
@@ -310,6 +313,9 @@ async def run_polling_cycle(
             ingest_result["cross_market_divergence_events_created"] = 0
             ingest_result["kalshi_markets_polled"] = 0
             ingest_result["kalshi_quotes_inserted"] = 0
+            ingest_result["kalshi_errors"] = 0
+            ingest_result["kalshi_skipped_no_alignment"] = 0
+            ingest_result["kalshi_skipped_no_market_id"] = 0
             ingest_result["polymarket_markets_polled"] = 0
             ingest_result["polymarket_quotes_inserted"] = 0
             return ingest_result
@@ -342,6 +348,9 @@ async def run_polling_cycle(
         # --- Exchange adapter ingestion (Kalshi live, Polymarket disabled by default) ---
         kalshi_markets_polled = 0
         kalshi_quotes_inserted = 0
+        kalshi_errors = 0
+        kalshi_skipped_no_alignment = 0
+        kalshi_skipped_no_market_id = 0
         polymarket_markets_polled = 0
         polymarket_quotes_inserted = 0
         kalshi_alignments_synced = 0
@@ -364,10 +373,15 @@ async def run_polling_cycle(
             )
             alignment_objs = list((await db.execute(alignment_stmt)).scalars().all())
 
+            aligned_event_ids = {a.sportsbook_event_id for a in alignment_objs}
+            kalshi_skipped_no_alignment = len(set(event_ids) - aligned_event_ids)
+
             # --- Kalshi ingestion ---
-            kalshi_alignments = [
-                a for a in alignment_objs if a.kalshi_market_id
-            ][:settings.max_kalshi_markets_per_cycle]
+            kalshi_skipped_no_market_id = len([a for a in alignment_objs if not a.kalshi_market_id])
+            kalshi_alignments = [a for a in alignment_objs if a.kalshi_market_id]
+            max_kalshi = settings.max_kalshi_markets_per_cycle
+            if max_kalshi is not None:
+                kalshi_alignments = kalshi_alignments[:max_kalshi]
             if kalshi_alignments:
                 try:
                     kalshi_client = KalshiClient()
@@ -382,11 +396,13 @@ async def run_polling_cycle(
                             kalshi_quotes_inserted += inserted
                             kalshi_markets_polled += 1
                         except ExchangeUpstreamError:
+                            kalshi_errors += 1
                             logger.exception(
                                 "Kalshi fetch failed; continuing",
                                 extra={"kalshi_market_id": alignment.kalshi_market_id},
                             )
                         except Exception:
+                            kalshi_errors += 1
                             logger.exception(
                                 "Kalshi ingestion failed; continuing",
                                 extra={"kalshi_market_id": alignment.kalshi_market_id},
@@ -481,8 +497,21 @@ async def run_polling_cycle(
         ingest_result["cross_market_divergence_events_created"] = divergence_count
         ingest_result["kalshi_markets_polled"] = kalshi_markets_polled
         ingest_result["kalshi_quotes_inserted"] = kalshi_quotes_inserted
+        ingest_result["kalshi_errors"] = kalshi_errors
+        ingest_result["kalshi_skipped_no_alignment"] = kalshi_skipped_no_alignment
+        ingest_result["kalshi_skipped_no_market_id"] = kalshi_skipped_no_market_id
         ingest_result["polymarket_markets_polled"] = polymarket_markets_polled
         ingest_result["polymarket_quotes_inserted"] = polymarket_quotes_inserted
+
+        logger.info(
+            "KALSHI_INGEST_SUMMARY polled=%d inserted=%d errors=%d skipped_no_alignment=%d skipped_no_market=%d",
+            kalshi_markets_polled,
+            kalshi_quotes_inserted,
+            kalshi_errors,
+            kalshi_skipped_no_alignment,
+            kalshi_skipped_no_market_id,
+        )
+
         return ingest_result
 
 
