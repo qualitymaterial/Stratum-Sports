@@ -484,6 +484,21 @@ async def run_polling_cycle(
         except Exception:
             logger.exception("Cross-market divergence pipeline failed; continuing")
 
+        # --- EXCHANGE_DIVERGENCE signal generation (reads divergence events just computed) ---
+        if alignment_ceks and settings.exchange_divergence_signal_enabled:
+            try:
+                from app.services.signals import detect_exchange_divergence_signals
+
+                exchange_div_event_ids = [a.sportsbook_event_id for a in alignment_objs]
+                exchange_divergence_signals = await detect_exchange_divergence_signals(
+                    exchange_div_event_ids, db, redis
+                )
+                if exchange_divergence_signals:
+                    await db.commit()
+                    signals.extend(exchange_divergence_signals)
+            except Exception:
+                logger.exception("Exchange divergence signal generation failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)

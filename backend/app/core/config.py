@@ -197,6 +197,14 @@ class Settings(BaseSettings):
     context_score_weight_injuries: float = 0.5
     context_score_weight_player_props: float = 0.3
     context_score_weight_pace: float = 0.2
+    context_score_weight_cross_market: float = 0.20
+
+    # ── Exchange divergence signal settings ────────────────────────
+    exchange_divergence_signal_enabled: bool = True
+    exchange_divergence_lookback_minutes: int = 15
+    exchange_divergence_cooldown_seconds: int = 900
+    exchange_divergence_max_signals_per_event: int = 2
+
     ops_internal_token: str = "dev-ops-token"
     ops_digest_enabled: bool = False
     ops_digest_webhook_url: str = ""

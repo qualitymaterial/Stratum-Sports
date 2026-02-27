@@ -25,6 +25,8 @@ def signal_display_type(signal_type: str | None) -> str:
     normalized = str(signal_type or "")
     if normalized == STRUCTURAL_CORE_SIGNAL_TYPE:
         return STRUCTURAL_CORE_DISPLAY_TYPE
+    if normalized == "EXCHANGE_DIVERGENCE":
+        return "EXCHANGE DIVERGENCE"
     return normalized
 
 

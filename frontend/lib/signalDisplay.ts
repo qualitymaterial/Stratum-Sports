@@ -10,6 +10,9 @@ export function displaySignalType(signalType: string | null | undefined, display
   if (normalizedSignalType === "KEY_CROSS") {
     return STRUCTURAL_THRESHOLD_EVENT_LABEL;
   }
+  if (normalizedSignalType === "EXCHANGE_DIVERGENCE") {
+    return "EXCHANGE DIVERGENCE";
+  }
 
   return normalizedSignalType;
 }

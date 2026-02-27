@@ -6,7 +6,9 @@ export function SignalBadge({ signal }: { signal: Signal }) {
   const kindTone =
     signal.signal_type === "MULTIBOOK_SYNC"
       ? "border-accent/50 text-accent"
-      : "border-borderTone text-textMain";
+      : signal.signal_type === "EXCHANGE_DIVERGENCE"
+        ? "border-purple-500/50 text-purple-400"
+        : "border-borderTone text-textMain";
 
   return (
     <div className={`rounded border px-2 py-1 text-[11px] ${kindTone}`}>

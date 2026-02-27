@@ -1345,6 +1345,7 @@ def _compute_context_score(context_scaffold: dict[str, Any] | None) -> int | Non
         ("injuries", float(settings.context_score_weight_injuries)),
         ("player_props", float(settings.context_score_weight_player_props)),
         ("pace", float(settings.context_score_weight_pace)),
+        ("cross_market", float(settings.context_score_weight_cross_market)),
     ]
     available: list[tuple[int, float]] = []
     for name, weight in weighted_inputs:

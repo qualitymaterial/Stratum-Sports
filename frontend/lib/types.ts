@@ -12,7 +12,7 @@ export type Signal = {
   id: string;
   event_id: string;
   market: string;
-  signal_type: "MOVE" | "KEY_CROSS" | "MULTIBOOK_SYNC" | "DISLOCATION" | "STEAM";
+  signal_type: "MOVE" | "KEY_CROSS" | "MULTIBOOK_SYNC" | "DISLOCATION" | "STEAM" | "EXCHANGE_DIVERGENCE";
   display_type?: string | null;
   direction: "UP" | "DOWN";
   from_value: number;

@@ -1015,6 +1015,173 @@ async def detect_steam_v2(
     return created
 
 
+# ---------------------------------------------------------------------------
+# EXCHANGE_DIVERGENCE — cross-market divergence promoted to user-facing signal
+# ---------------------------------------------------------------------------
+
+
+def compute_strength_exchange_divergence(
+    *,
+    divergence_type: str,
+    lag_seconds: int | None,
+    exchange_probability: float | None,
+) -> int:
+    """Score an exchange divergence event (1-100)."""
+    type_component = {"OPPOSED": 40.0, "EXCHANGE_LEADS": 28.0, "SPORTSBOOK_LEADS": 22.0}.get(divergence_type, 15.0)
+
+    if lag_seconds is None:
+        lag_component = 15.0
+    elif lag_seconds <= 30:
+        lag_component = 30.0
+    elif lag_seconds <= 120:
+        lag_component = 22.0
+    elif lag_seconds <= 300:
+        lag_component = 14.0
+    else:
+        lag_component = 6.0
+
+    if exchange_probability is not None:
+        prob_distance = abs(exchange_probability - 0.5)
+        prob_component = min(30.0, prob_distance * 60.0)
+    else:
+        prob_component = 10.0
+
+    return max(1, min(100, int(round(type_component + lag_component + prob_component))))
+
+
+async def detect_exchange_divergence_signals(
+    event_ids: list[str],
+    db: AsyncSession,
+    redis: Redis | None = None,
+) -> list[Signal]:
+    """Promote actionable CrossMarketDivergenceEvent rows into user-facing Signals."""
+    if not settings.exchange_divergence_signal_enabled or not event_ids:
+        return []
+
+    from app.models.canonical_event_alignment import CanonicalEventAlignment
+    from app.models.cross_market_divergence_event import CrossMarketDivergenceEvent
+
+    # Load alignments for these sportsbook events
+    alignment_stmt = select(CanonicalEventAlignment).where(
+        CanonicalEventAlignment.sportsbook_event_id.in_(event_ids)
+    )
+    alignments = list((await db.execute(alignment_stmt)).scalars().all())
+    if not alignments:
+        return []
+
+    cek_to_alignment = {a.canonical_event_key: a for a in alignments}
+    cek_list = list(cek_to_alignment.keys())
+
+    lookback = max(1, settings.exchange_divergence_lookback_minutes)
+    cutoff = datetime.now(UTC) - timedelta(minutes=lookback)
+    actionable_types = {"EXCHANGE_LEADS", "SPORTSBOOK_LEADS", "OPPOSED"}
+
+    div_stmt = (
+        select(CrossMarketDivergenceEvent)
+        .where(
+            CrossMarketDivergenceEvent.canonical_event_key.in_(cek_list),
+            CrossMarketDivergenceEvent.divergence_type.in_(actionable_types),
+            CrossMarketDivergenceEvent.created_at >= cutoff,
+        )
+        .order_by(desc(CrossMarketDivergenceEvent.created_at))
+    )
+    divergence_rows = list((await db.execute(div_stmt)).scalars().all())
+    if not divergence_rows:
+        return []
+
+    # Build commence_time_map for time_bucket
+    commence_time_map = await _commence_time_by_event(db, event_ids)
+    now = datetime.now(UTC)
+
+    candidate_by_event: dict[str, list[DislocationCandidate]] = defaultdict(list)
+    for div_event in divergence_rows:
+        alignment = cek_to_alignment.get(div_event.canonical_event_key)
+        if alignment is None:
+            continue
+        event_id = alignment.sportsbook_event_id
+
+        strength = compute_strength_exchange_divergence(
+            divergence_type=div_event.divergence_type,
+            lag_seconds=div_event.lag_seconds,
+            exchange_probability=div_event.exchange_probability_threshold,
+        )
+
+        direction = "UP"
+        if div_event.exchange_probability_threshold is not None and div_event.exchange_probability_threshold < 0.5:
+            direction = "DOWN"
+
+        minutes_to_tip: float | None = None
+        time_bucket = "UNKNOWN"
+        try:
+            minutes_to_tip = _minutes_to_tip(event_id=event_id, commence_time_map=commence_time_map, now=now)
+            time_bucket = compute_time_bucket(minutes_to_tip)
+        except Exception:
+            logger.warning(
+                "Signal time bucket failed",
+                extra={"event_id": event_id, "signal_type": "EXCHANGE_DIVERGENCE"},
+            )
+
+        dedupe_key = f"signal:exchange_divergence:{event_id}:{div_event.divergence_type}"
+
+        signal = Signal(
+            event_id=event_id,
+            market="exchange",
+            signal_type="EXCHANGE_DIVERGENCE",
+            direction=direction,
+            from_value=float(div_event.sportsbook_threshold_value or 0.0),
+            to_value=float(div_event.exchange_probability_threshold or 0.0),
+            from_price=None,
+            to_price=None,
+            window_minutes=lookback,
+            books_affected=1,
+            velocity_minutes=round((div_event.lag_seconds or 0) / 60.0, 2),
+            time_bucket=time_bucket,
+            strength_score=strength,
+            metadata_json={
+                "divergence_type": div_event.divergence_type,
+                "lead_source": div_event.lead_source,
+                "lag_seconds": div_event.lag_seconds,
+                "exchange_probability": float(div_event.exchange_probability_threshold)
+                if div_event.exchange_probability_threshold is not None
+                else None,
+                "sportsbook_threshold": float(div_event.sportsbook_threshold_value)
+                if div_event.sportsbook_threshold_value is not None
+                else None,
+                "canonical_event_key": div_event.canonical_event_key,
+                "minutes_to_tip": round(minutes_to_tip, 2) if minutes_to_tip is not None else None,
+            },
+        )
+        candidate_by_event[event_id].append(
+            DislocationCandidate(
+                event_id=event_id,
+                strength_score=strength,
+                dedupe_key=dedupe_key,
+                signal=signal,
+            )
+        )
+
+    if not candidate_by_event:
+        return []
+
+    created: list[Signal] = []
+    max_per_event = max(1, settings.exchange_divergence_max_signals_per_event)
+    for event_id, candidates in candidate_by_event.items():
+        ranked = sorted(candidates, key=lambda c: c.strength_score, reverse=True)
+        for candidate in ranked[:max_per_event]:
+            if await _dedupe_signal(redis, candidate.dedupe_key, settings.exchange_divergence_cooldown_seconds):
+                continue
+            db.add(candidate.signal)
+            created.append(candidate.signal)
+
+    if created:
+        logger.info(
+            "Exchange divergence signal detection completed",
+            extra={"exchange_divergence_signals_created": len(created)},
+        )
+
+    return created
+
+
 async def detect_market_movements(
     db: AsyncSession,
     redis: Redis | None,

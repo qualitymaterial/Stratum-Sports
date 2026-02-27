@@ -94,6 +94,9 @@ def evaluate_signal_for_connection(
     elif signal.signal_type == "MULTIBOOK_SYNC":
         if not connection.alert_multibook:
             return False, "Hidden: multibook alerts disabled.", thresholds
+    elif signal.signal_type == "EXCHANGE_DIVERGENCE":
+        if not connection.alert_multibook:
+            return False, "Hidden: multibook (cross-market) alerts disabled.", thresholds
     elif signal.market == "spreads":
         if not connection.alert_spreads:
             return False, "Hidden: spread alerts disabled.", thresholds

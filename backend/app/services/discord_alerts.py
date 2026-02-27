@@ -41,6 +41,26 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
         game_line = f"{game.away_team} @ {game.home_team}"
     signal_title = signal_display_type(signal.signal_type)
 
+    if signal.signal_type == "EXCHANGE_DIVERGENCE":
+        meta = signal.metadata_json or {}
+        divergence_type = str(meta.get("divergence_type", "UNKNOWN"))
+        lead_source = str(meta.get("lead_source", "UNKNOWN"))
+        lag_seconds = meta.get("lag_seconds")
+        exchange_prob = meta.get("exchange_probability")
+        lag_display = f"{lag_seconds}s" if lag_seconds is not None else "N/A"
+        prob_display = f"{float(exchange_prob):.1%}" if exchange_prob is not None else "N/A"
+
+        return (
+            "**STRATUM SIGNAL - NBA**\n"
+            "Title: EXCHANGE DIVERGENCE\n"
+            f"Game: {game_line}\n"
+            f"Divergence: {divergence_type}\n"
+            f"Lead: {lead_source}\n"
+            f"Lag: {lag_display}\n"
+            f"Exchange Prob: {prob_display}\n"
+            f"Strength: {signal.strength_score}"
+        )
+
     if signal.signal_type == "DISLOCATION":
         meta = signal.metadata_json or {}
         market_label = signal.market.replace("h2h", "Moneyline").title()
