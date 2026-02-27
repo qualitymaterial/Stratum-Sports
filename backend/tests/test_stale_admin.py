@@ -41,9 +41,9 @@ async def test_stale_admin_endpoint_returns_stale_users(
 ) -> None:
     """Admins with NULL last_login_at should appear in stale list."""
     # Create an admin who has never logged in
-    stale_admin = await _create_admin_user(db_session, "stale@example.com", last_login_at=None)
+    await _create_admin_user(db_session, "stale@example.com", last_login_at=None)
     # Create an admin who logged in recently (the one we'll use to authenticate)
-    active_admin = await _create_admin_user(
+    await _create_admin_user(
         db_session,
         "active@example.com",
         last_login_at=datetime.now(UTC),
@@ -73,7 +73,7 @@ async def test_stale_admin_excludes_recent_logins(
         "recent@example.com",
         last_login_at=datetime.now(UTC) - timedelta(days=5),
     )
-    caller = await _create_admin_user(
+    await _create_admin_user(
         db_session,
         "caller@example.com",
         last_login_at=datetime.now(UTC),
