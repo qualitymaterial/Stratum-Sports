@@ -204,6 +204,9 @@ class Settings(BaseSettings):
     exchange_divergence_cooldown_seconds: int = 900
     exchange_divergence_max_signals_per_event: int = 2
 
+    # ── Regime detection settings ─────────────────────────────────
+    regime_detection_enabled: bool = False
+
     ops_internal_token: str = "dev-ops-token"
     ops_digest_enabled: bool = False
     ops_digest_webhook_url: str = ""

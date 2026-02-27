@@ -18,6 +18,7 @@ from app.models.ops_digest_sent import OpsDigestSent
 from app.models.password_reset_token import PasswordResetToken
 from app.models.propagation_event import PropagationEvent
 from app.models.quote_move_event import QuoteMoveEvent
+from app.models.regime_snapshot import RegimeSnapshot
 from app.models.signal import Signal
 from app.models.structural_event import StructuralEvent
 from app.models.structural_event_venue_participation import (
@@ -49,6 +50,7 @@ __all__ = [
     "OddsSnapshot",
     "PropagationEvent",
     "QuoteMoveEvent",
+    "RegimeSnapshot",
     "Signal",
     "StructuralEvent",
     "StructuralEventVenueParticipation",

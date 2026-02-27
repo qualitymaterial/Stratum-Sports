@@ -499,6 +499,21 @@ async def run_polling_cycle(
             except Exception:
                 logger.exception("Exchange divergence signal generation failed; continuing")
 
+        # --- Regime detection (metadata-only enrichment, feature-flagged) ---
+        regime_enriched = 0
+        if settings.regime_detection_enabled and signals:
+            try:
+                from app.regime.config import regime_config_from_settings
+                from app.regime.service import RegimeService
+
+                regime_config = regime_config_from_settings(settings)
+                regime_svc = RegimeService(db, regime_config)
+                regime_event_ids = list({s.event_id for s in signals})
+                enriched, _persisted = await regime_svc.run(regime_event_ids, signals)
+                regime_enriched = enriched
+            except Exception:
+                logger.exception("Regime detection failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
@@ -517,6 +532,7 @@ async def run_polling_cycle(
         ingest_result["kalshi_skipped_no_market_id"] = kalshi_skipped_no_market_id
         ingest_result["polymarket_markets_polled"] = polymarket_markets_polled
         ingest_result["polymarket_quotes_inserted"] = polymarket_quotes_inserted
+        ingest_result["regime_signals_enriched"] = regime_enriched
 
         logger.info(
             "KALSHI_INGEST_SUMMARY polled=%d inserted=%d errors=%d skipped_no_alignment=%d skipped_no_market=%d",
