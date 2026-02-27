@@ -140,29 +140,6 @@ async def test_admin_kalshi_idempotency_audit_export(
     async_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    now = datetime.now(UTC)
-    # Insert duplicate quotes to trigger audit
-    q1 = ExchangeQuoteEvent(
-        canonical_event_key="cek_audit",
-        source="KALSHI",
-        market_id="mkt_dupe",
-        outcome_name="YES",
-        probability=0.5,
-        price=0.5,
-        timestamp=now,
-    )
-    q2 = ExchangeQuoteEvent(
-        canonical_event_key="cek_audit",
-        source="KALSHI",
-        market_id="mkt_dupe",
-        outcome_name="YES",
-        probability=0.5,
-        price=0.5,
-        timestamp=now,
-    )
-    db_session.add_all([q1, q2])
-    await db_session.commit()
-
     token = await _register(async_client, "admin-audit@example.com")
     await _make_admin(db_session, "admin-audit@example.com")
 
@@ -173,9 +150,8 @@ async def test_admin_kalshi_idempotency_audit_export(
     assert response.status_code == 200
     lines = response.text.strip().splitlines()
     assert "check_name,key_fields,duplicate_count" in lines[0]
-    assert len(lines) >= 2
-    assert "ExchangeQuoteEvent" in lines[1]
-    assert "mkt_dupe" in lines[1]
+    # With unique constraints enforced, no duplicates should exist
+    assert len(lines) == 1  # header only
 
 
 # ── 2. Poller Counters Mock Tests ──────────────────────────────────────────────────────────

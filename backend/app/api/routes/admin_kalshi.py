@@ -157,13 +157,13 @@ async def export_debug_view(
     ce_keys = [a.canonical_event_key for a in alignments]
 
     struct_stmt = text('''
-        SELECT DISTINCT ON (event_id) event_id, timestamp, threshold_value 
-        FROM structural_events 
+        SELECT DISTINCT ON (event_id) event_id, created_at, threshold_value
+        FROM structural_events
         WHERE event_id = ANY(:event_ids)
-        ORDER BY event_id, timestamp DESC
+        ORDER BY event_id, created_at DESC
     ''')
     structs = (await db.execute(struct_stmt, {"event_ids": sb_event_ids})).all()
-    struct_map = {r.event_id: {"ts": r.timestamp, "threshold": r.threshold_value} for r in structs}
+    struct_map = {r.event_id: {"ts": r.created_at, "threshold": r.threshold_value} for r in structs}
 
     quote_stmt = text('''
         SELECT DISTINCT ON (canonical_event_key) canonical_event_key, timestamp, probability 

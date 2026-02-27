@@ -14,8 +14,9 @@ from app.services.alignment_service import EventAlignmentService, NBA_TEAM_KALSH
 @pytest.fixture
 def mock_kalshi_client():
     client = MagicMock()
-    # Mock the internal httpx AsyncClient
     client._client = AsyncMock()
+    # get_events is async — must be awaitable
+    client.get_events = AsyncMock(return_value={"events": []})
     return client
 
 
@@ -53,13 +54,7 @@ async def test_sync_matches_events_and_upserts(db_session, mock_kalshi_client):
     await db_session.commit()
     
     # 2. Setup Kalshi API mock response
-    # The event_ticker MUST end with AWAYHOME (OKCDEN in this case)
-    # Note: earlier we matched KALSHI tickers like DENOKC (Away: DEN, Home: OKC)
-    # Wait, let's check our map. game=OKC at DEN. 
-    # Kalshi ticker suffix will be: away_abbrev + home_abbrev = OKCDEN
-    
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
+    mock_kalshi_client.get_events = AsyncMock(return_value={
         "events": [
             {
                 "event_ticker": "KXNBAGAME-26FEB27OKCDEN",
@@ -70,8 +65,7 @@ async def test_sync_matches_events_and_upserts(db_session, mock_kalshi_client):
                 "title": "Boston at New York",
             }
         ]
-    }
-    mock_kalshi_client._client.get.return_value = mock_response
+    })
 
     # 3. Run sync
     svc = EventAlignmentService(db_session, mock_kalshi_client)
