@@ -37,6 +37,7 @@ class UserOut(BaseModel):
     email: EmailStr
     tier: str
     is_admin: bool
+    admin_role: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

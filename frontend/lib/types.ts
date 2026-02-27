@@ -3,6 +3,7 @@ export type User = {
   email: string;
   tier: "free" | "pro";
   is_admin: boolean;
+  admin_role: "super_admin" | "ops_admin" | "support_admin" | "billing_admin" | null;
   created_at: string;
 };
 
