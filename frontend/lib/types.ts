@@ -773,3 +773,51 @@ export type PasswordPolicy = {
   require_digit: boolean;
   require_special: boolean;
 };
+
+export type WebhookOut = {
+  id: string;
+  url: string;
+  description: string | null;
+  is_active: boolean;
+  secret: string;
+};
+
+export type WebhookLogOut = {
+  id: string;
+  webhook_id: string;
+  signal_id: string | null;
+  status_code: number | null;
+  duration_ms: number;
+  error: string | null;
+  created_at: string;
+};
+
+export type PartnerUsage = {
+  month: string;
+  request_count: number;
+  included_limit: number;
+  remaining: number;
+  overage_count: number;
+  plan_level: string;
+};
+
+export type PartnerUsageHistoryRow = {
+  period_start: string | null;
+  period_end: string | null;
+  request_count: number;
+  included_limit: number;
+  overage_count: number;
+};
+
+export type PartnerBillingSummary = {
+  plan: {
+    plan_code: "api_monthly" | "api_annual" | null;
+    api_access_enabled: boolean;
+    soft_limit_monthly: number | null;
+    overage_enabled: boolean;
+    overage_price_cents: number | null;
+    overage_unit_quantity: number;
+  } | null;
+  current_usage: PartnerUsage;
+  history: PartnerUsageHistoryRow[];
+};

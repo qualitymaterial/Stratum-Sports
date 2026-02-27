@@ -42,10 +42,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const links = [
-    { href: "/app/dashboard", label: "Dashboard", proOnly: false },
-    { href: "/app/performance", label: "Performance", proOnly: false },
+    { href: "/app/dashboard", label: "Intel Feed", proOnly: false },
+    { href: "/app/performance", label: "Analytics", proOnly: false },
+    { href: "/app/developer", label: "Developer", proOnly: true },
     { href: "/app/watchlist", label: "Watchlist", proOnly: false },
-    { href: "/app/discord", label: "Alerts", proOnly: true },
+    { href: "/app/discord", label: "Discord Alerts", proOnly: true },
   ];
   if (user.is_admin) {
     links.push({ href: "/app/admin", label: "Admin", proOnly: false });

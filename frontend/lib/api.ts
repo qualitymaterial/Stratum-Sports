@@ -41,6 +41,9 @@ import {
   StaleAdminList,
   User,
   WatchlistItem,
+  WebhookOut,
+  WebhookLogOut,
+  PartnerBillingSummary,
 } from "@/lib/types";
 import { apiRequest, getApiBaseUrl } from "@/lib/apiClient";
 
@@ -999,4 +1002,64 @@ export async function getPublicTeaserKpis(options: {
   appendOptionalParam(params, "window_hours", options.window_hours);
   const query = params.toString();
   return apiRequest<PublicTeaserKpisResponse>(`/public/teaser/kpis${query ? `?${query}` : ""}`);
+}
+
+// ── Partner/Developer self-serve ──────────────────────
+
+export async function getPartnerWebhooks(token: string) {
+  return apiRequest<WebhookOut[]>("/partner/webhooks", { token });
+}
+
+export async function createPartnerWebhook(token: string, payload: { url: string; description?: string }) {
+  return apiRequest<WebhookOut>("/partner/webhooks", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function updatePartnerWebhook(
+  token: string,
+  webhookId: string,
+  payload: { url?: string; description?: string; is_active?: boolean },
+) {
+  return apiRequest<WebhookOut>(`/partner/webhooks/${webhookId}`, {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}
+
+export async function rotatePartnerWebhookSecret(token: string, webhookId: string) {
+  return apiRequest<WebhookOut>(`/partner/webhooks/${webhookId}/secret`, {
+    method: "POST",
+    token,
+  });
+}
+
+export async function deletePartnerWebhook(token: string, webhookId: string) {
+  return apiRequest<{ status: string }>(`/partner/webhooks/${webhookId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function getPartnerWebhookLogs(token: string, webhookId?: string, limit = 50) {
+  const params = new URLSearchParams();
+  if (webhookId) params.append("webhook_id", webhookId);
+  params.append("limit", String(limit));
+  return apiRequest<WebhookLogOut[]>(`/partner/webhooks/logs?${params.toString()}`, {
+    token,
+  });
+}
+
+export async function getPartnerBillingSummary(token: string) {
+  return apiRequest<PartnerBillingSummary>("/partner/billing-summary", { token });
+}
+
+export async function createPartnerPortalSession(token: string) {
+  return apiRequest<{ url: string }>("/partner/portal", {
+    method: "POST",
+    token,
+  });
 }
