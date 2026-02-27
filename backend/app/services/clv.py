@@ -10,6 +10,7 @@ from app.models.clv_record import ClvRecord
 from app.models.game import Game
 from app.models.signal import Signal
 from app.services.closing import compute_and_persist_closing_consensus
+from app.services.webhook_delivery import dispatch_signal_to_webhooks
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +53,19 @@ def _extract_entry(signal: Signal) -> tuple[str | None, float | None, float | No
         entry_line = _coerce_float(metadata.get("book_line"))
         entry_price = _coerce_float(metadata.get("book_price"))
     elif signal.signal_type == "STEAM":
-        entry_line = _coerce_float(metadata.get("entry_line"))
-        if entry_line is None:
-            entry_line = _coerce_float(metadata.get("end_line"))
-    elif signal.signal_type in {"MOVE", "KEY_CROSS", "MULTIBOOK_SYNC"}:
+        entry_line = signal.to_value
+        entry_price = _coerce_float(metadata.get("to_price"))  # Optional price at tail end of steam
+    elif signal.signal_type == "EXCHANGE_DIVERGENCE":
+        # For exchange divergence, entry is harder to define. 
+        # Typically the 'sportsbook_threshold' is the price being beaten.
+        entry_line = _coerce_float(metadata.get("sportsbook_threshold"))
         if signal.market == "h2h":
-            base_price = signal.to_price if signal.to_price is not None else signal.from_price
-            entry_price = float(base_price) if base_price is not None else None
-        else:
-            entry_line = float(signal.to_value)
+            entry_price = entry_line
+            entry_line = None
     else:
+        # Defaults for MOVE, KEY_CROSS, MULTIBOOK_SYNC
         if signal.market == "h2h":
-            base_price = signal.to_price if signal.to_price is not None else signal.from_price
-            entry_price = float(base_price) if base_price is not None else None
+            entry_price = float(signal.to_price) if signal.to_price is not None else float(signal.from_price)
         else:
             entry_line = float(signal.to_value)
 
@@ -121,6 +122,7 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
     skipped_missing_close = 0
     missing_close_event_ids: set[str] = set()
 
+    new_records: list[ClvRecord] = []
     for signal in signals:
         event_commence = commence_by_event.get(signal.event_id)
         if event_commence is None or signal.created_at > event_commence:
@@ -164,26 +166,31 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
             missing_close_event_ids.add(signal.event_id)
             continue
 
-        db.add(
-            ClvRecord(
-                signal_id=signal.id,
-                event_id=signal.event_id,
-                signal_type=signal.signal_type,
-                market=signal.market,
-                outcome_name=outcome_name,
-                entry_line=entry_line,
-                entry_price=entry_price,
-                close_line=close_line,
-                close_price=close_price,
-                clv_line=clv_line,
-                clv_prob=clv_prob,
-                computed_at=now,
-            )
+        record = ClvRecord(
+            signal_id=signal.id,
+            event_id=signal.event_id,
+            signal_type=signal.signal_type,
+            market=signal.market,
+            outcome_name=outcome_name,
+            entry_line=entry_line,
+            entry_price=entry_price,
+            close_line=close_line,
+            close_price=close_price,
+            clv_line=clv_line,
+            clv_prob=clv_prob,
+            computed_at=now,
         )
+        db.add(record)
+        new_records.append(record)
         inserted += 1
 
     if inserted > 0:
         await db.commit()
+        try:
+            from app.services.webhook_delivery import dispatch_clv_to_webhooks
+            await dispatch_clv_to_webhooks(db, new_records)
+        except Exception:
+            logger.exception("Failed to trigger CLV webhooks")
 
     logger.info(
         "CLV computation completed",

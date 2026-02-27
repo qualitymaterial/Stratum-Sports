@@ -2,6 +2,7 @@ from app.models.admin_audit_log import AdminAuditLog
 from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
 from app.models.api_partner_usage_period import ApiPartnerUsagePeriod
+from app.models.api_partner_webhook import ApiPartnerWebhook, WebhookDeliveryLog
 from app.models.base import Base
 from app.models.canonical_event_alignment import CanonicalEventAlignment
 from app.models.closing_consensus import ClosingConsensus
@@ -62,4 +63,6 @@ __all__ = [
     "DiscordConnection",
     "PasswordResetToken",
     "TeaserInteractionEvent",
+    "ApiPartnerWebhook",
+    "WebhookDeliveryLog",
 ]

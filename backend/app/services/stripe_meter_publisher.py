@@ -149,11 +149,18 @@ async def _post_anomaly_discord(webhook_url: str, anomalies: list[dict]) -> None
         )
 
     embed = {
-        "title": "API Usage Anomaly Alert",
+        "title": "🚨 API Usage Anomaly Alert",
         "description": "\n".join(lines),
         "color": 0xFFA500,
-        "footer": {"text": "Stratum M5 anomaly alerting"},
+        "footer": {"text": "Stratum Sales & Ops Engine"},
     }
+
+    # If anyone is at 90%+, add a sales call-to-action
+    if any(a["threshold_pct"] >= 90 for a in highest_per_user.values()):
+        embed["title"] = "💰 UPGRADE OPPORTUNITY: Partner at 90%+"
+        embed["color"] = 0x00FF00  # Green for money/opportunity
+        cta = "\n\n**Action Required:** Reach out to these partners for a plan upgrade before they hit throttling."
+        embed["description"] = f"{embed['description']}{cta}"
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:

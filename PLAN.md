@@ -1,14 +1,15 @@
 # Stratum Sports Plan
 
 ## 1) Executive Summary
-Stratum already has a strong production MVP core: async ingestion, persisted odds snapshots, explainable signal generation, Pro-tier gating, and Dockerized operations.
+Stratum has pivoted from a premium betting product to a **Market Intelligence Infrastructure Layer**. 
 
-The highest-leverage path is to **extend the current cycle** (not rewrite it) with:
-1. Persisted consensus/dispersion snapshots.
-2. Book dislocation signals.
-3. Steam/movement v2 signals.
-4. Watchlist-scoped live shock alerts.
-5. Historical close + CLV analytics.
+The core system now supports real-time signal distribution via a high-performance **Webhook Delivery Engine**, institutional-grade usage metering, and the "Infrastructure" pricing tier.
+
+The highest-leverage path forward is:
+1. Signal delivery scaling (Webhooks v1 shipped).
+2. Institutional analytics (Book dislocation and Steam v2).
+3. Strategic pricing ($149/mo base for Infrastructure partners).
+4. Sales-driven usage anomaly alerting.
 
 This sequence maximizes monetizable analytics value while controlling API spend and preserving reliability.
 
@@ -63,20 +64,25 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 ### M5 — Launch hardening (shipped)
 - Commit: `73738c4`
 - Scope: `X-RateLimit-*` headers on all responses from global rate limiter, per-partner 60 req/min rate limiting with `X-Partner-RateLimit-*` headers, usage anomaly alerting at configurable thresholds (80/90/100%) with optional Discord alert, structured lifecycle logging across webhook processing and entitlement state transitions.
-- Files: `config.py`, `rate_limit.py`, `api_usage_middleware.py`, `stripe_meter_publisher.py`, `stripe_service.py`.
+
+### M6 — Infrastructure Pivot (shipped)
+- Commit: `infrastructure-pivot-HEAD`
+- Scope: **Real-time Webhook Delivery Engine** with HMAC-SHA256 signing, partner self-serve webhook management, sales-focused 90% usage anomaly alerting, and updated Infrastructure-grade pricing defaults ($149/mo, 50k requests, 120 req/min).
+- Files: `api_partner_webhook.py`, `webhook_delivery.py`, `partner.py`, `poller.py`, `stripe_meter_publisher.py`, `config.py`.
+- New Tools: `backend/scripts/test_webhook.py` CLI utility.
 
 ---
 
-## Stratum API Product Definition (v1)
-- **What it is:** Intel API is a ranked signal feed plus quality filters for partners and private integrations.
-- **Primary consumers:** builders shipping apps, internal trading dashboards, automation workflows, and analytics teams.
-- **Core value:** fast access to structured market movement context with consistent, machine-readable output.
-- **What it is not:** guaranteed predictions, gambling advice, or a guaranteed-profit system.
-- **Differentiator:** timing context (`minutes_to_tip`, `time_bucket`) plus velocity and composite ranking.
-- **Scoring approach:** additive, deterministic v1 heuristic designed for prioritization.
-- **Integration model:** API subscription is independent from Pro web subscription.
-- **Compatibility promise:** default evolution is additive fields/filters without breaking existing clients.
-- **Commercial model:** partner access with plan + usage policy controls.
+## Stratum API Product Definition (Identity: Infrastructure)
+- **What it is:** The institutional backbone for real-time betting signal distribution.
+- **Primary consumers:** Quantitative funds, betting SaaS builders, and high-frequency syndicates.
+- **Core value:** Real-time push delivery (Webhooks) of structured market intelligence.
+- **Differentiator:** Signal speed + delivery flexibility + institutional transparency.
+- **Commercial model:** 
+  - **Builder:** $49/mo (10k requests).
+  - **Pro Infra:** $149/mo (50k requests).
+  - **Enterprise:** Custom (Contract).
+- **Overage:** $2.00 per 1,000 requests.
 - **Operator stance:** reliability, auditability, and explainability over opaque black-box outputs.
 
 ---

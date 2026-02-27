@@ -1,0 +1,152 @@
+import hmac
+import hashlib
+import json
+import logging
+import asyncio
+from datetime import UTC, datetime
+from typing import Any, Dict
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.models.api_partner_webhook import ApiPartnerWebhook, WebhookDeliveryLog
+from app.models.clv_record import ClvRecord
+from app.models.signal import Signal
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
+
+async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -> None:
+    """
+    Main entry point for dispatching signals to all active partner webhooks.
+    """
+    if not signals:
+        return
+
+    # In a real enterprise system, this would push to a Task Queue (Celery/RabbitMQ).
+    # For this baseline, we'll use a background asyncio gather to prevent blocking the poller.
+    
+    # 1. Fetch all active webhooks
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active == True)
+    webhooks = (await db.execute(stmt)).scalars().all()
+    
+    if not webhooks:
+        return
+
+    # 2. Build delivery tasks
+    tasks = []
+    for signal in signals:
+        # Prepare the payload once per signal
+        payload = {
+            "event": "signal.detected",
+            "signal_id": str(signal.id),
+            "event_id": signal.event_id,
+            "market": signal.market,
+            "signal_type": signal.signal_type,
+            "direction": signal.direction,
+            "strength_score": signal.strength_score,
+            "time_bucket": signal.time_bucket,
+            "from_value": signal.from_value,
+            "to_value": signal.to_value,
+            "created_at": signal.created_at.isoformat(),
+            "metadata": signal.metadata_json
+        }
+        
+        for webhook in webhooks:
+            # Note: In an institutional setup, we would verify the user_id 
+            # owns the signal or has a specific subscription.
+            # For now, we broadcast to all active partner webhooks.
+            tasks.append(_deliver_webhook(webhook, signal.id, payload))
+
+    if tasks:
+        # Trigger fire-and-forget delivery
+        asyncio.create_task(asyncio.gather(*tasks))
+
+
+async def dispatch_clv_to_webhooks(db: AsyncSession, clv_records: list[ClvRecord]) -> None:
+    """
+    Dispatches CLV enrichment updates to all active partner webhooks.
+    """
+    if not clv_records:
+        return
+
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active == True)
+    webhooks = (await db.execute(stmt)).scalars().all()
+    if not webhooks:
+        return
+
+    tasks = []
+    for record in clv_records:
+        payload = {
+            "event": "signal.clv_finalized",
+            "signal_id": str(record.signal_id),
+            "event_id": record.event_id,
+            "market": record.market,
+            "signal_type": record.signal_type,
+            "outcome_name": record.outcome_name,
+            "entry_line": record.entry_line,
+            "entry_price": record.entry_price,
+            "close_line": record.close_line,
+            "close_price": record.close_price,
+            "clv_line": record.clv_line,
+            "clv_prob": record.clv_prob,
+            "computed_at": record.computed_at.isoformat(),
+        }
+        for webhook in webhooks:
+            tasks.append(_deliver_webhook(webhook, record.signal_id, payload))
+
+    if tasks:
+        asyncio.create_task(asyncio.gather(*tasks))
+
+async def _deliver_webhook(webhook: ApiPartnerWebhook, signal_id: Any, payload: Dict[str, Any]) -> None:
+    """
+    Handles the individual HTTP POST and logging for a single webhook delivery.
+    """
+    from app.core.database import AsyncSessionLocal
+    
+    start_time = datetime.now(UTC)
+    payload_str = json.dumps(payload)
+    
+    # Generate HMAC signature
+    signature = hmac.new(
+        webhook.secret.encode(),
+        payload_str.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    
+    headers = {
+        "Content-Type": "application/json",
+        "X-Stratum-Signature": f"sha256={signature}",
+        "User-Agent": "Stratum-Webhook-Engine/1.0"
+    }
+
+    status_code = None
+    response_body = None
+    error = None
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(webhook.url, content=payload_str, headers=headers)
+            status_code = response.status_code
+            response_body = response.text[:1000] # Cap body storage
+    except Exception as e:
+        error = str(e)
+        logger.error(f"Webhook delivery failed to {webhook.url}: {error}")
+
+    duration = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
+    # Log the delivery
+    async with AsyncSessionLocal() as db:
+        log = WebhookDeliveryLog(
+            webhook_id=webhook.id,
+            signal_id=signal_id,
+            status_code=status_code,
+            payload=payload,
+            response_body=response_body,
+            duration_ms=duration,
+            error=error
+        )
+        db.add(log)
+        await db.commit()

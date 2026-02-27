@@ -32,6 +32,7 @@ from app.services.cross_market_divergence import CrossMarketDivergenceService
 from app.services.cross_market_lead_lag import CrossMarketLeadLagService
 from app.services.exchange_ingestion import ExchangeIngestionService
 from app.services.structural_events import StructuralEventAnalysisService
+from app.services.webhook_delivery import dispatch_signal_to_webhooks
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -542,6 +543,11 @@ async def run_polling_cycle(
             kalshi_skipped_no_alignment,
             kalshi_skipped_no_market_id,
         )
+        if signals:
+            try:
+                await dispatch_signal_to_webhooks(db, signals)
+            except Exception:
+                logger.exception("Webhook delivery orchestration failed; continuing")
 
         return ingest_result
 

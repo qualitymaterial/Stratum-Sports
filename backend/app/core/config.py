@@ -250,9 +250,11 @@ class Settings(BaseSettings):
     api_usage_redis_key_prefix: str = "api_usage"
 
     # ── Rate-limit & anomaly alerting (M5) ──────────────────────
-    partner_rate_limit_per_minute: int = 60
-    anomaly_alert_thresholds: str = "80,90,100"
-    anomaly_alert_discord_enabled: bool = False
+    partner_rate_limit_per_minute: int = 120
+    partner_soft_limit_monthly: int = 50000
+    partner_overage_price_cents: int = 200
+    anomaly_alert_thresholds: str = "75,90,100"
+    anomaly_alert_discord_enabled: bool = True
 
     # ── Exchange adapter settings ─────────────────────────────────
     kalshi_api_key: str = ""

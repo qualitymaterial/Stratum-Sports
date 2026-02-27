@@ -1,15 +1,202 @@
 """Partner self-serve endpoints for API usage visibility and billing."""
 
+import uuid
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from pydantic import BaseModel, HttpUrl
 
 from app.api.deps import get_current_user, get_current_user_or_api_partner
 from app.core.database import get_db
 from app.models.api_partner_entitlement import ApiPartnerEntitlement
+from app.models.api_partner_webhook import ApiPartnerWebhook, WebhookDeliveryLog
 from app.models.user import User
 
 router = APIRouter()
+
+
+class WebhookCreate(BaseModel):
+    url: HttpUrl
+    description: str | None = None
+
+
+class WebhookUpdate(BaseModel):
+    url: HttpUrl | None = None
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class WebhookOut(BaseModel):
+    id: uuid.UUID
+    url: str
+    description: str | None = None
+    is_active: bool
+    secret: str
+
+    class Config:
+        from_attributes = True
+
+
+class WebhookLogOut(BaseModel):
+    id: uuid.UUID
+    webhook_id: uuid.UUID
+    signal_id: uuid.UUID | None
+    status_code: int | None
+    duration_ms: int
+    error: str | None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/webhooks", response_model=list[WebhookOut])
+async def list_partner_webhooks(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+) -> list:
+    """List all webhooks for the authenticated partner."""
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.user_id == user.id)
+    webhooks = (await db.execute(stmt)).scalars().all()
+    return [
+        WebhookOut.model_validate(w)
+        for w in webhooks
+    ]
+
+
+@router.post("/webhooks", response_model=WebhookOut)
+async def create_partner_webhook(
+    payload: WebhookCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+) -> WebhookOut:
+    """Create a new webhook for the partner."""
+    import secrets
+    
+    # Check limit? (e.g. max 5 webhooks)
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.user_id == user.id)
+    count = len((await db.execute(stmt)).scalars().all())
+    if count >= 5:
+        raise HTTPException(status_code=400, detail="Maximum of 5 webhooks allowed")
+
+    webhook = ApiPartnerWebhook(
+        user_id=user.id,
+        url=str(payload.url),
+        description=payload.description,
+        secret=f"whsec_{secrets.token_hex(24)}"
+    )
+    db.add(webhook)
+    await db.commit()
+    await db.refresh(webhook)
+
+    return WebhookOut.model_validate(webhook)
+
+
+@router.patch("/webhooks/{webhook_id}", response_model=WebhookOut)
+async def update_partner_webhook(
+    webhook_id: uuid.UUID,
+    payload: WebhookUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+) -> WebhookOut:
+    """Update a partner webhook."""
+    stmt = select(ApiPartnerWebhook).where(
+        ApiPartnerWebhook.id == webhook_id, ApiPartnerWebhook.user_id == user.id
+    )
+    webhook = (await db.execute(stmt)).scalar_one_or_none()
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    if payload.url is not None:
+        webhook.url = str(payload.url)
+    if payload.description is not None:
+        webhook.description = payload.description
+    if payload.is_active is not None:
+        webhook.is_active = payload.is_active
+
+    await db.commit()
+    await db.refresh(webhook)
+    return WebhookOut(
+        id=webhook.id,
+        url=webhook.url,
+        description=webhook.description,
+        is_active=webhook.is_active,
+        secret=webhook.secret,
+    )
+
+
+@router.post("/webhooks/{webhook_id}/secret", response_model=WebhookOut)
+async def rotate_partner_webhook_secret(
+    webhook_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+) -> WebhookOut:
+    """Rotate the signing secret for a webhook."""
+    import secrets
+    stmt = select(ApiPartnerWebhook).where(
+        ApiPartnerWebhook.id == webhook_id, ApiPartnerWebhook.user_id == user.id
+    )
+    webhook = (await db.execute(stmt)).scalar_one_or_none()
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    webhook.secret = f"whsec_{secrets.token_hex(24)}"
+    await db.commit()
+    await db.refresh(webhook)
+    return WebhookOut(
+        id=webhook.id,
+        url=webhook.url,
+        description=webhook.description,
+        is_active=webhook.is_active,
+        secret=webhook.secret,
+    )
+
+
+@router.delete("/webhooks/{webhook_id}")
+async def delete_partner_webhook(
+    webhook_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+) -> dict:
+    """Delete a partner webhook."""
+    stmt = select(ApiPartnerWebhook).where(
+        ApiPartnerWebhook.id == webhook_id, ApiPartnerWebhook.user_id == user.id
+    )
+    webhook = (await db.execute(stmt)).scalar_one_or_none()
+    if not webhook:
+        raise HTTPException(status_code=404, detail="Webhook not found")
+
+    await db.delete(webhook)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/webhooks/logs", response_model=list[WebhookLogOut])
+async def list_partner_webhook_logs(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user_or_api_partner),
+    webhook_id: uuid.UUID | None = Query(None),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list:
+    """List delivery logs for the partner's webhooks."""
+    stmt = (
+        select(WebhookDeliveryLog)
+        .join(ApiPartnerWebhook)
+        .where(ApiPartnerWebhook.user_id == user.id)
+    )
+    
+    if webhook_id:
+        stmt = stmt.where(WebhookDeliveryLog.webhook_id == webhook_id)
+        
+    stmt = stmt.order_by(desc(WebhookDeliveryLog.created_at)).limit(limit)
+    logs = (await db.execute(stmt)).scalars().all()
+    
+    return [
+        WebhookLogOut.model_validate(l)
+        for l in logs
+    ]
 
 
 @router.get("/usage")
