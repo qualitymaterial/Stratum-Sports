@@ -121,7 +121,7 @@ export default function LoginPage() {
       <div className="w-full rounded-2xl border border-borderTone bg-panel p-8 shadow-terminal">
         <p className="text-xs uppercase tracking-[0.28em] text-textMute">Stratum Sports</p>
         <h1 className="mt-3 text-2xl font-semibold text-textMain">Sign In</h1>
-        <p className="mt-2 text-sm text-textMute">Institutional-grade NBA market intelligence.</p>
+        <p className="mt-2 text-sm text-textMute">Institutional-grade market intelligence infrastructure.</p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
           <div>

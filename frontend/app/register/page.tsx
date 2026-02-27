@@ -35,7 +35,7 @@ export default function RegisterPage() {
       <div className="w-full rounded-2xl border border-borderTone bg-panel p-8 shadow-terminal">
         <p className="text-xs uppercase tracking-[0.28em] text-textMute">Stratum Sports</p>
         <h1 className="mt-3 text-2xl font-semibold text-textMain">Create Account</h1>
-        <p className="mt-2 text-sm text-textMute">Free tier starts with delayed market data.</p>
+        <p className="mt-2 text-sm text-textMute">The institutional-grade backbone of market intelligence.</p>
 
         <form onSubmit={onSubmit} className="mt-8 space-y-4">
           <div>
