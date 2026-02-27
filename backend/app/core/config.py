@@ -100,6 +100,14 @@ class Settings(BaseSettings):
     mfa_challenge_token_expire_minutes: int = 5   # 5min MFA challenge window
     password_reset_token_expire_minutes: int = 30
 
+    # ── Password policy ────────────────────────────────────────
+    password_min_length: int = 10
+    password_require_uppercase: bool = True
+    password_require_lowercase: bool = True
+    password_require_digit: bool = True
+    password_require_special: bool = True
+    stale_admin_days: int = 30
+
     database_url: str = ""
     postgres_user: str = "stratum"
     postgres_password: str = "stratum"

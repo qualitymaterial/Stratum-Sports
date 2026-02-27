@@ -30,6 +30,7 @@ import {
   OpportunityPoint,
   OpportunityTeaserPoint,
   OpsTelemetry,
+  PasswordPolicy,
   PollerHealth,
   PublicTeaserKpisResponse,
   PublicTeaserOpportunity,
@@ -37,6 +38,7 @@ import {
   SignalQualityWeeklySummary,
   SignalQualityRow,
   SportKey,
+  StaleAdminList,
   User,
   WatchlistItem,
 } from "@/lib/types";
@@ -973,6 +975,19 @@ export async function getAdminOpsTelemetry(token: string, days = 7) {
   const params = new URLSearchParams();
   appendOptionalParam(params, "days", days);
   return apiRequest<OpsTelemetry>(`/admin/ops/telemetry?${params.toString()}`, { token });
+}
+
+// ── Access review & password policy ────────────────────
+
+export async function getStaleAdmins(token: string, days?: number) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", days);
+  const query = params.toString();
+  return apiRequest<StaleAdminList>(`/admin/access-review/stale${query ? `?${query}` : ""}`, { token });
+}
+
+export async function getPasswordPolicy() {
+  return apiRequest<PasswordPolicy>("/auth/password-policy");
 }
 
 export async function getPublicTeaserKpis(options: {

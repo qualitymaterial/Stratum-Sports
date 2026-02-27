@@ -623,3 +623,22 @@ class OpsTelemetryOut(BaseModel):
     degraded_rate: float
     avg_cycle_duration_ms: float | None
     feature_flags: dict[str, bool]
+
+
+# ---------------------------------------------------------------------------
+# Stale admin detection
+# ---------------------------------------------------------------------------
+
+
+class StaleAdminItem(BaseModel):
+    user_id: UUID
+    email: str
+    admin_role: str | None
+    last_login_at: datetime | None
+    days_since_login: int | None
+
+
+class StaleAdminListOut(BaseModel):
+    threshold_days: int
+    total: int
+    items: list[StaleAdminItem]

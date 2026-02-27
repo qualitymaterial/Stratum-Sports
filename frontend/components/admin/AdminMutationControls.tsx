@@ -65,7 +65,15 @@ export function AdminMutationControls() {
         </label>
       )}
       {ctx.mutationError && <p className="mt-2 text-sm text-negative">{ctx.mutationError}</p>}
-      {ctx.mutationResult && <p className="mt-2 text-sm text-positive">{ctx.mutationResult}</p>}
+      {ctx.mutationResult && (
+        <div className="mt-2 rounded border border-positive/30 bg-positive/5 p-2 text-sm">
+          <p className="font-medium text-positive">Action completed</p>
+          <p className="mt-0.5 text-xs text-textMute">{ctx.mutationResult}</p>
+          <p className="mt-0.5 text-xs text-textMute">
+            at {new Date().toLocaleString()}
+          </p>
+        </div>
+      )}
     </>
   );
 }

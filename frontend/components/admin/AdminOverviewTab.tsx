@@ -7,9 +7,10 @@ import {
   downloadAdminOutcomesJson,
   getAdminOutcomesReport,
   getAdminOverview,
+  getStaleAdmins,
 } from "@/lib/api";
 import { hasProAccess } from "@/lib/access";
-import { AdminOutcomesReport, AdminOverview, User } from "@/lib/types";
+import { AdminOutcomesReport, AdminOverview, StaleAdminList, User } from "@/lib/types";
 
 type Props = { token: string; user: User };
 
@@ -37,6 +38,9 @@ export function AdminOverviewTab({ token, user }: Props) {
     "summary" | "by_signal_type" | "by_market" | "top_filtered_reasons"
   >("summary");
   const [outcomesExporting, setOutcomesExporting] = useState<"json" | "csv" | null>(null);
+
+  const [staleAdmins, setStaleAdmins] = useState<StaleAdminList | null>(null);
+  const [staleAdminsLoading, setStaleAdminsLoading] = useState(false);
 
   const loadOutcomes = async (authToken: string) => {
     setOutcomesLoading(true);
@@ -101,6 +105,18 @@ export function AdminOverviewTab({ token, user }: Props) {
     }
   };
 
+  const loadStaleAdmins = async () => {
+    if (!token) return;
+    setStaleAdminsLoading(true);
+    try {
+      setStaleAdmins(await getStaleAdmins(token));
+    } catch {
+      // non-critical — silently ignore
+    } finally {
+      setStaleAdminsLoading(false);
+    }
+  };
+
   const load = async () => {
     if (!token || !user?.is_admin) return;
     setRefreshing(true);
@@ -115,7 +131,10 @@ export function AdminOverviewTab({ token, user }: Props) {
   };
 
   useEffect(() => {
-    if (token && user?.is_admin) void load();
+    if (token && user?.is_admin) {
+      void load();
+      void loadStaleAdmins();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, user?.is_admin, days, cycleLimit]);
 
@@ -358,6 +377,13 @@ export function AdminOverviewTab({ token, user }: Props) {
               </div>
             </div>
 
+            {outcomesReport.kpis.clv_samples < 30 && (
+              <div className="mt-4 rounded border border-accent/30 bg-accent/5 p-2 text-xs text-textMute">
+                Baseline building — {outcomesReport.kpis.clv_samples} / 30 minimum samples.
+                Results will stabilize as more CLV records are computed.
+              </div>
+            )}
+
             <div className="mt-4 grid gap-3 md:grid-cols-3">
               <div className="rounded border border-borderTone bg-panelSoft p-3">
                 <p className="text-[11px] uppercase tracking-wider text-textMute">By Signal Type</p>
@@ -498,6 +524,43 @@ export function AdminOverviewTab({ token, user }: Props) {
                 {conversion.by_sport.length === 0 && (
                   <tr><td colSpan={4} className="py-3 text-xs text-textMute">No teaser interactions recorded in this window.</td></tr>
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {staleAdmins && staleAdmins.total > 0 && (
+        <div className="rounded-xl border border-accent/30 bg-panel p-5 shadow-terminal">
+          <p className="text-xs uppercase tracking-wider text-accent">
+            Stale Admin Accounts ({staleAdmins.total})
+          </p>
+          <p className="mt-1 text-xs text-textMute">
+            Admins who have not logged in within {staleAdmins.threshold_days} days.
+          </p>
+          <div className="mt-3 overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                  <th className="border-b border-borderTone py-2">Email</th>
+                  <th className="border-b border-borderTone py-2">Role</th>
+                  <th className="border-b border-borderTone py-2">Last Login</th>
+                  <th className="border-b border-borderTone py-2">Days Since</th>
+                </tr>
+              </thead>
+              <tbody>
+                {staleAdmins.items.map((item) => (
+                  <tr key={item.user_id}>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{item.email}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{item.admin_role ?? "-"}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMute">
+                      {item.last_login_at ? new Date(item.last_login_at).toLocaleDateString() : "Never"}
+                    </td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMute">
+                      {item.days_since_login ?? "N/A"}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

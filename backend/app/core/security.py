@@ -28,6 +28,24 @@ def get_password_hash(password: str) -> str:
     ).decode("utf-8")
 
 
+def validate_password_strength(password: str) -> list[str]:
+    """Return list of policy violation messages. Empty list means valid."""
+    import re
+    s = get_settings()
+    errors: list[str] = []
+    if len(password) < s.password_min_length:
+        errors.append(f"Password must be at least {s.password_min_length} characters")
+    if s.password_require_uppercase and not re.search(r"[A-Z]", password):
+        errors.append("Password must contain at least one uppercase letter")
+    if s.password_require_lowercase and not re.search(r"[a-z]", password):
+        errors.append("Password must contain at least one lowercase letter")
+    if s.password_require_digit and not re.search(r"\d", password):
+        errors.append("Password must contain at least one digit")
+    if s.password_require_special and not re.search(r"[^A-Za-z0-9]", password):
+        errors.append("Password must contain at least one special character")
+    return errors
+
+
 def create_access_token(
     subject: str,
     expires_delta: timedelta | None = None,

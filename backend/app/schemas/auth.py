@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(min_length=10, max_length=128)
 
 
 class LoginRequest(BaseModel):
@@ -20,7 +20,7 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetConfirmRequest(BaseModel):
     token: str = Field(min_length=16, max_length=512)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(min_length=10, max_length=128)
 
 
 class MessageResponse(BaseModel):
@@ -100,3 +100,11 @@ class MfaRegenerateBackupCodesRequest(BaseModel):
 
 class MfaRegenerateBackupCodesResponse(BaseModel):
     backup_codes: list[str]
+
+
+class PasswordPolicyOut(BaseModel):
+    min_length: int
+    require_uppercase: bool
+    require_lowercase: bool
+    require_digit: bool
+    require_special: bool

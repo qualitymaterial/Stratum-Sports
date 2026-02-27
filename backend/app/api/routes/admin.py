@@ -82,6 +82,8 @@ from app.schemas.ops import (
     OperatorReport,
     PollerHealthCycleSummary,
     PollerHealthOut,
+    StaleAdminItem,
+    StaleAdminListOut,
 )
 from app.services.admin_audit import write_admin_audit_log
 from app.services.admin_outcomes import build_admin_outcomes_report
@@ -216,6 +218,13 @@ def _build_outcomes_filename(suffix: str, extension: str) -> str:
     return f"admin-outcomes-{suffix}-{timestamp}.{extension}"
 
 
+def _fmt_rate(val: float | None) -> str:
+    """Format a 0-1 rate as a percentage string for CSV export."""
+    if val is None:
+        return ""
+    return f"{val * 100:.1f}%"
+
+
 def _render_outcomes_csv(
     report: AdminOutcomesReportOut,
     *,
@@ -230,13 +239,13 @@ def _render_outcomes_csv(
             ("clv_samples", report.kpis.clv_samples, report.baseline_kpis.clv_samples, report.delta_vs_baseline.clv_samples_delta),
             ("positive_count", report.kpis.positive_count, report.baseline_kpis.positive_count, report.delta_vs_baseline.positive_count_delta),
             ("negative_count", report.kpis.negative_count, report.baseline_kpis.negative_count, report.delta_vs_baseline.negative_count_delta),
-            ("clv_positive_rate", report.kpis.clv_positive_rate, report.baseline_kpis.clv_positive_rate, report.delta_vs_baseline.clv_positive_rate_delta),
+            ("clv_positive_rate", _fmt_rate(report.kpis.clv_positive_rate), _fmt_rate(report.baseline_kpis.clv_positive_rate), _fmt_rate(report.delta_vs_baseline.clv_positive_rate_delta)),
             ("avg_clv_line", report.kpis.avg_clv_line, report.baseline_kpis.avg_clv_line, report.delta_vs_baseline.avg_clv_line_delta),
             ("avg_clv_prob", report.kpis.avg_clv_prob, report.baseline_kpis.avg_clv_prob, report.delta_vs_baseline.avg_clv_prob_delta),
-            ("sent_rate", report.kpis.sent_rate, report.baseline_kpis.sent_rate, report.delta_vs_baseline.sent_rate_delta),
-            ("stale_rate", report.kpis.stale_rate, report.baseline_kpis.stale_rate, report.delta_vs_baseline.stale_rate_delta),
-            ("degraded_cycle_rate", report.kpis.degraded_cycle_rate, report.baseline_kpis.degraded_cycle_rate, report.delta_vs_baseline.degraded_cycle_rate_delta),
-            ("alert_failure_rate", report.kpis.alert_failure_rate, report.baseline_kpis.alert_failure_rate, report.delta_vs_baseline.alert_failure_rate_delta),
+            ("sent_rate", _fmt_rate(report.kpis.sent_rate), _fmt_rate(report.baseline_kpis.sent_rate), _fmt_rate(report.delta_vs_baseline.sent_rate_delta)),
+            ("stale_rate", _fmt_rate(report.kpis.stale_rate), _fmt_rate(report.baseline_kpis.stale_rate), _fmt_rate(report.delta_vs_baseline.stale_rate_delta)),
+            ("degraded_cycle_rate", _fmt_rate(report.kpis.degraded_cycle_rate), _fmt_rate(report.baseline_kpis.degraded_cycle_rate), _fmt_rate(report.delta_vs_baseline.degraded_cycle_rate_delta)),
+            ("alert_failure_rate", _fmt_rate(report.kpis.alert_failure_rate), _fmt_rate(report.baseline_kpis.alert_failure_rate), _fmt_rate(report.delta_vs_baseline.alert_failure_rate_delta)),
             ("status", report.status, "baseline_comparison", report.status_reason),
         ]
         if len(summary_rows) > OUTCOMES_EXPORT_MAX_ROWS:
@@ -249,14 +258,14 @@ def _render_outcomes_csv(
         if len(rows) > OUTCOMES_EXPORT_MAX_ROWS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
         for row in rows:
-            writer.writerow([row.name, row.count, row.positive_rate, row.avg_clv_line, row.avg_clv_prob])
+            writer.writerow([row.name, row.count, _fmt_rate(row.positive_rate), row.avg_clv_line, row.avg_clv_prob])
     elif table == "by_market":
         writer.writerow(["market", "count", "positive_rate", "avg_clv_line", "avg_clv_prob"])
         rows = report.by_market
         if len(rows) > OUTCOMES_EXPORT_MAX_ROWS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CSV export row limit exceeded")
         for row in rows:
-            writer.writerow([row.name, row.count, row.positive_rate, row.avg_clv_line, row.avg_clv_prob])
+            writer.writerow([row.name, row.count, _fmt_rate(row.positive_rate), row.avg_clv_line, row.avg_clv_prob])
     else:
         writer.writerow(["reason", "count"])
         rows = report.top_filtered_reasons
@@ -1977,4 +1986,43 @@ async def admin_ops_telemetry(
         degraded_rate=round((degraded_cycles / total_cycles * 100.0) if total_cycles > 0 else 0.0, 2),
         avg_cycle_duration_ms=round(float(agg.avg_duration), 1) if agg.avg_duration is not None else None,
         feature_flags=feature_flags,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Access review — stale admin detection
+# ---------------------------------------------------------------------------
+
+
+@router.get("/access-review/stale", response_model=StaleAdminListOut)
+async def admin_stale_admins(
+    days: int = Query(default=None, ge=7, le=365),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> StaleAdminListOut:
+    threshold_days = days if days is not None else settings.stale_admin_days
+    cutoff = datetime.now(UTC) - timedelta(days=threshold_days)
+
+    stmt = select(User).where(
+        User.is_admin.is_(True),
+        or_(User.last_login_at.is_(None), User.last_login_at < cutoff),
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+
+    now = datetime.now(UTC)
+    items = []
+    for u in rows:
+        days_since = (now - u.last_login_at).days if u.last_login_at else None
+        items.append(StaleAdminItem(
+            user_id=u.id,
+            email=u.email,
+            admin_role=u.admin_role,
+            last_login_at=u.last_login_at,
+            days_since_login=days_since,
+        ))
+
+    return StaleAdminListOut(
+        threshold_days=threshold_days,
+        total=len(items),
+        items=items,
     )

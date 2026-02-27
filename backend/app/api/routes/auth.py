@@ -14,6 +14,7 @@ from app.core.security import (
     generate_password_reset_token,
     get_password_hash,
     hash_password_reset_token,
+    validate_password_strength,
     verify_password,
 )
 from app.models.password_reset_token import PasswordResetToken
@@ -23,6 +24,7 @@ from app.schemas.auth import (
     LoginResponse,
     MessageResponse,
     MfaVerifyRequest,
+    PasswordPolicyOut,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
@@ -37,6 +39,10 @@ router = APIRouter()
 
 @router.post("/register", response_model=TokenResponse)
 async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    policy_errors = validate_password_strength(payload.password)
+    if policy_errors:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(policy_errors))
+
     existing_stmt = select(User).where(User.email == payload.email.lower())
     existing = (await db.execute(existing_stmt)).scalar_one_or_none()
     if existing:
@@ -196,6 +202,10 @@ async def confirm_password_reset(
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reset token is invalid")
 
+    policy_errors = validate_password_strength(payload.new_password)
+    if policy_errors:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="; ".join(policy_errors))
+
     user.password_hash = get_password_hash(payload.new_password)
     reset_token.used_at = now
     await db.execute(
@@ -209,3 +219,16 @@ async def confirm_password_reset(
     )
     await db.commit()
     return MessageResponse(message="Password reset successful")
+
+
+@router.get("/password-policy", response_model=PasswordPolicyOut)
+async def get_password_policy() -> PasswordPolicyOut:
+    """Public endpoint so the registration form can display password rules."""
+    settings = get_settings()
+    return PasswordPolicyOut(
+        min_length=settings.password_min_length,
+        require_uppercase=settings.password_require_uppercase,
+        require_lowercase=settings.password_require_lowercase,
+        require_digit=settings.password_require_digit,
+        require_special=settings.password_require_special,
+    )

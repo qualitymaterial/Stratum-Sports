@@ -629,8 +629,12 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. Error states are actionable and safe.
 
 **Status**
-1. Partially complete via a consolidated single-page admin console.
-2. Remaining: formal tabbed IA, action receipts surfaced uniformly, and role-scoped UI affordances by permission.
+1. Tabbed admin console shipped: Overview, Users, Billing, API Partners, Operations, Audit, Security tabs with permission-scoped visibility.
+2. Destructive-action safeguards shipped: step-up password + confirmation phrase + MFA for all mutations.
+3. Action receipt display shipped: structured receipt card with action details + client-side timestamp for all mutations.
+4. Outcomes report baseline-readiness indicator shipped: shows sample count vs 30 minimum when building.
+5. CSV rate normalization shipped: rate fields exported as `55.0%` instead of raw `0.55`.
+6. Phase C fully shipped.
 
 ### 8.5 Phase D (P1) — Ops and reliability controls
 1. Replace single ops token with scoped service tokens.
@@ -678,7 +682,9 @@ Tier labels represent operational priority bands, not predictive certainty.
 4. Completed: MFA-gated step-up auth (all 14 admin mutation call sites verify TOTP when MFA is enabled).
 5. Completed: `last_login_at` tracking for access review.
 6. Completed: Frontend MFA login flow, admin Security tab (enroll/disable/regenerate backup codes), MFA code field on mutation controls.
-7. Remaining: stronger password policy/breach-resistant controls, periodic access review automation.
+7. Completed: Configurable password complexity policy (`validate_password_strength()` — min length, uppercase, lowercase, digit, special character). Enforced on registration and password reset. Public `GET /auth/password-policy` endpoint for frontend form display.
+8. Completed: Stale admin detection endpoint (`GET /admin/access-review/stale`) — queries admins with NULL or old `last_login_at`, configurable threshold (default 30 days). Frontend stale admin table in Overview tab.
+9. Phase E fully shipped.
 
 ### 8.7 Next Up (Immediate Execution Order)
 1. ~~**PR-A:** Partner entitlement controls~~ — SHIPPED (`64eee49`, `d3da3b6`).
@@ -686,10 +692,12 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. ~~**PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).~~ — SHIPPED (`fca060b`).
 4. ~~**PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.~~ — SHIPPED. DB-backed `OpsServiceToken` with scopes, admin CRUD, backward-compat static token fallback.
 5. ~~**PR-E:** Admin MFA + privileged session TTL enforcement.~~ — SHIPPED. TOTP MFA lifecycle, two-phase login, 4h admin TTL, MFA-gated step-up auth, `last_login_at` tracking, frontend Security tab.
+6. ~~**PR-F:** Phase D ops run controls + telemetry dashboard.~~ — SHIPPED. Backfill trigger, poller health, alert replay, ops telemetry, Operations tab with 5 sections.
+7. ~~**PR-G:** Phase C remainders + Phase E security hardening tail.~~ — SHIPPED. Password complexity validation (configurable policy, public policy endpoint), stale admin detection, enriched mutation receipts, outcomes baseline-readiness indicator, CSV rate normalization. 236 tests pass.
 
 ### 8.8 Deferred Follow-Ups (Outcomes Report UX/Export)
-1. Add explicit baseline-readiness indicator in outcomes summary/export (`baseline_building` with sample threshold context).
-2. Normalize rate presentation in admin outcomes CSV/UI (`clv_positive_rate`, `sent_rate`, `stale_rate`, failure rates) as readable percentages.
+1. ~~Add explicit baseline-readiness indicator in outcomes summary/export~~ — SHIPPED. Shows "Baseline building — N / 30 minimum samples" when `clv_samples < 30`.
+2. ~~Normalize rate presentation in admin outcomes CSV/UI~~ — SHIPPED. `_fmt_rate()` formats rate fields as readable percentages (`55.0%`) in summary, by_signal_type, and by_market CSV tables.
 3. Add optional summary metadata in exports to explain low-sample windows (current samples, baseline samples, minimum recommended sample size).
 4. Keep outcome interpretation copy explicit: CLV-standard operational KPI, not guaranteed wagering outcome.
 

@@ -751,3 +751,25 @@ export type OpsTelemetry = {
   avg_cycle_duration_ms: number | null;
   feature_flags: Record<string, boolean>;
 };
+
+export type StaleAdminItem = {
+  user_id: string;
+  email: string;
+  admin_role: string | null;
+  last_login_at: string | null;
+  days_since_login: number | null;
+};
+
+export type StaleAdminList = {
+  threshold_days: number;
+  total: number;
+  items: StaleAdminItem[];
+};
+
+export type PasswordPolicy = {
+  min_length: number;
+  require_uppercase: boolean;
+  require_lowercase: boolean;
+  require_digit: boolean;
+  require_special: boolean;
+};
