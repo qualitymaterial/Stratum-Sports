@@ -26,19 +26,29 @@ class RedisRateLimitMiddleware(BaseHTTPMiddleware):
         else:
             client_ip = source_ip
 
-        minute_bucket = datetime.now(UTC).strftime("%Y%m%d%H%M")
+        now = datetime.now(UTC)
+        minute_bucket = now.strftime("%Y%m%d%H%M")
         key = f"ratelimit:{client_ip}:{minute_bucket}"
 
         try:
             current = await redis.incr(key)
             if current == 1:
                 await redis.expire(key, 70)
+
+            remaining = max(0, self.requests_per_minute - current)
+            reset_ts = int(now.replace(second=0, microsecond=0).timestamp()) + 60
+
             if current > self.requests_per_minute:
-                return JSONResponse(
+                response = JSONResponse(
                     status_code=429,
                     content={"detail": "Rate limit exceeded"},
                 )
+            else:
+                response = await call_next(request)
+
+            response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
+            response.headers["X-RateLimit-Remaining"] = str(remaining)
+            response.headers["X-RateLimit-Reset"] = str(reset_ts)
+            return response
         except Exception:
             return await call_next(request)
-
-        return await call_next(request)

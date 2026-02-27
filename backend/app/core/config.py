@@ -234,6 +234,11 @@ class Settings(BaseSettings):
     api_usage_flush_interval_seconds: int = 300
     api_usage_redis_key_prefix: str = "api_usage"
 
+    # ── Rate-limit & anomaly alerting (M5) ──────────────────────
+    partner_rate_limit_per_minute: int = 60
+    anomaly_alert_thresholds: str = "80,90,100"
+    anomaly_alert_discord_enabled: bool = False
+
     # ── Exchange adapter settings ─────────────────────────────────
     kalshi_api_key: str = ""
     kalshi_base_url: str = "https://api.elections.kalshi.com"
@@ -269,6 +274,10 @@ class Settings(BaseSettings):
     def odds_api_sport_keys_list(self) -> list[str]:
         values = [v.strip() for v in self.odds_api_sport_keys.split(",") if v.strip()]
         return values or ["basketball_nba"]
+
+    @property
+    def anomaly_alert_thresholds_list(self) -> list[int]:
+        return [int(v.strip()) for v in self.anomaly_alert_thresholds.split(",") if v.strip()]
 
     @property
     def resolved_database_url(self) -> str:

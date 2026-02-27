@@ -174,6 +174,7 @@ async def _sync_api_entitlement(
     """Create or update ApiPartnerEntitlement based on API plan subscription status."""
     stmt = select(ApiPartnerEntitlement).where(ApiPartnerEntitlement.user_id == user.id)
     ent = (await db.execute(stmt)).scalar_one_or_none()
+    previous_access = ent.api_access_enabled if ent else None
 
     if status in {"active", "trialing"}:
         if ent is None:
@@ -187,13 +188,43 @@ async def _sync_api_entitlement(
                 overage_unit_quantity=1000,
             )
             db.add(ent)
+            logger.info(
+                "API access provisioned",
+                extra={
+                    "event": "api_access_provisioned",
+                    "user_id": str(user.id),
+                    "plan_code": plan_code,
+                    "subscription_status": status,
+                },
+            )
         else:
             ent.plan_code = plan_code
             ent.api_access_enabled = True
+            if previous_access is False:
+                logger.info(
+                    "API access restored",
+                    extra={
+                        "event": "api_access_restored",
+                        "user_id": str(user.id),
+                        "plan_code": plan_code,
+                        "subscription_status": status,
+                    },
+                )
     else:
         # canceled, unpaid, past_due — disable access, keep plan_code for audit
         if ent is not None:
             ent.api_access_enabled = False
+            if previous_access is True:
+                logger.warning(
+                    "API access suspended",
+                    extra={
+                        "event": "api_access_suspended",
+                        "user_id": str(user.id),
+                        "plan_code": ent.plan_code,
+                        "subscription_status": status,
+                        "reason": "subscription_status_change",
+                    },
+                )
 
     await db.commit()
 
@@ -227,6 +258,15 @@ async def process_webhook_event(
     event_type = event["type"]
     data = event["data"]["object"]
 
+    logger.info(
+        "Stripe webhook received",
+        extra={
+            "event": "stripe_webhook_received",
+            "event_type": event_type,
+            "stripe_event_id": event.get("id"),
+        },
+    )
+
     if event_type == "checkout.session.completed":
         user_id = data.get("client_reference_id")
         customer_id = data.get("customer")
@@ -235,6 +275,23 @@ async def process_webhook_event(
             if user is not None:
                 user.stripe_customer_id = customer_id
                 await db.commit()
+                logger.info(
+                    "Stripe customer linked",
+                    extra={
+                        "event": "stripe_customer_linked",
+                        "user_id": user_id,
+                        "stripe_customer_id": customer_id,
+                    },
+                )
+            else:
+                logger.warning(
+                    "Checkout session user not found",
+                    extra={
+                        "event": "stripe_webhook_user_not_found",
+                        "user_id": user_id,
+                        "event_type": event_type,
+                    },
+                )
 
     if event_type in {
         "customer.subscription.created",
@@ -249,10 +306,43 @@ async def process_webhook_event(
 
         api_price_ids = {settings.stripe_api_monthly_price_id, settings.stripe_api_annual_price_id}
 
+        if not customer_id or not subscription_id:
+            logger.warning(
+                "Webhook missing customer_id or subscription_id",
+                extra={
+                    "event": "stripe_webhook_incomplete_data",
+                    "event_type": event_type,
+                    "has_customer_id": bool(customer_id),
+                    "has_subscription_id": bool(subscription_id),
+                },
+            )
+
         if customer_id and subscription_id:
             stmt = select(User).where(User.stripe_customer_id == customer_id)
             user = (await db.execute(stmt)).scalar_one_or_none()
+            if not user:
+                logger.warning(
+                    "Webhook customer not matched to user",
+                    extra={
+                        "event": "stripe_webhook_customer_unmatched",
+                        "stripe_customer_id": customer_id,
+                        "subscription_id": subscription_id,
+                        "event_type": event_type,
+                    },
+                )
             if user:
+                logger.info(
+                    "Processing subscription event",
+                    extra={
+                        "event": "stripe_subscription_processing",
+                        "event_type": event_type,
+                        "user_id": str(user.id),
+                        "subscription_id": subscription_id,
+                        "price_id": price_id,
+                        "status": status,
+                        "is_api_plan": price_id in api_price_ids,
+                    },
+                )
                 if price_id in api_price_ids:
                     # API plan subscription — sync entitlement, don't change user.tier
                     plan_code = (
@@ -279,7 +369,10 @@ async def process_webhook_event(
                         cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
                     )
 
-    logger.info("Stripe webhook processed", extra={"type": event_type})
+    logger.info(
+        "Stripe webhook processed",
+        extra={"event": "stripe_webhook_processed", "event_type": event_type},
+    )
     return {"received": True, "type": event_type}
 
 

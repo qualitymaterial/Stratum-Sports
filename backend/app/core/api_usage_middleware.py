@@ -1,10 +1,11 @@
 """Middleware that meters API partner key requests on Intel endpoints."""
 
 import logging
+from datetime import UTC, datetime
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from app.core.config import get_settings
 from app.services.api_usage_tracking import (
@@ -34,10 +35,6 @@ class ApiUsageTrackingMiddleware(BaseHTTPMiddleware):
         if not request.url.path.startswith(METERED_PATH_PREFIX):
             return response
 
-        # Only meter successful responses
-        if response.status_code < 200 or response.status_code >= 300:
-            return response
-
         redis = getattr(request.app.state, "redis", None)
         if redis is None:
             return response
@@ -45,6 +42,43 @@ class ApiUsageTrackingMiddleware(BaseHTTPMiddleware):
         user_id = getattr(request.state, "api_partner_user_id", None)
         key_id = getattr(request.state, "api_partner_key_id", None)
         if not user_id:
+            return response
+
+        # ── Per-partner rate limiting (per minute) ──────────────────
+        try:
+            partner_limit = settings.partner_rate_limit_per_minute
+            now = datetime.now(UTC)
+            minute_bucket = now.strftime("%Y%m%d%H%M")
+            rate_key = f"partner_ratelimit:{user_id}:{minute_bucket}"
+            rate_current = await redis.incr(rate_key)
+            if rate_current == 1:
+                await redis.expire(rate_key, 70)
+
+            rate_remaining = max(0, partner_limit - rate_current)
+            rate_reset = int(now.replace(second=0, microsecond=0).timestamp()) + 60
+
+            if rate_current > partner_limit:
+                resp = JSONResponse(
+                    status_code=429,
+                    content={"detail": "Partner rate limit exceeded"},
+                )
+                resp.headers["X-Partner-RateLimit-Limit"] = str(partner_limit)
+                resp.headers["X-Partner-RateLimit-Remaining"] = "0"
+                resp.headers["X-Partner-RateLimit-Reset"] = str(rate_reset)
+                return resp
+        except Exception:
+            logger.exception("Partner rate limit check error")
+            rate_remaining = None
+            rate_reset = None
+
+        # ── Attach partner rate headers to successful responses ─────
+        if rate_remaining is not None:
+            response.headers["X-Partner-RateLimit-Limit"] = str(settings.partner_rate_limit_per_minute)
+            response.headers["X-Partner-RateLimit-Remaining"] = str(rate_remaining)
+            response.headers["X-Partner-RateLimit-Reset"] = str(rate_reset)
+
+        # ── Monthly usage tracking (only for 2xx) ──────────────────
+        if response.status_code < 200 or response.status_code >= 300:
             return response
 
         try:
