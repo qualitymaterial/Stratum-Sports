@@ -255,6 +255,12 @@ class Settings(BaseSettings):
     partner_overage_price_cents: int = 200
     anomaly_alert_thresholds: str = "75,90,100"
     anomaly_alert_discord_enabled: bool = True
+    
+    # ── Webhook delivery retry settings ──────────────────────────
+    webhook_max_retries: int = 3
+    webhook_backoff_factor: float = 2.0
+    webhook_initial_delay_seconds: float = 5.0
+    webhook_timeout_seconds: float = 5.0
 
     # ── Exchange adapter settings ─────────────────────────────────
     kalshi_api_key: str = ""

@@ -102,7 +102,7 @@ async def dispatch_clv_to_webhooks(db: AsyncSession, clv_records: list[ClvRecord
 
 async def _deliver_webhook(webhook: ApiPartnerWebhook, signal_id: Any, payload: Dict[str, Any]) -> None:
     """
-    Handles the individual HTTP POST and logging for a single webhook delivery.
+    Handles the individual HTTP POST with exponential backoff and logging.
     """
     from app.core.database import AsyncSessionLocal
     
@@ -125,19 +125,43 @@ async def _deliver_webhook(webhook: ApiPartnerWebhook, signal_id: Any, payload: 
     status_code = None
     response_body = None
     error = None
-    
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(webhook.url, content=payload_str, headers=headers)
-            status_code = response.status_code
-            response_body = response.text[:1000] # Cap body storage
-    except Exception as e:
-        error = str(e)
-        logger.error(f"Webhook delivery failed to {webhook.url}: {error}")
+    attempts = 0
+    max_retries = settings.webhook_max_retries
+
+    async with httpx.AsyncClient(timeout=settings.webhook_timeout_seconds) as client:
+        while attempts <= max_retries:
+            attempts += 1
+            try:
+                response = await client.post(webhook.url, content=payload_str, headers=headers)
+                status_code = response.status_code
+                response_body = response.text[:1000] # Cap body storage
+                
+                # Success on 2xx
+                if 200 <= status_code < 300:
+                    error = None
+                    break
+                
+                # Don't retry on 4xx (Client Errors)
+                if 400 <= status_code < 500:
+                    error = f"Client error: {status_code}"
+                    break
+                
+                # Retry on 5xx or other non-success
+                error = f"Server error: {status_code}"
+                
+            except httpx.RequestError as e:
+                error = str(e)
+                logger.warning(f"Webhook attempt {attempts} failed to {webhook.url}: {error}")
+            
+            if attempts <= max_retries:
+                delay = settings.webhook_initial_delay_seconds * (settings.webhook_backoff_factor ** (attempts - 1))
+                await asyncio.sleep(delay)
+            else:
+                logger.error(f"Webhook delivery permanently failed after {attempts} attempts to {webhook.url}")
 
     duration = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
 
-    # Log the delivery
+    # Log the final outcome
     async with AsyncSessionLocal() as db:
         log = WebhookDeliveryLog(
             webhook_id=webhook.id,
@@ -146,6 +170,7 @@ async def _deliver_webhook(webhook: ApiPartnerWebhook, signal_id: Any, payload: 
             payload=payload,
             response_body=response_body,
             duration_ms=duration,
+            attempts=attempts,
             error=error
         )
         db.add(log)

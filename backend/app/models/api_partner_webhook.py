@@ -46,4 +46,5 @@ class WebhookDeliveryLog(Base, TimestampMixin):
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
     response_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
