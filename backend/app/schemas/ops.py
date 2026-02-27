@@ -537,3 +537,89 @@ class AdminAuditLogListOut(BaseModel):
     limit: int
     offset: int
     items: list[AdminAuditLogItemOut]
+
+
+# ---------------------------------------------------------------------------
+# Ops run controls & telemetry
+# ---------------------------------------------------------------------------
+
+
+class AdminBackfillTriggerRequest(BaseModel):
+    lookback_hours: int = Field(default=72, ge=1, le=720)
+    max_games: int = Field(default=25, ge=1, le=200)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
+
+
+class AdminBackfillTriggerOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    reason: str
+    lookback_hours: int
+    max_games: int
+    games_scanned: int
+    games_backfilled: int
+    games_skipped: int
+    errors: int
+
+
+class PollerHealthCycleSummary(BaseModel):
+    total_cycles: int
+    degraded_cycles: int
+    degraded_rate: float
+    avg_duration_ms: float | None
+    last_error: str | None
+    last_cycle_at: datetime | None
+
+
+class PollerHealthOut(BaseModel):
+    cycle_summary: PollerHealthCycleSummary
+    lock_held: bool | None
+    backfill_enabled: bool
+    backfill_lookback_hours: int
+    backfill_interval_minutes: int
+    clv_enabled: bool
+    kpi_enabled: bool
+    recent_errors: list[str]
+
+
+class AdminAlertReplayRequest(BaseModel):
+    signal_id: UUID
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
+
+
+class AdminAlertReplayOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    reason: str
+    signal_id: UUID
+    signal_type: str
+    event_id: str
+    sent: int
+    failed: int
+
+
+class OpsTelemetryOut(BaseModel):
+    period_days: int
+    total_alerts_sent: int
+    total_alerts_failed: int
+    alert_failure_rate: float
+    backfill_enabled: bool
+    backfill_lookback_hours: int
+    total_requests_used: int
+    avg_requests_remaining: float | None
+    latest_requests_remaining: int | None
+    latest_requests_limit: int | None
+    projected_daily_burn: float | None
+    total_cycles: int
+    degraded_cycles: int
+    degraded_rate: float
+    avg_cycle_duration_ms: float | None
+    feature_flags: dict[str, bool]

@@ -534,26 +534,19 @@ Tier labels represent operational priority bands, not predictive certainty.
    - `model_version`
 4. Unit tests cover feature extraction, deterministic inference, and feature-flag OFF behavior.
 
-### PR6 (optional) — Historical close + CLV reporting
-**Scope**
-- Ingest closing lines and compute CLV per signal/event/market.
+### PR6 — Historical close + CLV reporting — SHIPPED
+**Status:** Completed. Full CLV pipeline implemented across backend services, models, API endpoints, frontend, and tests.
 
-**Files**
-- `backend/app/tasks/poller.py` (daily hook)
-- `backend/app/services/market_data.py`
-- New: `backend/app/models/closing_line.py`, `backend/app/models/clv_record.py`
-- New: `backend/app/services/historical.py`, `backend/app/services/clv.py`
-- Migration: `backend/alembic/versions/<rev>_add_closing_lines_and_clv.py`
-- Tests: `backend/tests/test_clv.py`
-
-**Config**
-- `ODDS_API_HISTORICAL_ENABLED=false`
-- `ODDS_API_HISTORICAL_LOOKBACK_DAYS=7`
-- `CLV_REPORT_CRON_UTC=0 5 * * *`
-
-**Acceptance**
-1. CLV records populate for settled games when close lines are available.
-2. Summary endpoints return per-market CLV aggregates.
+**Scope delivered:**
+1. Closing consensus derivation from final pre-commence odds (`backend/app/services/closing.py`).
+2. CLV computation comparing signal entry lines against closing lines (`backend/app/services/clv.py`).
+3. Historical backfill service for games that commenced during poller downtime (`backend/app/services/historical_backfill.py`).
+4. Performance intel aggregation with trust scorecards and stability analysis (`backend/app/services/performance_intel.py`).
+5. Models: `ClosingConsensus`, `ClvRecord` with migrations.
+6. API endpoints: 6 CLV endpoints under `/intel/clv/*` (summary, recap, scorecards, records, teaser, CSV export).
+7. Poller integration: automatic backfill + CLV computation timers in polling cycle.
+8. Frontend: full performance page, types, API functions.
+9. Tests: ~3000 lines across `test_closing.py`, `test_clv.py`, `test_historical_backfill.py`, `test_performance_intel.py`.
 
 ---
 
@@ -658,8 +651,10 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. Admin dashboard surfaces current system risk.
 
 **Status**
-1. Scoped service tokens shipped: `OpsServiceToken` model, issue/revoke/rotate service, DB-backed auth with scope enforcement, static token backward compat, admin CRUD endpoints with step-up auth + audit logging, `ops_token_write` permission on `super_admin` + `ops_admin` roles, frontend tab stub.
-2. Remaining: admin run controls (backfill trigger, poller diagnostics, alert replay), ops telemetry dashboard hooks.
+1. Scoped service tokens shipped: `OpsServiceToken` model, issue/revoke/rotate service, DB-backed auth with scope enforcement, static token backward compat, admin CRUD endpoints with step-up auth + audit logging, `ops_token_write` permission on `super_admin` + `ops_admin` roles.
+2. Admin run controls shipped: backfill trigger (`POST /admin/ops/backfill/trigger`), poller health diagnostics (`GET /admin/ops/poller/health`), alert replay (`POST /admin/ops/alerts/replay`), ops telemetry aggregation (`GET /admin/ops/telemetry`). All endpoints permission-gated, step-up auth on mutations, audit logged.
+3. Frontend Operations tab shipped: replaces stub Ops Tokens tab with 5-section layout (Poller Health, Backfill Trigger, Alert Replay, Ops Telemetry, Ops Tokens reference).
+4. Phase D fully shipped.
 
 ### 8.6 Phase E (P2) — Security and compliance hardening
 1. MFA for admin accounts.

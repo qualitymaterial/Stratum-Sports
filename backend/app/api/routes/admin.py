@@ -37,6 +37,10 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.subscription import Subscription
 from app.models.user import User
 from app.schemas.ops import (
+    AdminAlertReplayOut,
+    AdminAlertReplayRequest,
+    AdminBackfillTriggerOut,
+    AdminBackfillTriggerRequest,
     AdminBillingMutationOut,
     AdminBillingMutationRequest,
     AdminBillingSubscriptionOut,
@@ -74,7 +78,10 @@ from app.schemas.ops import (
     AdminUserTierUpdateRequest,
     ConversionFunnelOut,
     CycleKpiOut,
+    OpsTelemetryOut,
     OperatorReport,
+    PollerHealthCycleSummary,
+    PollerHealthOut,
 )
 from app.services.admin_audit import write_admin_audit_log
 from app.services.admin_outcomes import build_admin_outcomes_report
@@ -106,7 +113,10 @@ from app.services.stripe_service import (
     admin_resync_user_subscription,
     get_latest_subscription_for_user,
 )
+from app.services.discord_alerts import dispatch_discord_alerts_for_signals
+from app.services.historical_backfill import backfill_missing_closing_consensus
 from app.services.teaser_analytics import get_teaser_conversion_funnel
+from app.models.signal import Signal
 
 router = APIRouter()
 settings = get_settings()
@@ -1714,4 +1724,257 @@ async def admin_rotate_ops_service_token(
         operation="rotate",
         token=AdminOpsServiceTokenOut.model_validate(rotated_token),
         raw_key=raw_key,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Ops run controls & telemetry
+# ---------------------------------------------------------------------------
+
+
+@router.get("/ops/poller/health", response_model=PollerHealthOut)
+async def admin_poller_health(
+    request: Request,
+    days: int = Query(1, ge=1, le=7),
+    error_limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> PollerHealthOut:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    agg_stmt = select(
+        func.count(CycleKpi.id).label("total"),
+        func.count(CycleKpi.id).filter(CycleKpi.degraded.is_(True)).label("degraded"),
+        func.avg(CycleKpi.duration_ms).label("avg_duration"),
+    ).where(CycleKpi.started_at >= cutoff)
+    agg = (await db.execute(agg_stmt)).one()
+    total_cycles = int(agg.total or 0)
+    degraded_cycles = int(agg.degraded or 0)
+    degraded_rate = (degraded_cycles / total_cycles * 100.0) if total_cycles > 0 else 0.0
+    avg_duration_ms = float(agg.avg_duration) if agg.avg_duration is not None else None
+
+    last_cycle_stmt = (
+        select(CycleKpi.started_at, CycleKpi.error)
+        .where(CycleKpi.started_at >= cutoff)
+        .order_by(CycleKpi.started_at.desc())
+        .limit(1)
+    )
+    last_cycle = (await db.execute(last_cycle_stmt)).first()
+    last_cycle_at = last_cycle.started_at if last_cycle else None
+    last_error_from_latest = last_cycle.error if last_cycle else None
+
+    error_stmt = (
+        select(CycleKpi.error)
+        .where(CycleKpi.started_at >= cutoff, CycleKpi.error.isnot(None))
+        .order_by(CycleKpi.started_at.desc())
+        .limit(error_limit)
+    )
+    error_rows = (await db.execute(error_stmt)).scalars().all()
+    recent_errors = [str(e) for e in error_rows if e]
+
+    lock_held: bool | None = None
+    redis = getattr(request.app.state, "redis", None)
+    if redis is not None:
+        try:
+            lock_held = bool(await redis.exists("poller:odds-ingest-lock"))
+        except Exception:
+            lock_held = None
+
+    return PollerHealthOut(
+        cycle_summary=PollerHealthCycleSummary(
+            total_cycles=total_cycles,
+            degraded_cycles=degraded_cycles,
+            degraded_rate=round(degraded_rate, 2),
+            avg_duration_ms=round(avg_duration_ms, 1) if avg_duration_ms is not None else None,
+            last_error=last_error_from_latest,
+            last_cycle_at=last_cycle_at,
+        ),
+        lock_held=lock_held,
+        backfill_enabled=settings.enable_historical_backfill,
+        backfill_lookback_hours=settings.historical_backfill_lookback_hours,
+        backfill_interval_minutes=settings.historical_backfill_interval_minutes,
+        clv_enabled=settings.clv_enabled,
+        kpi_enabled=settings.kpi_enabled,
+        recent_errors=recent_errors,
+    )
+
+
+@router.post("/ops/backfill/trigger", response_model=AdminBackfillTriggerOut)
+async def admin_trigger_backfill(
+    payload: AdminBackfillTriggerRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_OPS_TOKEN_WRITE)),
+) -> AdminBackfillTriggerOut:
+    _require_step_up_auth(
+        admin_user,
+        payload.step_up_password,
+        payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
+    )
+
+    if not settings.enable_historical_backfill:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Historical backfill is disabled in configuration (enable_historical_backfill=false)",
+        )
+
+    backfill_metrics = await backfill_missing_closing_consensus(
+        lookback_hours=payload.lookback_hours,
+        max_games=payload.max_games,
+        settings=settings,
+    )
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.ops.backfill.trigger",
+        target_type="system",
+        reason=payload.reason.strip(),
+        before_payload={
+            "lookback_hours": payload.lookback_hours,
+            "max_games": payload.max_games,
+        },
+        after_payload=backfill_metrics,
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+
+    return AdminBackfillTriggerOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        reason=audit.reason,
+        lookback_hours=payload.lookback_hours,
+        max_games=payload.max_games,
+        games_scanned=int(backfill_metrics.get("games_scanned", 0)),
+        games_backfilled=int(backfill_metrics.get("games_backfilled", 0)),
+        games_skipped=int(backfill_metrics.get("games_skipped", 0)),
+        errors=int(backfill_metrics.get("errors", 0)),
+    )
+
+
+@router.post("/ops/alerts/replay", response_model=AdminAlertReplayOut)
+async def admin_replay_alert(
+    payload: AdminAlertReplayRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_OPS_TOKEN_WRITE)),
+) -> AdminAlertReplayOut:
+    _require_step_up_auth(
+        admin_user,
+        payload.step_up_password,
+        payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
+    )
+
+    signal = await db.get(Signal, payload.signal_id)
+    if signal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Signal {payload.signal_id} not found",
+        )
+
+    result = await dispatch_discord_alerts_for_signals(db, [signal], redis=None)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.ops.alert.replay",
+        target_type="signal",
+        target_id=str(signal.id),
+        reason=payload.reason.strip(),
+        after_payload={
+            "signal_type": signal.signal_type,
+            "event_id": signal.event_id,
+            "sent": result.get("sent", 0),
+            "failed": result.get("failed", 0),
+        },
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+
+    return AdminAlertReplayOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        reason=audit.reason,
+        signal_id=signal.id,
+        signal_type=signal.signal_type,
+        event_id=signal.event_id,
+        sent=result.get("sent", 0),
+        failed=result.get("failed", 0),
+    )
+
+
+@router.get("/ops/telemetry", response_model=OpsTelemetryOut)
+async def admin_ops_telemetry(
+    days: int = Query(7, ge=1, le=30),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> OpsTelemetryOut:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    agg_stmt = select(
+        func.count(CycleKpi.id).label("total"),
+        func.count(CycleKpi.id).filter(CycleKpi.degraded.is_(True)).label("degraded"),
+        func.avg(CycleKpi.duration_ms).label("avg_duration"),
+        func.coalesce(func.sum(CycleKpi.alerts_sent), 0).label("alerts_sent"),
+        func.coalesce(func.sum(CycleKpi.alerts_failed), 0).label("alerts_failed"),
+        func.coalesce(func.sum(CycleKpi.requests_used_delta), 0).label("requests_used"),
+        func.avg(CycleKpi.requests_remaining).label("avg_remaining"),
+    ).where(CycleKpi.started_at >= cutoff)
+    agg = (await db.execute(agg_stmt)).one()
+
+    total_cycles = int(agg.total or 0)
+    degraded_cycles = int(agg.degraded or 0)
+    total_alerts_sent = int(agg.alerts_sent or 0)
+    total_alerts_failed = int(agg.alerts_failed or 0)
+    total_requests_used = int(agg.requests_used or 0)
+    alert_total = total_alerts_sent + total_alerts_failed
+    alert_failure_rate = (total_alerts_failed / alert_total * 100.0) if alert_total > 0 else 0.0
+
+    latest_stmt = (
+        select(CycleKpi.requests_remaining, CycleKpi.requests_limit)
+        .where(CycleKpi.started_at >= cutoff)
+        .order_by(CycleKpi.started_at.desc())
+        .limit(1)
+    )
+    latest = (await db.execute(latest_stmt)).first()
+    latest_remaining = int(latest.requests_remaining) if latest and latest.requests_remaining is not None else None
+    latest_limit = int(latest.requests_limit) if latest and latest.requests_limit is not None else None
+
+    projected_daily_burn = (total_requests_used / max(1, days)) if total_cycles > 0 else None
+
+    s = get_settings()
+    feature_flags = {
+        "consensus_enabled": s.consensus_enabled,
+        "dislocation_enabled": s.dislocation_enabled,
+        "steam_enabled": s.steam_enabled,
+        "clv_enabled": s.clv_enabled,
+        "enable_historical_backfill": s.enable_historical_backfill,
+        "regime_detection_enabled": s.effective_regime_detection_enabled,
+        "exchange_divergence_signal_enabled": s.exchange_divergence_signal_enabled,
+        "api_usage_tracking_enabled": s.api_usage_tracking_enabled,
+    }
+
+    return OpsTelemetryOut(
+        period_days=days,
+        total_alerts_sent=total_alerts_sent,
+        total_alerts_failed=total_alerts_failed,
+        alert_failure_rate=round(alert_failure_rate, 2),
+        backfill_enabled=s.enable_historical_backfill,
+        backfill_lookback_hours=s.historical_backfill_lookback_hours,
+        total_requests_used=total_requests_used,
+        avg_requests_remaining=round(float(agg.avg_remaining), 0) if agg.avg_remaining is not None else None,
+        latest_requests_remaining=latest_remaining,
+        latest_requests_limit=latest_limit,
+        projected_daily_burn=round(projected_daily_burn, 1) if projected_daily_burn is not None else None,
+        total_cycles=total_cycles,
+        degraded_cycles=degraded_cycles,
+        degraded_rate=round((degraded_cycles / total_cycles * 100.0) if total_cycles > 0 else 0.0, 2),
+        avg_cycle_duration_ms=round(float(agg.avg_duration), 1) if agg.avg_duration is not None else None,
+        feature_flags=feature_flags,
     )

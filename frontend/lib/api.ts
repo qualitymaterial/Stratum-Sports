@@ -5,6 +5,8 @@ import {
   AdminApiPartnerKeyIssue,
   AdminApiPartnerKeyList,
   AdminApiPartnerKeyRevoke,
+  AdminBackfillTriggerResult,
+  AdminAlertReplayResult,
   AdminOverview,
   AdminAuditLogList,
   AdminRole,
@@ -27,6 +29,8 @@ import {
   GameListItem,
   OpportunityPoint,
   OpportunityTeaserPoint,
+  OpsTelemetry,
+  PollerHealth,
   PublicTeaserKpisResponse,
   PublicTeaserOpportunity,
   SignalLifecycleSummary,
@@ -920,6 +924,55 @@ export async function getPublicTeaserOpportunities(options: {
   appendOptionalParam(params, "limit", options.limit);
   const query = params.toString();
   return apiRequest<PublicTeaserOpportunity[]>(`/public/teaser/opportunities${query ? `?${query}` : ""}`);
+}
+
+// ── Admin ops run controls & telemetry ────────────────
+
+export async function getAdminPollerHealth(token: string, days = 1) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", days);
+  return apiRequest<PollerHealth>(`/admin/ops/poller/health?${params.toString()}`, { token });
+}
+
+export async function triggerAdminBackfill(
+  token: string,
+  payload: {
+    lookback_hours?: number;
+    max_games?: number;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+    mfa_code?: string;
+  },
+) {
+  return apiRequest<AdminBackfillTriggerResult>("/admin/ops/backfill/trigger", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function replayAdminAlert(
+  token: string,
+  payload: {
+    signal_id: string;
+    reason: string;
+    step_up_password: string;
+    confirm_phrase: string;
+    mfa_code?: string;
+  },
+) {
+  return apiRequest<AdminAlertReplayResult>("/admin/ops/alerts/replay", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function getAdminOpsTelemetry(token: string, days = 7) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", days);
+  return apiRequest<OpsTelemetry>(`/admin/ops/telemetry?${params.toString()}`, { token });
 }
 
 export async function getPublicTeaserKpis(options: {

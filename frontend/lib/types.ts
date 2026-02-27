@@ -687,3 +687,67 @@ export type AdminAuditLogList = {
   offset: number;
   items: AdminAuditLogItem[];
 };
+
+export type PollerHealthCycleSummary = {
+  total_cycles: number;
+  degraded_cycles: number;
+  degraded_rate: number;
+  avg_duration_ms: number | null;
+  last_error: string | null;
+  last_cycle_at: string | null;
+};
+
+export type PollerHealth = {
+  cycle_summary: PollerHealthCycleSummary;
+  lock_held: boolean | null;
+  backfill_enabled: boolean;
+  backfill_lookback_hours: number;
+  backfill_interval_minutes: number;
+  clv_enabled: boolean;
+  kpi_enabled: boolean;
+  recent_errors: string[];
+};
+
+export type AdminBackfillTriggerResult = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  reason: string;
+  lookback_hours: number;
+  max_games: number;
+  games_scanned: number;
+  games_backfilled: number;
+  games_skipped: number;
+  errors: number;
+};
+
+export type AdminAlertReplayResult = {
+  action_id: string;
+  acted_at: string;
+  actor_user_id: string;
+  reason: string;
+  signal_id: string;
+  signal_type: string;
+  event_id: string;
+  sent: number;
+  failed: number;
+};
+
+export type OpsTelemetry = {
+  period_days: number;
+  total_alerts_sent: number;
+  total_alerts_failed: number;
+  alert_failure_rate: number;
+  backfill_enabled: boolean;
+  backfill_lookback_hours: number;
+  total_requests_used: number;
+  avg_requests_remaining: number | null;
+  latest_requests_remaining: number | null;
+  latest_requests_limit: number | null;
+  projected_daily_burn: number | null;
+  total_cycles: number;
+  degraded_cycles: number;
+  degraded_rate: number;
+  avg_cycle_duration_ms: number | null;
+  feature_flags: Record<string, boolean>;
+};
