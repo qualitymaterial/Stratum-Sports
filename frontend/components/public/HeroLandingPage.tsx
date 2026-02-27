@@ -194,13 +194,14 @@ export default function HeroLandingPage() {
             </h1>
             <p className="mt-5 max-w-2xl text-base text-textMute md:text-lg">
               Stratum provides high-availability signal distribution, cross-book dislocation detection, and execution integrity tracking.
-              Built for institutional data partners and disciplined operators.
+              Built for institutional data partners and serious market operators.
             </p>
             <p className="mt-3 max-w-2xl text-sm text-textMute">
-              Reliability and speed for the next generation of sports-market builders. Infrastructure tiers start at $149/month.
+              Stratum Pro for serious bettors starts at <span className="text-textMain font-semibold">$49/month</span>.
+              Infrastructure tiers for builders start at <span className="text-textMain font-semibold">$149/month</span>.
             </p>
             <p className="mt-2 max-w-2xl text-sm text-textMute">
-              API partner access includes a dedicated webhook engine, HMAC-SHA256 signing, and metered usage monitoring.
+              Choose the tier that fits your execution workflow—from Discord alerts to full JSON webhooks.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -275,8 +276,8 @@ export default function HeroLandingPage() {
                   });
                 }}
                 className={`rounded border px-3 py-1 text-xs font-semibold uppercase tracking-wider transition ${selectedSport === sport.key
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-borderTone text-textMute hover:border-accent hover:text-accent"
                   }`}
               >
                 {sport.label}
@@ -404,26 +405,39 @@ export default function HeroLandingPage() {
       </section>
 
       <section id="pricing" className="mx-auto w-full max-w-7xl px-6 py-12">
-        <h2 className="text-2xl font-semibold">Free vs Pro</h2>
+        <h2 className="text-2xl font-semibold">Tiered Access</h2>
         <p className="mt-2 max-w-3xl text-sm text-textMute">
-          API partner access is billed separately from Pro. Customers can subscribe to Pro only, API only, or both.
+          Professional signal intelligence scaled for your needs.
         </p>
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <div className="mt-6 grid gap-4 lg:grid-cols-3">
           <article className="rounded-lg border border-borderTone bg-panel p-5 shadow-terminal">
             <p className="text-xs uppercase tracking-wider text-textMute">Free</p>
-            <ul className="mt-3 space-y-2 text-sm text-textMute">
-              <li>Delayed market view</li>
-              <li>Limited teaser rows</li>
-              <li>No full actionable context</li>
+            <p className="mt-2 text-xl font-bold">$0</p>
+            <ul className="mt-4 space-y-2 text-xs text-textMute">
+              <li>10m Delayed market view</li>
+              <li>Limited opportunity teaser</li>
+              <li>Community dashboard</li>
             </ul>
           </article>
-          <article className="rounded-lg border border-accent/40 bg-panel p-5 shadow-terminal">
-            <p className="text-xs uppercase tracking-wider text-accent">Infrastructure Partner</p>
-            <ul className="mt-3 space-y-2 text-sm text-textMain">
-              <li>Full real-time signal relay via Webhooks</li>
-              <li>Signature verification & payload security</li>
-              <li>Metered usage & consumption analytics</li>
-              <li>Priority support & backfill access</li>
+          <article className="rounded-lg border border-accent/40 bg-panel p-5 shadow-terminal relative overflow-hidden">
+            <div className="absolute top-0 right-0 bg-accent text-panel px-2 py-0.5 text-[10px] font-bold uppercase">Popular</div>
+            <p className="text-xs uppercase tracking-wider text-accent">Stratum Pro</p>
+            <p className="mt-2 text-xl font-bold">$49<span className="text-sm font-normal text-textMute">/mo</span></p>
+            <ul className="mt-4 space-y-2 text-xs text-textMain">
+              <li>Real-time sub-second signals</li>
+              <li>Discord alerts & Push delivery</li>
+              <li>Full CLV & Quality Diagnostics</li>
+              <li>CSV Data Exports</li>
+            </ul>
+          </article>
+          <article className="rounded-lg border border-borderTone bg-panel p-5 shadow-terminal">
+            <p className="text-xs uppercase tracking-wider text-textMute font-semibold">Infrastructure</p>
+            <p className="mt-2 text-xl font-bold">$149<span className="text-sm font-normal text-textMute">/mo</span></p>
+            <ul className="mt-4 space-y-2 text-xs text-textMain">
+              <li>Enterprise Webhook Relay</li>
+              <li>High-concurrency REST API</li>
+              <li>Commercial Redistribution Rights</li>
+              <li>Metered Usage Diagnostics</li>
             </ul>
           </article>
         </div>

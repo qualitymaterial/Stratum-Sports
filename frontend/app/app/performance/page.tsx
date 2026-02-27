@@ -1154,8 +1154,8 @@ export default function PerformancePage() {
                 key={preset}
                 onClick={() => applyPreset(preset)}
                 className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${isActive
-                    ? "border-accent bg-accent/10 text-accent"
-                    : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-borderTone text-textMute hover:border-accent hover:text-accent"
                   }`}
               >
                 {preset === "CUSTOM" ? "Custom" : PRESET_DEFINITIONS[preset].label}
@@ -1234,10 +1234,10 @@ export default function PerformancePage() {
           <p className="text-xs uppercase tracking-wider text-textMute">Operator Summary</p>
           <p
             className={`mt-2 text-sm font-semibold ${operatorSummary.tone === "positive"
-                ? "text-positive"
-                : operatorSummary.tone === "negative"
-                  ? "text-negative"
-                  : "text-accent"
+              ? "text-positive"
+              : operatorSummary.tone === "negative"
+                ? "text-negative"
+                : "text-accent"
               }`}
           >
             {operatorSummary.headline}
@@ -1287,7 +1287,7 @@ export default function PerformancePage() {
             disabled={upgrading}
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
           >
-            {upgrading ? "Opening Checkout..." : "Upgrade to Unlock Live + Full Intel"}
+            {upgrading ? "Opening Checkout..." : "Upgrade to Pro ($49/mo)"}
           </button>
         </div>
       )}
@@ -1370,7 +1370,7 @@ export default function PerformancePage() {
             disabled={upgrading}
             className="mt-3 rounded border border-accent px-3 py-1.5 text-xs uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
           >
-            {upgrading ? "Opening Checkout..." : "Upgrade to Unlock Edge + Width"}
+            {upgrading ? "Opening Checkout..." : "Upgrade to Pro ($49/mo)"}
           </button>
         </div>
       )}
@@ -1499,10 +1499,10 @@ export default function PerformancePage() {
                       <td className="border-b border-borderTone/50 py-2">
                         <span
                           className={`rounded px-2 py-0.5 text-xs font-semibold ${row.confidence_tier === "A"
-                              ? "bg-positive/10 text-positive"
-                              : row.confidence_tier === "B"
-                                ? "bg-accent/15 text-accent"
-                                : "bg-textMute/20 text-textMute"
+                            ? "bg-positive/10 text-positive"
+                            : row.confidence_tier === "B"
+                              ? "bg-accent/15 text-accent"
+                              : "bg-textMute/20 text-textMute"
                             }`}
                         >
                           {row.confidence_tier}
@@ -1535,8 +1535,8 @@ export default function PerformancePage() {
                     key={grain}
                     onClick={() => setRecapGrain(grain)}
                     className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${recapGrain === grain
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-borderTone text-textMute hover:border-accent hover:text-accent"
                       }`}
                   >
                     {grain}
@@ -1791,10 +1791,10 @@ export default function PerformancePage() {
                         <td className="border-b border-borderTone/50 py-2">
                           <span
                             className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${row.opportunity_status === "actionable"
-                                ? "bg-positive/10 text-positive"
-                                : row.opportunity_status === "stale"
-                                  ? "bg-negative/10 text-negative"
-                                  : "bg-accent/10 text-accent"
+                              ? "bg-positive/10 text-positive"
+                              : row.opportunity_status === "stale"
+                                ? "bg-negative/10 text-negative"
+                                : "bg-accent/10 text-accent"
                               }`}
                           >
                             {row.opportunity_status}
@@ -2038,12 +2038,12 @@ export default function PerformancePage() {
                       <td className="border-b border-borderTone/50 py-2">
                         <p
                           className={`text-xs font-semibold uppercase tracking-wider ${row.lifecycle_stage === "sent"
-                              ? "text-positive"
-                              : row.lifecycle_stage === "filtered"
-                                ? "text-negative"
-                                : row.lifecycle_stage === "stale"
-                                  ? "text-accent"
-                                  : "text-textMain"
+                            ? "text-positive"
+                            : row.lifecycle_stage === "filtered"
+                              ? "text-negative"
+                              : row.lifecycle_stage === "stale"
+                                ? "text-accent"
+                                : "text-textMain"
                             }`}
                         >
                           {row.lifecycle_stage}

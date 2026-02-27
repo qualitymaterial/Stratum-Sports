@@ -170,7 +170,7 @@ export default function DashboardPage() {
                 disabled={upgrading}
                 className="rounded border border-accent px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent transition hover:bg-accent/10 disabled:opacity-60"
               >
-                {upgrading ? "Opening..." : "Upgrade to Realtime"}
+                {upgrading ? "Opening..." : "Upgrade to Pro ($49/mo)"}
               </button>
             )}
           </div>

@@ -107,7 +107,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               }}
               className="rounded border border-borderTone px-2.5 py-1 text-textMute transition hover:border-accent hover:text-accent"
             >
-              {proAccess ? "Billing" : "Upgrade"}
+              {proAccess ? "Billing" : "Pro ($49/mo)"}
             </button>
             <button
               onClick={logout}
