@@ -86,7 +86,7 @@ async def test_sync_matches_events_and_upserts(db_session, mock_kalshi_client):
     
     assert a.canonical_event_key == expected_key
     assert a.sportsbook_event_id == "test_game_123"
-    assert a.kalshi_market_id == "KXNBAGAME-26FEB27OKCDEN"
+    assert a.kalshi_market_id == "KXNBAGAME-26FEB27OKCDEN-DEN"
     assert a.home_team == "Denver Nuggets"
     assert a.away_team == "Oklahoma City Thunder"
     
