@@ -11,6 +11,7 @@ This is an analytics product, not a picks service and not gambling advice.
 - Auth: JWT (email/password), role/tier gating (`free` vs `pro`)
 - Billing: Stripe subscription scaffolding (`$29/mo` configurable)
 - Alerts: Discord webhook integration (Pro only)
+- Infrastructure: Webhook delivery engine + Partner API (Partner Tier)
 - Runtime: Docker Compose
 
 ## MVP Features Implemented
@@ -30,6 +31,11 @@ This is an analytics product, not a picks service and not gambling advice.
   - Free signal redaction (velocity/components/books hidden)
   - Discord + CSV export blocked for Free
 - Pro-only CSV export per event/market
+- Infrastructure Layer (API Partner Tier):
+  - Real-time Webhook dispatching for signals and CLVs
+  - HMAC-SHA256 signed payloads for security
+  - Institutional management endpoints (logs, secret rotation)
+  - Scale-ready rate limits (120 req/min)
 - Discord webhook alert sender with per-user preferences
 - Context score scaffolds (`injuries`, `player_props`, `pace`)
 - Health endpoints, CORS, rate limiting, structured logs
@@ -120,9 +126,8 @@ Landing page rollout flag:
 - `NEXT_PUBLIC_LANDING_V1_ENABLED=true` enables the public hero page at `/`
 - `NEXT_PUBLIC_LANDING_V1_ENABLED=false` keeps legacy behavior (`/` redirects to `/login`)
 
-## Product Guide
-
-- End-user + operator guide: `docs/user-guide.md`
+- Product Tiers & Customer Segments: [docs/product-tiers.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/product-tiers.md)
+- End-user + operator guide: [docs/user-guide.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/user-guide.md)
 - Release notes / changelog: `CHANGELOG.md`
 
 ## Auth Smoke Test

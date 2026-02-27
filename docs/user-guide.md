@@ -112,13 +112,16 @@ Pro-only alert management:
 - Signal metadata is redacted (no velocity/books/components)
 - CSV export unavailable
 
-### Pro Tier
-
-- Real-time odds access
-- Full signal diagnostics and history
-- Unlimited watchlist
 - Discord alerts enabled
 - CSV export enabled
+
+### Infrastructure / Partner Tier
+*Best for: Analytics platforms, funds, and custom tool builders.*
+
+- Real-time Webhook signal delivery.
+- High-concurrency API access (120 req/min).
+- Commercial redistribution rights.
+- Dedicated delivery logs and secret management.
 
 ## 6. Operator Guide (Running It Reliably)
 
