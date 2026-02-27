@@ -1,245 +1,128 @@
-# Stratum Sports User Guide
+# Stratum Sports: The Market Intelligence User Guide
 
-Stratum Sports is an analytics platform for NBA betting market intelligence. It is not a picks service and not gambling advice.
+Stratum Sports is an institutional-grade **Market Intelligence Backbone** for NBA betting. We provide the intelligence layer that powers individual betting strategies, syndicates, and third-party analytics platforms.
 
-## 1. Before You Start
+This guide covers both **End-User Operations** (the Web Dashboard) and **Infrastructure Administration** (API and Webhook management).
 
-### Prerequisites
+---
 
-- Docker Desktop running
-- A valid The Odds API key
-- Optional for full functionality: Stripe keys and Discord OAuth credentials
+## 1. Quick Links & Architecture
 
-### Required Environment Setup
+*   **Product Tiers:** [docs/product-tiers.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/product-tiers.md)
+*   **Production Runbook:** [docs/production-runbook.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/production-runbook.md)
+*   **API Root:** `http://localhost:8000/api/v1`
+*   **Web Console:** `http://localhost:3000`
 
-1. Copy the template:
+---
 
-```bash
-cp .env.example .env
+## 2. Access Tiers & Feature Matrix
+
+### 🟢 Community (Free)
+*   **Intelligence:** 10-minute delayed odds.
+*   **Scope:** Watchlist capped at 3 games.
+*   **Redaction:** Signal metadata is hidden (you see that a move happened, but not which books moved or the velocity).
+*   **Exports:** CSV export is disabled.
+
+### 🔵 Stratum Pro
+*   **Intelligence:** Real-time odds and zero-latency signals.
+*   **Discovery:** Full access to high-confidence signals (`STEAM`, `DISLOCATION`).
+*   **Analytics:** Complete CLV (Closing Line Value) audit tools and performance scorecards.
+*   **Alerts:** Push notifications via personal Discord Webhooks.
+
+### 🟣 Infrastructure (Partner)
+*   **Delivery:** Real-time Webhook dispatch of all market moves.
+*   **Scale:** High-concurrency REST API access (120 req/min).
+*   **Admin:** Webhook delivery logs, secret rotation, and HMAC signing verification.
+
+---
+
+## 3. End-User Operations (Dashboard)
+
+### The Command Center (`/app/dashboard`)
+The dashboard provides a real-time view of the NBA slate. 
+*   **Consensus View:** Every game shows a "Consensus" line derived from 5+ major books (Pinnacle, Circa, etc.).
+*   **Heat Indicators:** Small badges next to games indicate active market stress (e.g., `STEAM IN PROGRESS`).
+
+### Game Analysis (`/app/games/[id]`)
+*   **Movement Charts:** Visual delta of the consensus spread since the market opened.
+*   **Context Score:** AI-driven analysis blending injury reports, player props, and pace data.
+*   **Signal Log:** A chronological audit trail of exactly how the line moved.
+
+---
+
+## 4. Infrastructure Administration (Partner Only)
+
+As a Partner, you interact with the system primarily via **Webhooks** and the **REST API**.
+
+### Webhook Management
+Manage your delivery endpoints from the **Partner Console** or via the API:
+*   `POST /partner/webhooks`: Register a new endpoint.
+*   `GET /partner/webhooks/logs`: Audit every signal delivery attempt (Status codes, Latency, Errors).
+*   `POST /partner/webhooks/{id}/secret`: Rotate your signing secret for security compliance.
+
+### Verifying Signatures (Security)
+Every webhook delivery includes an `X-Stratum-Signature` header. This is an HMAC-SHA256 hash of the JSON payload created using your **Webhook Secret**. 
+
+**Implementation Example (Python):**
+```python
+import hmac
+import hashlib
+
+def verify_stratum_webhook(payload_body, secret_key, received_signature):
+    expected_sig = hmac.new(
+        secret_key.encode(),
+        msg=payload_body,
+        digestmod=hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected_sig, received_signature)
 ```
 
-2. Set at minimum:
+### Signal Types (Payload Glossary)
+| Event | Trigger | Value |
+| :--- | :--- | :--- |
+| `signal.detected` | A major market move or sync event. | Real-time |
+| `signal.clv_finalized` | Signal cross-referenced with Close. | ~60m post-commence |
+| `system.limit_alert` | API quota nearing 90% utilization. | Immediate |
 
-- `ODDS_API_KEY`
-- `NEXT_PUBLIC_API_BASE_URL` (local default is already set)
-- `JWT_SECRET` (required for production)
+---
 
-3. Optional but recommended for budget control:
+## 5. Billing & Scaling
 
-- `ODDS_API_TARGET_DAILY_CREDITS`
-- `ODDS_API_BOOKMAKERS`
+*   **Individual Users:** Managed via the "Billing" link in the header. Subscriptions are billed monthly via Stripe.
+*   **Infrastructure Partners:** Onboarding is managed by the account team. If you hit your **Soft Limit** (50,000 monthly signals), the system will fire an anomaly alert to your designated admin channel. Overage pricing is automatically applied at **$2.00 per 1,000 requests** unless upgraded to an Enterprise plan.
 
-## 2. Start The Platform
+---
 
+## 6. Operator Deployment (Running Locally)
+
+### Prerequisites
+- Docker Desktop
+- The Odds API Key (`ODDS_API_KEY`)
+
+### Start the Stack
 ```bash
+cp .env.example .env
 docker compose up --build
 ```
 
-Open:
+### Health Checks
+- **Liveness:** `http://localhost:8000/api/v1/health/live` (Checks if API is responsive)
+- **Readiness:** `http://localhost:8000/api/v1/health/ready` (Checks DB and Redis connections)
 
-- Web app: `http://localhost:3000`
-- API root: `http://localhost:8000/api/v1`
-- Live health: `http://localhost:8000/api/v1/health/live`
-- Ready health: `http://localhost:8000/api/v1/health/ready`
+---
 
-If `localhost:3000` does not load, confirm containers are up:
+## 7. Troubleshooting
 
-```bash
-docker ps
-```
+| Symptom | Check |
+| :--- | :--- |
+| **Empty Dashboard** | Verify `worker` container logs for "Odds ingestion cycle completed". |
+| **No Signals** | Signals require market movement. Check a game closer to tip-off (2-3 hours prior). |
+| **Webhook Timeouts** | Ensure your server responds with a `200 OK` within 5 seconds. |
+| **Rate Limit Errors** | Check `X-RateLimit-Remaining` headers in your API responses. |
 
-## 3. First Login Flow
+---
 
-1. Go to `http://localhost:3000/register`.
-2. Create an account (email/password).
-3. You are redirected to `/app/dashboard`.
-4. Use `/login` on future sessions.
-5. Optional: use Discord OAuth from the login page if Discord credentials are configured.
-
-## 4. App Navigation
-
-### Dashboard (`/app/dashboard`)
-
-Use this as your command center:
-
-- Game cards with matchup + start time
-- Consensus spread, total, and moneyline
-  - Spread is displayed as the home-team consensus spread (same convention as game detail chart).
-- Mini movement sparkline
-- Recent signal badges
-- Live stream status indicator for Pro users
-
-### Game Detail (`/app/games/[event_id]`)
-
-Use this for deeper analysis:
-
-- Full odds table by sportsbook
-- Movement chart over time
-- Chronological signals
-- Context framework output (`injuries`, `player_props`, `pace`)
-- CSV export buttons (Pro only)
-
-### Watchlist (`/app/watchlist`)
-
-Use this to track focus games:
-
-- Add/remove games
-- Open tracked game detail quickly
-- Free tier: up to 3 games
-- Pro tier: unlimited
-
-### Alerts (`/app/discord`)
-
-Pro-only alert management:
-
-- Save Discord webhook URL
-- Toggle spreads/totals/multibook alerts
-- Set minimum strength threshold
-- Enable/disable alert delivery
-
-### Billing (header actions)
-
-- Free users: `Upgrade` opens Stripe checkout
-- Pro users: `Billing` opens Stripe portal
-
-## 5. Free vs Pro Behavior
-
-### Free Tier
-
-- Odds delayed by 10 minutes (enforced server-side)
-- Watchlist capped at 3 games
-- Discord alerts unavailable
-- Signal metadata is redacted (no velocity/books/components)
-- CSV export unavailable
-
-- Discord alerts enabled
-- CSV export enabled
-
-### Infrastructure / Partner Tier
-*Best for: Analytics platforms, funds, and custom tool builders.*
-
-- Real-time Webhook signal delivery.
-- High-concurrency API access (120 req/min).
-- Commercial redistribution rights.
-- Dedicated delivery logs and secret management.
-
-## 6. Operator Guide (Running It Reliably)
-
-### Monitor Worker Health
-
-```bash
-docker compose logs -f worker
-```
-
-Look for:
-
-- `Starting odds poller`
-- `Odds ingestion cycle completed`
-- `Adaptive polling interval applied`
-
-### Monitor API Budget Usage
-
-Worker logs include:
-
-- `requests_remaining`
-- `requests_used`
-- `requests_last`
-
-If credits are burning too quickly, adjust `.env`:
-
-- Increase `ODDS_POLL_INTERVAL_SECONDS`
-- Increase `ODDS_POLL_INTERVAL_IDLE_SECONDS`
-- Increase `ODDS_POLL_INTERVAL_LOW_CREDIT_SECONDS`
-- Lower `ODDS_API_TARGET_DAILY_CREDITS`
-- Reduce market/book scope with `ODDS_API_MARKETS` and `ODDS_API_BOOKMAKERS`
-
-Then reload worker:
-
-```bash
-docker compose up -d --force-recreate worker
-```
-
-### Validate External Integrations
-
-- Stripe: test `create-checkout-session` and webhook handling
-- Discord: save webhook and force a low-threshold alert config
-- Odds API: confirm non-empty events and snapshots in dashboard/game detail
-
-## 7. Pre-Launch Smoke Test Checklist
-
-1. Register and login with email/password.
-2. Confirm dashboard loads upcoming games.
-3. Open a game detail page and verify odds + chart render.
-4. Add and remove a game from watchlist.
-5. Verify Free watchlist limit is enforced at 3 games.
-6. Verify Free users cannot access Discord alerts.
-7. Verify Free users cannot export CSV.
-8. Upgrade to Pro test account.
-9. Verify Discord settings save for Pro.
-10. Verify CSV export works for Pro.
-11. Verify live websocket status connects for Pro.
-12. Confirm `/api/v1/health/live` and `/api/v1/health/ready` return expected status.
-
-## 8. Troubleshooting
-
-### Docker daemon error
-
-If you see `Cannot connect to the Docker daemon`, start Docker Desktop first.
-
-### Port conflicts
-
-Default mappings:
-
-- Frontend: `3000`
-- Backend: `8000`
-- Redis: `6379`
-- Postgres host port: `5433` (container still uses `5432`)
-
-Use `POSTGRES_HOST_PORT` in `.env` if needed.
-
-### Dashboard empty
-
-Check:
-
-- `ODDS_API_KEY` is valid
-- `worker` container is running
-- worker logs show successful odds responses
-
-### Discord login fails
-
-Check:
-
-- `DISCORD_CLIENT_ID`
-- `DISCORD_CLIENT_SECRET`
-- `DISCORD_REDIRECT_URI` matches Discord app settings exactly
-
-### Stripe actions fail
-
-Check:
-
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `STRIPE_PRO_PRICE_ID`
-
-## 9. Glossary
-
-- `American Odds`: Odds format like `-110` or `+135`.
-- `Consensus Line`: Average market value across tracked sportsbooks.
-- `Context Score`: Supplemental framework output (`injuries`, `player_props`, `pace`) to aid interpretation.
-- `Event`: A game instance from provider data, identified by `event_id`.
-- `Fetched At`: Timestamp when snapshot was ingested.
-- `H2H`: Head-to-head moneyline market.
-- `Key Number`: Important spread levels monitored for crossings (configured in `NBA_KEY_NUMBERS`).
-- `Market`: Odds category such as `spreads`, `totals`, or `h2h`.
-- `MOVE`: Signal indicating meaningful line change within a time window.
-- `MULTIBOOK_SYNC`: Signal indicating 3+ books moved same direction in a short window.
-- `Odds Snapshot`: Normalized row storing one book/outcome/market value at a point in time.
-- `Poll Cycle`: One worker execution that fetches odds and processes signals.
-- `Price`: American odds value for an outcome.
-- `Pro Gating`: Backend enforcement that locks premium features to Pro tier users.
-- `Signal`: Persisted market movement event with score, direction, and metadata.
-- `Spread`: Point handicap market.
-- `Strength Score`: 1-100 heuristic using move magnitude, speed, and books affected.
-- `Total`: Combined points market (`Over`/`Under`).
-- `Velocity`: Time in minutes between start and end of detected move window.
-- `Watchlist`: User-managed set of events to track and alert on.
+## 8. Support
+- **Technical Support:** `dev-support@stratumsports.com`
+- **Billing Questions:** `billing@stratumsports.com`
+- **Sales & API Access:** `api-access@stratumsports.com`
