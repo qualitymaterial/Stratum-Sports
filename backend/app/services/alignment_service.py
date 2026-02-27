@@ -152,7 +152,7 @@ class EventAlignmentService:
             if res.rowcount > 0:
                 inserted_or_updated += 1
 
-        await self.db.flush()
+        await self.db.commit()
         
         logger.info(
             "Synced Kalshi event alignments", 
