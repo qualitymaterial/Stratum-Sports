@@ -195,3 +195,31 @@ async def get_usage_history(
         .offset(offset)
     )
     return list((await db.execute(stmt)).scalars().all())
+
+
+async def get_key_current_usage(redis: Redis, user_id: str, key_id: str) -> int:
+    """Read current month counter for a specific API key."""
+    month = _current_month_str()
+    val = await redis.get(_redis_key_key(user_id, key_id, month))
+    return int(val) if val else 0
+
+
+async def get_key_usage_history(
+    db: AsyncSession,
+    user_id: str,
+    key_id: str,
+    limit: int = 12,
+    offset: int = 0,
+) -> list[ApiPartnerUsagePeriod]:
+    """Historical usage periods for a specific key, ordered by period_start DESC."""
+    stmt = (
+        select(ApiPartnerUsagePeriod)
+        .where(
+            ApiPartnerUsagePeriod.user_id == user_id,
+            ApiPartnerUsagePeriod.key_id == key_id,
+        )
+        .order_by(ApiPartnerUsagePeriod.period_start.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return list((await db.execute(stmt)).scalars().all())

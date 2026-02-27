@@ -1388,3 +1388,90 @@ async def admin_user_api_usage_history(
             for p in periods
         ],
     }
+
+
+@router.get("/users/{user_id}/api-keys/{key_id}/usage")
+async def admin_key_api_usage(
+    user_id: UUID,
+    key_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> dict:
+    """Current period usage for a specific API partner key."""
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    key = await _get_partner_key_for_user(db, user_id=target_user.id, key_id=key_id)
+
+    redis = getattr(request.app.state, "redis", None)
+    if redis is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Redis unavailable",
+        )
+
+    from app.services.api_usage_tracking import get_key_current_usage, get_usage_and_limits
+
+    key_count = await get_key_current_usage(redis, str(target_user.id), str(key.id))
+    user_usage = await get_usage_and_limits(redis, db, str(target_user.id))
+
+    return {
+        "user_id": str(target_user.id),
+        "email": target_user.email,
+        "key_id": str(key.id),
+        "key_name": key.name,
+        "key_prefix": key.key_prefix,
+        "is_active": key.is_active,
+        "key_request_count": key_count,
+        "period_start": user_usage["period_start"],
+        "period_end": user_usage["period_end"],
+        "included_limit": user_usage["included_limit"],
+        "user_request_count": user_usage["request_count"],
+        "is_over_limit": user_usage["is_over_limit"],
+        "overage_count": user_usage["overage_count"],
+    }
+
+
+@router.get("/users/{user_id}/api-keys/{key_id}/usage/history")
+async def admin_key_api_usage_history(
+    user_id: UUID,
+    key_id: UUID,
+    limit: int = Query(12, ge=1, le=60),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> dict:
+    """Historical usage periods for a specific API partner key."""
+    target_user = await db.get(User, user_id)
+    if target_user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    await _get_partner_key_for_user(db, user_id=target_user.id, key_id=key_id)
+
+    from app.services.api_usage_tracking import get_key_usage_history
+
+    periods = await get_key_usage_history(
+        db, str(target_user.id), str(key_id), limit=limit, offset=offset
+    )
+    return {
+        "user_id": str(target_user.id),
+        "email": target_user.email,
+        "key_id": str(key_id),
+        "limit": limit,
+        "offset": offset,
+        "items": [
+            {
+                "period_start": p.period_start.isoformat(),
+                "period_end": p.period_end.isoformat(),
+                "request_count": p.request_count,
+                "included_limit": p.included_limit,
+                "overage_count": p.overage_count,
+                "stripe_meter_synced_at": p.stripe_meter_synced_at.isoformat() if p.stripe_meter_synced_at else None,
+                "created_at": p.created_at.isoformat(),
+                "updated_at": p.updated_at.isoformat(),
+            }
+            for p in periods
+        ],
+    }
