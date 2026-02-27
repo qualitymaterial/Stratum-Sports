@@ -142,7 +142,16 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
 
         clv_line = None
         if close_line is not None and entry_line is not None:
-            clv_line = close_line - entry_line
+            outcome_norm = (outcome_name or "").strip().lower()
+            if signal.market == "spreads":
+                # Spreads: higher entry line is better (e.g. +5 vs +3 closing)
+                clv_line = entry_line - close_line
+            elif signal.market == "totals" and outcome_norm.startswith("under"):
+                # Totals-under: higher entry line is better (e.g. 225 vs 220 closing)
+                clv_line = entry_line - close_line
+            else:
+                # Totals-over and all other markets: higher close line is better
+                clv_line = close_line - entry_line
 
         clv_prob = None
         close_prob = american_to_implied_prob(close_price)

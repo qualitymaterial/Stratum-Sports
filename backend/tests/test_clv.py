@@ -271,7 +271,8 @@ async def test_clv_line_and_clv_prob_computation(db_session: AsyncSession) -> No
             )
         )
     ).scalar_one()
-    assert spread_record.clv_line == -1.0
+    # Spreads: clv_line = entry_line - close_line = -3.5 - (-4.5) = +1.0
+    assert spread_record.clv_line == 1.0
     assert spread_record.clv_prob == 0.0
 
     h2h_record = (
@@ -483,3 +484,172 @@ async def test_clv_intel_endpoints_block_free_users(async_client: AsyncClient) -
 
     summary_resp = await async_client.get("/api/v1/intel/clv/summary?days=7", headers=headers)
     assert summary_resp.status_code == 403
+
+
+# ── CLV line-sign correctness tests ──────────────────────────────────
+
+
+async def test_clv_line_sign_spreads_underdog(db_session: AsyncSession) -> None:
+    """Spreads underdog: entry +5, close +3 => clv_line = +2 (got more points)."""
+    now = datetime.now(UTC)
+    event_id = "event_sign_spread_dog"
+    commence = now - timedelta(hours=2)
+
+    db_session.add(_game(event_id, commence))
+    db_session.add(
+        _consensus(
+            event_id=event_id,
+            market="spreads",
+            outcome_name="NYK",
+            line=3.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "NYK", "book_line": 5.0, "book_price": -110.0},
+            from_value=3.0,
+            to_value=5.0,
+        )
+    )
+    await db_session.commit()
+
+    inserted = await compute_and_persist_clv(db_session, days_lookback=7)
+    assert inserted == 1
+
+    rec = (
+        await db_session.execute(
+            select(ClvRecord).where(ClvRecord.event_id == event_id)
+        )
+    ).scalar_one()
+    # entry(+5) - close(+3) = +2
+    assert rec.clv_line == 2.0
+
+
+async def test_clv_line_sign_spreads_favorite(db_session: AsyncSession) -> None:
+    """Spreads favorite: entry -3, close -5 => clv_line = +2 (got fewer points to cover)."""
+    now = datetime.now(UTC)
+    event_id = "event_sign_spread_fav"
+    commence = now - timedelta(hours=2)
+
+    db_session.add(_game(event_id, commence))
+    db_session.add(
+        _consensus(
+            event_id=event_id,
+            market="spreads",
+            outcome_name="BOS",
+            line=-5.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="spreads",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "BOS", "book_line": -3.0, "book_price": -110.0},
+        )
+    )
+    await db_session.commit()
+
+    inserted = await compute_and_persist_clv(db_session, days_lookback=7)
+    assert inserted == 1
+
+    rec = (
+        await db_session.execute(
+            select(ClvRecord).where(ClvRecord.event_id == event_id)
+        )
+    ).scalar_one()
+    # entry(-3) - close(-5) = +2
+    assert rec.clv_line == 2.0
+
+
+async def test_clv_line_sign_totals_over(db_session: AsyncSession) -> None:
+    """Totals over: entry 220, close 225 => clv_line = +5 (got lower total to go over)."""
+    now = datetime.now(UTC)
+    event_id = "event_sign_total_over"
+    commence = now - timedelta(hours=2)
+
+    db_session.add(_game(event_id, commence))
+    db_session.add(
+        _consensus(
+            event_id=event_id,
+            market="totals",
+            outcome_name="Over",
+            line=225.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="totals",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "Over", "book_line": 220.0, "book_price": -110.0},
+            from_value=222.0,
+            to_value=220.0,
+        )
+    )
+    await db_session.commit()
+
+    inserted = await compute_and_persist_clv(db_session, days_lookback=7)
+    assert inserted == 1
+
+    rec = (
+        await db_session.execute(
+            select(ClvRecord).where(ClvRecord.event_id == event_id)
+        )
+    ).scalar_one()
+    # close(225) - entry(220) = +5
+    assert rec.clv_line == 5.0
+
+
+async def test_clv_line_sign_totals_under(db_session: AsyncSession) -> None:
+    """Totals under: entry 225, close 220 => clv_line = +5 (got higher total to go under)."""
+    now = datetime.now(UTC)
+    event_id = "event_sign_total_under"
+    commence = now - timedelta(hours=2)
+
+    db_session.add(_game(event_id, commence))
+    db_session.add(
+        _consensus(
+            event_id=event_id,
+            market="totals",
+            outcome_name="Under",
+            line=220.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=event_id,
+            market="totals",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "Under", "book_line": 225.0, "book_price": -110.0},
+            from_value=222.0,
+            to_value=225.0,
+        )
+    )
+    await db_session.commit()
+
+    inserted = await compute_and_persist_clv(db_session, days_lookback=7)
+    assert inserted == 1
+
+    rec = (
+        await db_session.execute(
+            select(ClvRecord).where(ClvRecord.event_id == event_id)
+        )
+    ).scalar_one()
+    # entry(225) - close(220) = +5
+    assert rec.clv_line == 5.0
