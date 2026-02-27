@@ -3,7 +3,12 @@ import hashlib
 import json
 import logging
 import asyncio
-from datetime import UTC, datetime
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime
 from typing import Any, Dict
 
 import httpx
@@ -29,7 +34,7 @@ async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -
     # For this baseline, we'll use a background asyncio gather to prevent blocking the poller.
     
     # 1. Fetch all active webhooks
-    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active == True)
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active.is_(True))
     webhooks = (await db.execute(stmt)).scalars().all()
     
     if not webhooks:
@@ -62,7 +67,9 @@ async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -
 
     if tasks:
         # Trigger fire-and-forget delivery
-        asyncio.create_task(asyncio.gather(*tasks))
+        async def run_delivery():
+            await asyncio.gather(*tasks)
+        asyncio.create_task(run_delivery())
 
 
 async def dispatch_clv_to_webhooks(db: AsyncSession, clv_records: list[ClvRecord]) -> None:
@@ -72,7 +79,7 @@ async def dispatch_clv_to_webhooks(db: AsyncSession, clv_records: list[ClvRecord
     if not clv_records:
         return
 
-    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active == True)
+    stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.is_active.is_(True))
     webhooks = (await db.execute(stmt)).scalars().all()
     if not webhooks:
         return
@@ -98,7 +105,9 @@ async def dispatch_clv_to_webhooks(db: AsyncSession, clv_records: list[ClvRecord
             tasks.append(_deliver_webhook(webhook, record.signal_id, payload))
 
     if tasks:
-        asyncio.create_task(asyncio.gather(*tasks))
+        async def run_delivery():
+            await asyncio.gather(*tasks)
+        asyncio.create_task(run_delivery())
 
 async def _deliver_webhook(webhook: ApiPartnerWebhook, signal_id: Any, payload: Dict[str, Any]) -> None:
     """

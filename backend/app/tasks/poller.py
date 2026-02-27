@@ -6,7 +6,13 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime, timedelta
+from typing import Optional, Dict, Set
 
 from redis.asyncio import Redis
 from sqlalchemy import select
@@ -40,10 +46,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class CloseCaptureState:
-    next_poll_at_by_event: dict[str, datetime] = field(default_factory=dict)
-    cadence_seconds_by_event: dict[str, int] = field(default_factory=dict)
-    stop_logged_events: set[str] = field(default_factory=set)
-    next_discovery_at: datetime | None = None
+    next_poll_at_by_event: Dict[str, datetime] = field(default_factory=dict)
+    cadence_seconds_by_event: Dict[str, int] = field(default_factory=dict)
+    stop_logged_events: Set[str] = field(default_factory=set)
+    next_discovery_at: Optional[datetime] = None
 
 
 def _close_capture_cadence_seconds(minutes_to_tip: float) -> int | None:

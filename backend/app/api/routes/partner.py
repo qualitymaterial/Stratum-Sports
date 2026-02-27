@@ -2,11 +2,12 @@
 
 import uuid
 from datetime import datetime
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, HttpUrl, ConfigDict
 
 from app.api.deps import get_current_user, get_current_user_or_api_partner
 from app.core.database import get_db
@@ -19,44 +20,42 @@ router = APIRouter()
 
 class WebhookCreate(BaseModel):
     url: HttpUrl
-    description: str | None = None
+    description: Optional[str] = None
 
 
 class WebhookUpdate(BaseModel):
-    url: HttpUrl | None = None
-    description: str | None = None
-    is_active: bool | None = None
+    url: Optional[HttpUrl] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class WebhookOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     url: str
-    description: str | None = None
+    description: Optional[str] = None
     is_active: bool
     secret: str
 
-    class Config:
-        from_attributes = True
-
 
 class WebhookLogOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     webhook_id: uuid.UUID
-    signal_id: uuid.UUID | None
-    status_code: int | None
+    signal_id: Optional[uuid.UUID]
+    status_code: Optional[int]
     duration_ms: int
-    error: str | None
+    error: Optional[str]
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("/webhooks", response_model=list[WebhookOut])
 async def list_partner_webhooks(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_or_api_partner),
-) -> list:
+) -> List:
     """List all webhooks for the authenticated partner."""
     stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.user_id == user.id)
     webhooks = (await db.execute(stmt)).scalars().all()
@@ -177,9 +176,9 @@ async def delete_partner_webhook(
 async def list_partner_webhook_logs(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user_or_api_partner),
-    webhook_id: uuid.UUID | None = Query(None),
+    webhook_id: Optional[uuid.UUID] = Query(None),
     limit: int = Query(default=50, ge=1, le=200),
-) -> list:
+) -> list[WebhookLogOut]:
     """List delivery logs for the partner's webhooks."""
     stmt = (
         select(WebhookDeliveryLog)
@@ -194,8 +193,8 @@ async def list_partner_webhook_logs(
     logs = (await db.execute(stmt)).scalars().all()
     
     return [
-        WebhookLogOut.model_validate(l)
-        for l in logs
+        WebhookLogOut.model_validate(log)
+        for log in logs
     ]
 
 

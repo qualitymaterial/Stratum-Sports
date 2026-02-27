@@ -1,5 +1,11 @@
 import logging
-from datetime import UTC, datetime, timedelta
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime, timedelta
+from typing import Optional, Union
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,12 +16,11 @@ from app.models.clv_record import ClvRecord
 from app.models.game import Game
 from app.models.signal import Signal
 from app.services.closing import compute_and_persist_closing_consensus
-from app.services.webhook_delivery import dispatch_signal_to_webhooks
 
 logger = logging.getLogger(__name__)
 
 
-def american_to_implied_prob(price: float | int | None) -> float | None:
+def american_to_implied_prob(price: Optional[Union[float, int]]) -> Optional[float]:
     if price is None:
         return None
     try:
@@ -30,7 +35,7 @@ def american_to_implied_prob(price: float | int | None) -> float | None:
     return abs(value) / (abs(value) + 100.0)
 
 
-def _coerce_float(value: object) -> float | None:
+def _coerce_float(value: object) -> Optional[float]:
     if value is None:
         return None
     try:
@@ -39,15 +44,15 @@ def _coerce_float(value: object) -> float | None:
         return None
 
 
-def _extract_entry(signal: Signal) -> tuple[str | None, float | None, float | None]:
+def _extract_entry(signal: Signal) -> tuple[Optional[str], Optional[float], Optional[float]]:
     metadata = signal.metadata_json or {}
     raw_outcome = metadata.get("outcome_name")
     outcome_name = raw_outcome.strip() if isinstance(raw_outcome, str) else None
     if not outcome_name:
         return None, None, None
 
-    entry_line: float | None = None
-    entry_price: float | None = None
+    entry_line: Optional[float] = None
+    entry_price: Optional[float] = None
 
     if signal.signal_type == "DISLOCATION":
         entry_line = _coerce_float(metadata.get("book_line"))
@@ -72,7 +77,7 @@ def _extract_entry(signal: Signal) -> tuple[str | None, float | None, float | No
     return outcome_name, entry_line, entry_price
 
 
-async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = None) -> int:
+async def compute_and_persist_clv(db: AsyncSession, days_lookback: Optional[int] = None) -> int:
     settings = get_settings()
     if not settings.clv_enabled:
         return 0
@@ -211,7 +216,7 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: int | None = 
     return inserted
 
 
-async def cleanup_old_clv_records(db: AsyncSession, retention_days: int | None = None) -> int:
+async def cleanup_old_clv_records(db: AsyncSession, retention_days: Optional[int] = None) -> int:
     settings = get_settings()
     days = retention_days if retention_days is not None else settings.clv_retention_days
     cutoff = datetime.now(UTC) - timedelta(days=days)

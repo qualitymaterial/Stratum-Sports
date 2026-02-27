@@ -1,7 +1,12 @@
 """Middleware that meters API partner key requests on Intel endpoints."""
 
 import logging
-from datetime import UTC, datetime
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request

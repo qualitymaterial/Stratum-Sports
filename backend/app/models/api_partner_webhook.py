@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from typing import Optional
+
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,7 +22,7 @@ class ApiPartnerWebhook(Base, TimestampMixin):
     url: Mapped[str] = mapped_column(String(512), nullable=False)
     secret: Mapped[str] = mapped_column(String(128), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, index=True)
-    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     user = relationship("User", back_populates="webhooks")
 
@@ -42,9 +43,9 @@ class WebhookDeliveryLog(Base, TimestampMixin):
         nullable=False,
         index=True,
     )
-    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status_code: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    response_body: Mapped[str | None] = mapped_column(Text, nullable=True)
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    response_body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     attempts: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

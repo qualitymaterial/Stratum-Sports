@@ -1,4 +1,5 @@
 import logging
+from typing import Optional
 from contextlib import asynccontextmanager
 
 import sentry_sdk
@@ -45,7 +46,7 @@ async def lifespan(app: FastAPI):
             ),
         },
     )
-    redis: Redis | None = None
+    redis: Optional[Redis] = None
     try:
         redis = Redis.from_url(settings.redis_url, decode_responses=True)
         await redis.ping()

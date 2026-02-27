@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from typing import Mapping
+from typing import Mapping, Optional, Union
 from urllib.parse import quote_plus
 
 from pydantic import model_validator
@@ -31,12 +31,12 @@ def get_venue_tier(venue: str) -> str:
 
 def resolve_database_url(
     *,
-    database_url: str | None,
-    postgres_user: str | None,
-    postgres_password: str | None,
-    postgres_host: str | None = "db",
-    postgres_port: int | str | None = "5432",
-    postgres_db: str | None = "stratum_sports",
+    database_url: Optional[str],
+    postgres_user: Optional[str],
+    postgres_password: Optional[str],
+    postgres_host: Optional[str] = "db",
+    postgres_port: Optional[Union[int, str]] = "5432",
+    postgres_db: Optional[str] = "stratum_sports",
 ) -> tuple[str, str]:
     raw_database_url = (database_url or "").strip()
     if raw_database_url and DATABASE_URL_PLACEHOLDER not in raw_database_url:
@@ -52,9 +52,9 @@ def resolve_database_url(
 
 
 def resolve_database_url_from_env(
-    env: Mapping[str, str] | None = None,
+    env: Optional[Mapping[str, str]] = None,
     *,
-    default_database_url: str | None = None,
+    default_database_url: Optional[str] = None,
 ) -> tuple[str, str]:
     source_env = os.environ if env is None else env
     database_url = source_env.get("DATABASE_URL", default_database_url or "")

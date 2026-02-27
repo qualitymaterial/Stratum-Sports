@@ -1,5 +1,11 @@
 import uuid
-from datetime import UTC, datetime
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import DateTime, Float, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -18,12 +24,12 @@ class Signal(Base):
     direction: Mapped[str] = mapped_column(String(8), nullable=False)
     from_value: Mapped[float] = mapped_column(Float, nullable=False)
     to_value: Mapped[float] = mapped_column(Float, nullable=False)
-    from_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    to_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    from_price: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    to_price: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     window_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
     books_affected: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     velocity_minutes: Mapped[float] = mapped_column(Float, nullable=False)
-    time_bucket: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    time_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     strength_score: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True

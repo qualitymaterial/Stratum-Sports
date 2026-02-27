@@ -1,5 +1,11 @@
 import uuid
-from datetime import UTC, datetime
+try:
+    from datetime import UTC
+except ImportError:
+    from datetime import timezone
+    UTC = timezone.utc
+from datetime import datetime
+from typing import Optional
 
 from sqlalchemy import DateTime, Float, ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
@@ -23,12 +29,12 @@ class ClvRecord(Base):
     signal_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     market: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     outcome_name: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
-    entry_line: Mapped[float | None] = mapped_column(Float, nullable=True)
-    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
-    close_line: Mapped[float | None] = mapped_column(Float, nullable=True)
-    close_price: Mapped[float | None] = mapped_column(Float, nullable=True)
-    clv_line: Mapped[float | None] = mapped_column(Float, nullable=True)
-    clv_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    entry_line: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    entry_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    close_line: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    close_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    clv_line: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    clv_prob: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
