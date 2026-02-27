@@ -2,10 +2,14 @@ from app.models.base import Base
 from app.models.admin_audit_log import AdminAuditLog
 from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.api_partner_key import ApiPartnerKey
+from app.models.canonical_event_alignment import CanonicalEventAlignment
 from app.models.closing_consensus import ClosingConsensus
 from app.models.clv_record import ClvRecord
+from app.models.cross_market_divergence_event import CrossMarketDivergenceEvent
+from app.models.cross_market_lead_lag_event import CrossMarketLeadLagEvent
 from app.models.cycle_kpi import CycleKpi
 from app.models.discord_connection import DiscordConnection
+from app.models.exchange_quote_event import ExchangeQuoteEvent
 from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
@@ -26,12 +30,16 @@ __all__ = [
     "AdminAuditLog",
     "ApiPartnerEntitlement",
     "ApiPartnerKey",
+    "CanonicalEventAlignment",
+    "CrossMarketDivergenceEvent",
+    "CrossMarketLeadLagEvent",
     "User",
     "Subscription",
     "Game",
     "ClosingConsensus",
     "ClvRecord",
     "CycleKpi",
+    "ExchangeQuoteEvent",
     "MarketConsensusSnapshot",
     "OpsDigestSent",
     "OddsSnapshot",

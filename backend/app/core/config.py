@@ -214,6 +214,17 @@ class Settings(BaseSettings):
     stripe_success_url: str = "http://localhost:3000/app/dashboard?billing=success"
     stripe_cancel_url: str = "http://localhost:3000/app/dashboard?billing=cancel"
 
+    # ── Exchange adapter settings ─────────────────────────────────
+    kalshi_api_key: str = ""
+    kalshi_base_url: str = "https://api.elections.kalshi.com"
+    kalshi_timeout_seconds: float = 5.0
+    max_kalshi_markets_per_cycle: int = 10
+
+    enable_polymarket_ingest: bool = False
+    polymarket_base_url: str = "https://clob.polymarket.com"
+    polymarket_timeout_seconds: float = 5.0
+    max_polymarket_markets_per_cycle: int = 10
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [v.strip() for v in self.cors_origins.split(",") if v.strip()]

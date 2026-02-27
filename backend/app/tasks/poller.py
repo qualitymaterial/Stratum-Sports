@@ -25,6 +25,12 @@ from app.services.kpis import build_cycle_kpi, cleanup_old_cycle_kpis, persist_c
 from app.services.ops_digest import maybe_send_weekly_ops_digest
 from app.services.propagation import detect_propagation_events
 from app.services.signals import detect_market_movements, summarize_signals_by_type
+from app.adapters.exchange.errors import ExchangeUpstreamError
+from app.adapters.exchange.kalshi_client import KalshiClient
+from app.adapters.exchange.polymarket_client import PolymarketClient
+from app.services.cross_market_divergence import CrossMarketDivergenceService
+from app.services.cross_market_lead_lag import CrossMarketLeadLagService
+from app.services.exchange_ingestion import ExchangeIngestionService
 from app.services.structural_events import StructuralEventAnalysisService
 
 settings = get_settings()
@@ -269,6 +275,15 @@ async def run_polling_cycle(
                 "alerts_sent": 0,
                 "alerts_failed": 0,
                 "structural_events_created": 0,
+                "cross_market_events_created": 0,
+                "cross_market_divergence_events_created": 0,
+                "kalshi_markets_polled": 0,
+                "kalshi_quotes_inserted": 0,
+                "kalshi_errors": 0,
+                "kalshi_skipped_no_alignment": 0,
+                "kalshi_skipped_no_market_id": 0,
+                "polymarket_markets_polled": 0,
+                "polymarket_quotes_inserted": 0,
                 "close_capture_events_considered": close_capture_plan["events_considered"],
                 "close_capture_events_due_total": close_capture_plan["events_due_total"],
                 "close_capture_events_due_selected": close_capture_plan["events_due_selected"],
@@ -294,6 +309,15 @@ async def run_polling_cycle(
             ingest_result["alerts_sent"] = 0
             ingest_result["alerts_failed"] = 0
             ingest_result["structural_events_created"] = 0
+            ingest_result["cross_market_events_created"] = 0
+            ingest_result["cross_market_divergence_events_created"] = 0
+            ingest_result["kalshi_markets_polled"] = 0
+            ingest_result["kalshi_quotes_inserted"] = 0
+            ingest_result["kalshi_errors"] = 0
+            ingest_result["kalshi_skipped_no_alignment"] = 0
+            ingest_result["kalshi_skipped_no_market_id"] = 0
+            ingest_result["polymarket_markets_polled"] = 0
+            ingest_result["polymarket_quotes_inserted"] = 0
             return ingest_result
 
         signals = await detect_market_movements(db, redis, event_ids)
@@ -321,6 +345,145 @@ async def run_polling_cycle(
                     extra={"event_id": event_id},
                 )
 
+        # --- Exchange adapter ingestion (Kalshi live, Polymarket disabled by default) ---
+        kalshi_markets_polled = 0
+        kalshi_quotes_inserted = 0
+        kalshi_errors = 0
+        kalshi_skipped_no_alignment = 0
+        kalshi_skipped_no_market_id = 0
+        polymarket_markets_polled = 0
+        polymarket_quotes_inserted = 0
+        kalshi_alignments_synced = 0
+        alignment_objs: list = []
+        alignment_ceks: list[str] = []
+        try:
+            from app.models.canonical_event_alignment import CanonicalEventAlignment
+            from app.services.alignment_service import EventAlignmentService
+
+            # Auto-align upcoming sportsbook games with Kalshi markets
+            alignment_service = EventAlignmentService(db, KalshiClient())
+            try:
+                kalshi_alignments_synced = await alignment_service.sync_kalshi_alignments()
+            except Exception:
+                logger.exception("Kalshi alignment sync failed; continuing with existing alignments")
+
+            exchange_ingestion = ExchangeIngestionService(db)
+
+            # Load alignment rows once for both exchange blocks and cross-market hooks
+            alignment_stmt = select(CanonicalEventAlignment).where(
+                CanonicalEventAlignment.sportsbook_event_id.in_(event_ids)
+            )
+            alignment_objs = list((await db.execute(alignment_stmt)).scalars().all())
+
+            aligned_event_ids = {a.sportsbook_event_id for a in alignment_objs}
+            kalshi_skipped_no_alignment = len(set(event_ids) - aligned_event_ids)
+
+            # --- Kalshi ingestion ---
+            kalshi_skipped_no_market_id = len([a for a in alignment_objs if not a.kalshi_market_id])
+            kalshi_alignments = [a for a in alignment_objs if a.kalshi_market_id]
+            max_kalshi = settings.max_kalshi_markets_per_cycle
+            if max_kalshi is not None:
+                kalshi_alignments = kalshi_alignments[:max_kalshi]
+            if kalshi_alignments:
+                try:
+                    kalshi_client = KalshiClient()
+                    for alignment in kalshi_alignments:
+                        try:
+                            raw = await kalshi_client.fetch_market_quotes(alignment.kalshi_market_id)  # type: ignore[arg-type]
+                            inserted = await exchange_ingestion.ingest_exchange_quotes(
+                                canonical_event_key=alignment.canonical_event_key,
+                                source="KALSHI",
+                                raw_payload=raw,
+                            )
+                            kalshi_quotes_inserted += inserted
+                            kalshi_markets_polled += 1
+                        except ExchangeUpstreamError:
+                            kalshi_errors += 1
+                            logger.exception(
+                                "Kalshi fetch failed; continuing",
+                                extra={"kalshi_market_id": alignment.kalshi_market_id},
+                            )
+                        except Exception:
+                            kalshi_errors += 1
+                            logger.exception(
+                                "Kalshi ingestion failed; continuing",
+                                extra={"kalshi_market_id": alignment.kalshi_market_id},
+                            )
+                    if kalshi_quotes_inserted > 0:
+                        await db.commit()
+                except Exception:
+                    logger.exception("Kalshi ingestion pipeline failed; continuing")
+
+            # --- Polymarket ingestion (disabled by default) ---
+            if settings.enable_polymarket_ingest:
+                poly_alignments = [
+                    a for a in alignment_objs if a.polymarket_market_id
+                ][:settings.max_polymarket_markets_per_cycle]
+                if poly_alignments:
+                    try:
+                        poly_client = PolymarketClient()
+                        for alignment in poly_alignments:
+                            try:
+                                raw = await poly_client.fetch_market_quotes(alignment.polymarket_market_id)  # type: ignore[arg-type]
+                                inserted = await exchange_ingestion.ingest_exchange_quotes(
+                                    canonical_event_key=alignment.canonical_event_key,
+                                    source="POLYMARKET",
+                                    raw_payload=raw,
+                                )
+                                polymarket_quotes_inserted += inserted
+                                polymarket_markets_polled += 1
+                            except ExchangeUpstreamError:
+                                logger.exception(
+                                    "Polymarket fetch failed; continuing",
+                                    extra={"polymarket_market_id": alignment.polymarket_market_id},
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Polymarket ingestion failed; continuing",
+                                    extra={"polymarket_market_id": alignment.polymarket_market_id},
+                                )
+                        if polymarket_quotes_inserted > 0:
+                            await db.commit()
+                    except Exception:
+                        logger.exception("Polymarket ingestion pipeline failed; continuing")
+        except Exception:
+            logger.exception("Exchange adapter pipeline failed; continuing")
+
+        # --- Cross-market lead-lag (additive) ---
+        cross_market_count = 0
+        alignment_ceks = [a.canonical_event_key for a in alignment_objs] if alignment_objs else []
+        try:
+            lead_lag_service = CrossMarketLeadLagService(db)
+            for cek in alignment_ceks:
+                try:
+                    cross_market_count += await lead_lag_service.compute_lead_lag(cek)
+                except Exception:
+                    logger.exception(
+                        "Cross-market lead-lag failed; continuing",
+                        extra={"canonical_event_key": cek},
+                    )
+            if cross_market_count > 0:
+                await db.commit()
+        except Exception:
+            logger.exception("Cross-market lead-lag pipeline failed; continuing")
+
+        # --- Cross-market divergence (additive) ---
+        divergence_count = 0
+        try:
+            divergence_service = CrossMarketDivergenceService(db)
+            for cek in alignment_ceks:
+                try:
+                    divergence_count += await divergence_service.compute_divergence(cek)
+                except Exception:
+                    logger.exception(
+                        "Cross-market divergence failed; continuing",
+                        extra={"canonical_event_key": cek},
+                    )
+            if divergence_count > 0:
+                await db.commit()
+        except Exception:
+            logger.exception("Cross-market divergence pipeline failed; continuing")
+
         alert_stats = await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
         ingest_result["signals_created"] = len(signals)
         ingest_result["signals_created_total"] = len(signals)
@@ -329,6 +492,26 @@ async def run_polling_cycle(
         ingest_result["alerts_failed"] = int(alert_stats.get("failed", 0))
         ingest_result["propagation_events_created"] = propagation_count
         ingest_result["structural_events_created"] = structural_count
+        ingest_result["kalshi_alignments_synced"] = kalshi_alignments_synced
+        ingest_result["cross_market_events_created"] = cross_market_count
+        ingest_result["cross_market_divergence_events_created"] = divergence_count
+        ingest_result["kalshi_markets_polled"] = kalshi_markets_polled
+        ingest_result["kalshi_quotes_inserted"] = kalshi_quotes_inserted
+        ingest_result["kalshi_errors"] = kalshi_errors
+        ingest_result["kalshi_skipped_no_alignment"] = kalshi_skipped_no_alignment
+        ingest_result["kalshi_skipped_no_market_id"] = kalshi_skipped_no_market_id
+        ingest_result["polymarket_markets_polled"] = polymarket_markets_polled
+        ingest_result["polymarket_quotes_inserted"] = polymarket_quotes_inserted
+
+        logger.info(
+            "KALSHI_INGEST_SUMMARY polled=%d inserted=%d errors=%d skipped_no_alignment=%d skipped_no_market=%d",
+            kalshi_markets_polled,
+            kalshi_quotes_inserted,
+            kalshi_errors,
+            kalshi_skipped_no_alignment,
+            kalshi_skipped_no_market_id,
+        )
+
         return ingest_result
 
 
