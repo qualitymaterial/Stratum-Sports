@@ -135,8 +135,23 @@ async def export_debug_view(
     align_stmt = select(CanonicalEventAlignment).order_by(CanonicalEventAlignment.created_at.desc()).limit(limit)
     alignments = (await db.execute(align_stmt)).scalars().all()
 
+    header = [
+        "canonical_event_key",
+        "sportsbook_event_id",
+        "last_structural_event_ts",
+        "last_structural_threshold_value",
+        "last_exchange_quote_ts",
+        "last_exchange_probability",
+        "last_lead_lag_created_at",
+        "last_lead_source",
+        "last_lag_seconds",
+        "last_divergence_created_at",
+        "last_divergence_type",
+        "last_divergence_resolved",
+    ]
+
     if not alignments:
-        return _build_csv_response("kalshi-debug-empty.csv", ["canonical_event_key"], [])
+        return _build_csv_response("kalshi-debug-empty.csv", header, [])
 
     sb_event_ids = [a.sportsbook_event_id for a in alignments]
     ce_keys = [a.canonical_event_key for a in alignments]
