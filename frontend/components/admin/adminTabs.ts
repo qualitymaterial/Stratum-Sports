@@ -1,6 +1,6 @@
 import { AdminPermission } from "@/lib/adminPermissions";
 
-export type AdminTabKey = "overview" | "users" | "billing" | "api-partners" | "ops-tokens" | "audit";
+export type AdminTabKey = "overview" | "users" | "billing" | "api-partners" | "ops-tokens" | "audit" | "security";
 
 export type AdminTabConfig = {
   key: AdminTabKey;
@@ -37,6 +37,11 @@ export const ADMIN_TABS: AdminTabConfig[] = [
   {
     key: "audit",
     label: "Audit",
+    requiredPermissions: ["admin_read"],
+  },
+  {
+    key: "security",
+    label: "Security",
     requiredPermissions: ["admin_read"],
   },
 ];

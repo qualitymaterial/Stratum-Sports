@@ -13,6 +13,7 @@ from app.models.discord_connection import DiscordConnection
 from app.models.exchange_quote_event import ExchangeQuoteEvent
 from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
+from app.models.mfa_backup_code import MfaBackupCode
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.ops_digest_sent import OpsDigestSent
 from app.models.ops_service_token import OpsServiceToken
@@ -47,6 +48,7 @@ __all__ = [
     "CycleKpi",
     "ExchangeQuoteEvent",
     "MarketConsensusSnapshot",
+    "MfaBackupCode",
     "OpsDigestSent",
     "OpsServiceToken",
     "OddsSnapshot",

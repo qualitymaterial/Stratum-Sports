@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
-import { getDiscordAuthUrl, login } from "@/lib/api";
+import { getDiscordAuthUrl, login, mfaVerify } from "@/lib/api";
 import { setSession } from "@/lib/auth";
 
 const DISCORD_STATE_KEY = "stratum_discord_oauth_state";
@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [mfaChallengeToken, setMfaChallengeToken] = useState("");
+  const [mfaCode, setMfaCode] = useState("");
 
   const onDiscordLogin = async () => {
     try {
@@ -33,7 +35,12 @@ export default function LoginPage() {
 
     try {
       const result = await login(email, password);
-      setSession(result.access_token, result.user);
+      if (result.mfa_required && result.mfa_challenge_token) {
+        setMfaChallengeToken(result.mfa_challenge_token);
+        setSubmitting(false);
+        return;
+      }
+      setSession(result.access_token!, result.user!);
       router.push("/app/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Login failed");
@@ -41,6 +48,73 @@ export default function LoginPage() {
       setSubmitting(false);
     }
   };
+
+  const onMfaSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+
+    try {
+      const result = await mfaVerify(mfaChallengeToken, mfaCode);
+      setSession(result.access_token, result.user);
+      router.push("/app/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Invalid MFA code");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (mfaChallengeToken) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">
+        <div className="w-full rounded-2xl border border-borderTone bg-panel p-8 shadow-terminal">
+          <p className="text-xs uppercase tracking-[0.28em] text-textMute">Stratum Sports</p>
+          <h1 className="mt-3 text-2xl font-semibold text-textMain">MFA Verification</h1>
+          <p className="mt-2 text-sm text-textMute">Enter the 6-digit code from your authenticator app.</p>
+
+          <form onSubmit={onMfaSubmit} className="mt-8 space-y-4">
+            <div>
+              <label className="mb-2 block text-xs uppercase tracking-wider text-textMute">MFA Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value)}
+                required
+                maxLength={8}
+                className="w-full rounded-md border border-borderTone bg-panelSoft px-3 py-2 text-center font-mono text-lg tracking-[0.3em] outline-none transition focus:border-accent"
+                placeholder="000000"
+              />
+            </div>
+
+            {error && <p className="text-sm text-negative">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={submitting || mfaCode.length < 6}
+              className="w-full rounded-md border border-accent bg-accent/10 px-3 py-2 text-sm font-medium text-accent transition hover:bg-accent/20 disabled:opacity-60"
+            >
+              {submitting ? "Verifying..." : "Verify"}
+            </button>
+          </form>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMfaChallengeToken("");
+              setMfaCode("");
+              setError("");
+            }}
+            className="mt-4 w-full text-sm text-textMute hover:text-textMain"
+          >
+            Back to login
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6">

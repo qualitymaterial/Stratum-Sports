@@ -195,6 +195,7 @@ class AdminUserTierUpdateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminUserTierUpdateOut(BaseModel):
@@ -213,6 +214,7 @@ class AdminUserRoleUpdateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminUserRoleUpdateOut(BaseModel):
@@ -233,6 +235,7 @@ class AdminUserActiveUpdateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminUserActiveUpdateOut(BaseModel):
@@ -250,6 +253,7 @@ class AdminUserPasswordResetRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminUserPasswordResetOut(BaseModel):
@@ -290,6 +294,7 @@ class AdminBillingMutationRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminBillingMutationOut(BaseModel):
@@ -339,6 +344,7 @@ class AdminApiPartnerKeyIssueRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminApiPartnerKeyRotateRequest(BaseModel):
@@ -347,12 +353,14 @@ class AdminApiPartnerKeyRotateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminApiPartnerKeyMutationRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminApiPartnerKeyIssueOut(BaseModel):
@@ -406,6 +414,7 @@ class AdminApiPartnerEntitlementUpdateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
     @model_validator(mode="after")
     def _validate_has_any_mutation(self) -> "AdminApiPartnerEntitlementUpdateRequest":
@@ -465,6 +474,7 @@ class AdminOpsServiceTokenIssueRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminOpsServiceTokenIssueOut(BaseModel):
@@ -481,6 +491,7 @@ class AdminOpsServiceTokenMutationRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminOpsServiceTokenRevokeOut(BaseModel):
@@ -503,6 +514,7 @@ class AdminOpsServiceTokenRotateRequest(BaseModel):
     reason: str = Field(min_length=8, max_length=500)
     step_up_password: str = Field(min_length=8, max_length=128)
     confirm_phrase: str = Field(min_length=3, max_length=32)
+    mfa_code: str | None = Field(default=None, min_length=6, max_length=8)
 
 
 class AdminAuditLogItemOut(BaseModel):

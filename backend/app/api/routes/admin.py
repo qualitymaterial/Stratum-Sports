@@ -116,7 +116,12 @@ DIVERGENCE_EXPORT_MAX_ROWS = 10_000
 logger = logging.getLogger(__name__)
 
 
-def _require_step_up_auth(admin_user: User, step_up_password: str, confirm_phrase: str) -> None:
+def _require_step_up_auth(
+    admin_user: User,
+    step_up_password: str,
+    confirm_phrase: str,
+    mfa_code: str | None = None,
+) -> None:
     if confirm_phrase.strip().upper() != ADMIN_MUTATION_CONFIRM_PHRASE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -132,6 +137,19 @@ def _require_step_up_auth(admin_user: User, step_up_password: str, confirm_phras
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Step-up authentication failed",
         )
+    # MFA verification when admin has MFA enabled
+    if admin_user.mfa_enabled and admin_user.mfa_secret_encrypted:
+        if not mfa_code:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="MFA code required for step-up authentication",
+            )
+        from app.services.admin_mfa import verify_totp_code
+        if not verify_totp_code(admin_user.mfa_secret_encrypted, mfa_code.strip()):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid MFA code",
+            )
 
 
 def _raise_billing_error(exc: Exception) -> None:
@@ -496,6 +514,7 @@ async def admin_update_user_active(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     target_user = await db.get(User, user_id)
@@ -545,6 +564,7 @@ async def admin_request_user_password_reset(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     target_user = await db.get(User, user_id)
@@ -683,6 +703,7 @@ async def admin_user_billing_resync(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -752,6 +773,7 @@ async def admin_user_billing_cancel(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -809,6 +831,7 @@ async def admin_user_billing_reactivate(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -894,6 +917,7 @@ async def admin_issue_user_api_partner_key(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -953,6 +977,7 @@ async def admin_revoke_user_api_partner_key(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -1007,6 +1032,7 @@ async def admin_rotate_user_api_partner_key(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -1081,6 +1107,7 @@ async def admin_update_user_api_partner_entitlement(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
     target_user = await db.get(User, user_id)
     if target_user is None:
@@ -1141,6 +1168,7 @@ async def admin_update_user_tier(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     target_user = await db.get(User, user_id)
@@ -1190,6 +1218,7 @@ async def admin_update_user_role(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     target_user = await db.get(User, user_id)
@@ -1533,6 +1562,7 @@ async def admin_issue_ops_service_token(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     try:
@@ -1584,6 +1614,7 @@ async def admin_revoke_ops_service_token(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     token = await get_ops_service_token(db, token_id)
@@ -1635,6 +1666,7 @@ async def admin_rotate_ops_service_token(
         admin_user,
         step_up_password=payload.step_up_password,
         confirm_phrase=payload.confirm_phrase,
+        mfa_code=payload.mfa_code,
     )
 
     token = await get_ops_service_token(db, token_id)

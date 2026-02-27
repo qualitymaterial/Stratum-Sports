@@ -38,6 +38,7 @@ class UserOut(BaseModel):
     tier: str
     is_admin: bool
     admin_role: str | None = None
+    mfa_enabled: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -47,3 +48,55 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class LoginResponse(BaseModel):
+    """Union-type response: either a full token or an MFA challenge."""
+    access_token: str | None = None
+    token_type: str = "bearer"
+    user: UserOut | None = None
+    mfa_required: bool = False
+    mfa_challenge_token: str | None = None
+
+
+class MfaVerifyRequest(BaseModel):
+    """Second phase of MFA login."""
+    mfa_challenge_token: str
+    mfa_code: str = Field(min_length=6, max_length=8)
+
+
+# ── MFA management schemas ─────────────────────────────────────
+
+
+class MfaStatusResponse(BaseModel):
+    mfa_enabled: bool
+    mfa_enrolled_at: datetime | None = None
+    backup_codes_remaining: int
+
+
+class MfaEnrollStartResponse(BaseModel):
+    totp_secret: str
+    provisioning_uri: str
+
+
+class MfaEnrollConfirmRequest(BaseModel):
+    totp_code: str = Field(min_length=6, max_length=6)
+
+
+class MfaEnrollConfirmResponse(BaseModel):
+    mfa_enabled: bool = True
+    backup_codes: list[str]
+
+
+class MfaDisableRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+    mfa_code: str = Field(min_length=6, max_length=8)
+
+
+class MfaRegenerateBackupCodesRequest(BaseModel):
+    password: str = Field(min_length=8, max_length=128)
+    mfa_code: str = Field(min_length=6, max_length=6)
+
+
+class MfaRegenerateBackupCodesResponse(BaseModel):
+    backup_codes: list[str]

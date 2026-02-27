@@ -17,6 +17,7 @@ import { AdminBillingTab } from "@/components/admin/AdminBillingTab";
 import { AdminApiPartnersTab } from "@/components/admin/AdminApiPartnersTab";
 import { AdminOpsTokensTab } from "@/components/admin/AdminOpsTokensTab";
 import { AdminAuditTab } from "@/components/admin/AdminAuditTab";
+import { AdminSecurityTab } from "@/components/admin/AdminSecurityTab";
 
 export default function AdminPage() {
   const { user, loading, token } = useCurrentUser(true);
@@ -80,6 +81,7 @@ export default function AdminPage() {
         {activeTab === "api-partners" && <AdminApiPartnersTab />}
         {activeTab === "ops-tokens" && <AdminOpsTokensTab />}
         {activeTab === "audit" && <AdminAuditTab token={token!} user={user} />}
+        {activeTab === "security" && <AdminSecurityTab token={token!} />}
       </AdminContextProvider>
     </section>
   );

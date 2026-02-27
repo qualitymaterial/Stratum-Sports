@@ -34,6 +34,8 @@ type AdminContextValue = {
   setMutationStepUpPassword: (p: string) => void;
   mutationConfirmPhrase: string;
   setMutationConfirmPhrase: (p: string) => void;
+  mutationMfaCode: string;
+  setMutationMfaCode: (c: string) => void;
   mutationLoading: boolean;
   mutationResult: string | null;
   mutationError: string | null;
@@ -94,6 +96,7 @@ export function AdminContextProvider({
   const [mutationReason, setMutationReason] = useState("");
   const [mutationStepUpPassword, setMutationStepUpPassword] = useState("");
   const [mutationConfirmPhrase, setMutationConfirmPhrase] = useState("");
+  const [mutationMfaCode, setMutationMfaCode] = useState("");
   const [mutationLoading, setMutationLoading] = useState(false);
   const [mutationResult, setMutationResult] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
@@ -225,8 +228,12 @@ export function AdminContextProvider({
       setMutationError("Type CONFIRM to proceed.");
       return false;
     }
+    if (user.mfa_enabled && mutationMfaCode.trim().length < 6) {
+      setMutationError("MFA code is required (6 digits).");
+      return false;
+    }
     return true;
-  }, [token, mutationUserId, mutationReason, mutationStepUpPassword, mutationConfirmPhrase]);
+  }, [token, mutationUserId, mutationReason, mutationStepUpPassword, mutationConfirmPhrase, user.mfa_enabled, mutationMfaCode]);
 
   const executeMutation = useCallback(
     async (fn: () => Promise<string>) => {
@@ -239,6 +246,7 @@ export function AdminContextProvider({
         setMutationResult(message);
         setMutationStepUpPassword("");
         setMutationConfirmPhrase("");
+        setMutationMfaCode("");
       } catch (err) {
         setMutationError(err instanceof Error ? err.message : "Operation failed");
       } finally {
@@ -312,6 +320,8 @@ export function AdminContextProvider({
         setMutationStepUpPassword,
         mutationConfirmPhrase,
         setMutationConfirmPhrase,
+        mutationMfaCode,
+        setMutationMfaCode,
         mutationLoading,
         mutationResult,
         mutationError,

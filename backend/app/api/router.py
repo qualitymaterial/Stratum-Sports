@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     admin,
     admin_kalshi,
+    admin_mfa,
     auth,
     auth_discord,
     billing,
@@ -24,6 +25,7 @@ api_router.include_router(health.router, tags=["health"])
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(admin.router, prefix="/admin", tags=["admin"])
 api_router.include_router(admin_kalshi.router, prefix="/admin/kalshi", tags=["admin", "kalshi"])
+api_router.include_router(admin_mfa.router, prefix="/admin/mfa", tags=["admin", "mfa"])
 api_router.include_router(auth_discord.router, prefix="/auth/discord", tags=["auth"])
 api_router.include_router(billing.router, prefix="/billing", tags=["billing"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])

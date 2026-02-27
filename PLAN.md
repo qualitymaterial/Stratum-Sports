@@ -676,12 +676,21 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. Privileged sessions are time-bounded and reviewable.
 3. Admin role lifecycle is governed and visible.
 
+**Status**
+1. Completed: TOTP-based MFA for admin accounts (`pyotp`, enroll/confirm/disable/backup-codes lifecycle).
+2. Completed: Two-phase MFA login (short-lived challenge JWT → TOTP verification → access token with `mfa: true` claim).
+3. Completed: Admin session TTL enforcement (4h admin tokens vs 24h regular, via `extra_claims` on `create_access_token`).
+4. Completed: MFA-gated step-up auth (all 14 admin mutation call sites verify TOTP when MFA is enabled).
+5. Completed: `last_login_at` tracking for access review.
+6. Completed: Frontend MFA login flow, admin Security tab (enroll/disable/regenerate backup codes), MFA code field on mutation controls.
+7. Remaining: stronger password policy/breach-resistant controls, periodic access review automation.
+
 ### 8.7 Next Up (Immediate Execution Order)
 1. ~~**PR-A:** Partner entitlement controls~~ — SHIPPED (`64eee49`, `d3da3b6`).
 2. ~~**PR-B:** Partner usage visibility in admin~~ — SHIPPED (`d3da3b6`). Billing summary, usage history, and portal endpoints live.
 3. ~~**PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).~~ — SHIPPED (`fca060b`).
 4. ~~**PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.~~ — SHIPPED. DB-backed `OpsServiceToken` with scopes, admin CRUD, backward-compat static token fallback.
-5. **PR-E:** Admin MFA + privileged session TTL enforcement.
+5. ~~**PR-E:** Admin MFA + privileged session TTL enforcement.~~ — SHIPPED. TOTP MFA lifecycle, two-phase login, 4h admin TTL, MFA-gated step-up auth, `last_login_at` tracking, frontend Security tab.
 
 ### 8.8 Deferred Follow-Ups (Outcomes Report UX/Export)
 1. Add explicit baseline-readiness indicator in outcomes summary/export (`baseline_building` with sample threshold context).

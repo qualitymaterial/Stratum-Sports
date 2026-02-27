@@ -45,10 +45,71 @@ export async function register(email: string, password: string) {
   });
 }
 
+export type LoginResponse = {
+  access_token: string | null;
+  token_type: string;
+  user: User | null;
+  mfa_required: boolean;
+  mfa_challenge_token: string | null;
+};
+
 export async function login(email: string, password: string) {
-  return apiRequest<{ access_token: string; user: User }>("/auth/login", {
+  return apiRequest<LoginResponse>("/auth/login", {
     method: "POST",
     body: { email, password },
+  });
+}
+
+export async function mfaVerify(mfa_challenge_token: string, mfa_code: string) {
+  return apiRequest<{ access_token: string; user: User }>("/auth/login/mfa-verify", {
+    method: "POST",
+    body: { mfa_challenge_token, mfa_code },
+  });
+}
+
+// ── MFA management ─────────────────────────────────────
+
+export type MfaStatus = {
+  mfa_enabled: boolean;
+  mfa_enrolled_at: string | null;
+  backup_codes_remaining: number;
+};
+
+export async function getMfaStatus(token: string) {
+  return apiRequest<MfaStatus>("/admin/mfa/status", { token });
+}
+
+export async function startMfaEnrollment(token: string) {
+  return apiRequest<{ totp_secret: string; provisioning_uri: string }>("/admin/mfa/enroll/start", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function confirmMfaEnrollment(token: string, totp_code: string) {
+  return apiRequest<{ mfa_enabled: boolean; backup_codes: string[] }>("/admin/mfa/enroll/confirm", {
+    method: "POST",
+    token,
+    body: { totp_code },
+  });
+}
+
+export async function disableMfa(token: string, payload: { password: string; mfa_code: string }) {
+  return apiRequest<{ message: string }>("/admin/mfa/disable", {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}
+
+export async function regenerateBackupCodes(
+  token: string,
+  payload: { password: string; mfa_code: string },
+) {
+  return apiRequest<{ backup_codes: string[] }>("/admin/mfa/backup-codes/regenerate", {
+    method: "POST",
+    token,
+    body: payload,
   });
 }
 
@@ -198,6 +259,7 @@ export async function updateAdminUserTier(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminUserTierUpdate>(`/admin/users/${userId}/tier`, {
@@ -215,6 +277,7 @@ export async function updateAdminUserRole(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminUserRoleUpdate>(`/admin/users/${userId}/role`, {
@@ -232,6 +295,7 @@ export async function updateAdminUserActive(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminUserActiveUpdate>(`/admin/users/${userId}/active`, {
@@ -248,6 +312,7 @@ export async function requestAdminUserPasswordReset(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminUserPasswordReset>(`/admin/users/${userId}/password-reset`, {
@@ -271,6 +336,7 @@ export async function resyncAdminUserBilling(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/resync`, {
@@ -287,6 +353,7 @@ export async function cancelAdminUserBilling(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/cancel`, {
@@ -303,6 +370,7 @@ export async function reactivateAdminUserBilling(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminBillingMutation>(`/admin/users/${userId}/billing/reactivate`, {
@@ -328,6 +396,7 @@ export async function issueAdminUserApiPartnerKey(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminApiPartnerKeyIssue>(`/admin/users/${userId}/api-keys`, {
@@ -345,6 +414,7 @@ export async function revokeAdminUserApiPartnerKey(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminApiPartnerKeyRevoke>(`/admin/users/${userId}/api-keys/${keyId}/revoke`, {
@@ -364,6 +434,7 @@ export async function rotateAdminUserApiPartnerKey(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminApiPartnerKeyIssue>(`/admin/users/${userId}/api-keys/${keyId}/rotate`, {
@@ -393,6 +464,7 @@ export async function updateAdminUserApiPartnerEntitlement(
     reason: string;
     step_up_password: string;
     confirm_phrase: string;
+    mfa_code?: string;
   },
 ) {
   return apiRequest<AdminApiPartnerEntitlementUpdate>(`/admin/users/${userId}/api-entitlement`, {

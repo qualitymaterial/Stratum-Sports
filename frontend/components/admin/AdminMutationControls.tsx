@@ -49,6 +49,21 @@ export function AdminMutationControls() {
           />
         </label>
       </div>
+      {ctx.user.mfa_enabled && (
+        <label className="mt-3 block text-xs text-textMute">
+          MFA Code (from your authenticator app)
+          <input
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={ctx.mutationMfaCode}
+            onChange={(e) => ctx.setMutationMfaCode(e.target.value)}
+            placeholder="000000"
+            maxLength={8}
+            className="mt-1 w-full rounded border border-borderTone bg-panelSoft px-2 py-1 font-mono text-sm tracking-wider text-textMain"
+          />
+        </label>
+      )}
       {ctx.mutationError && <p className="mt-2 text-sm text-negative">{ctx.mutationError}</p>}
       {ctx.mutationResult && <p className="mt-2 text-sm text-positive">{ctx.mutationResult}</p>}
     </>

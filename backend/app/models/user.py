@@ -1,6 +1,7 @@
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,6 +20,14 @@ class User(Base, TimestampMixin):
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     admin_role: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+
+    # MFA fields
+    mfa_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    mfa_secret_encrypted: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mfa_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Access review
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     subscriptions = relationship("Subscription", back_populates="user", lazy="noload")
     watchlist_items = relationship("Watchlist", back_populates="user", lazy="noload")
@@ -41,3 +50,4 @@ class User(Base, TimestampMixin):
         lazy="noload",
     )
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", lazy="noload")
+    mfa_backup_codes = relationship("MfaBackupCode", back_populates="user", lazy="noload")

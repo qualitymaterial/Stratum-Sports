@@ -9,6 +9,8 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.core.security import (
     create_access_token,
+    create_mfa_challenge_token,
+    decode_mfa_challenge_token,
     generate_password_reset_token,
     get_password_hash,
     hash_password_reset_token,
@@ -18,7 +20,9 @@ from app.models.password_reset_token import PasswordResetToken
 from app.models.user import User
 from app.schemas.auth import (
     LoginRequest,
+    LoginResponse,
     MessageResponse,
+    MfaVerifyRequest,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
@@ -26,6 +30,7 @@ from app.schemas.auth import (
     TokenResponse,
     UserOut,
 )
+from app.services.admin_mfa import verify_backup_code, verify_totp_code
 
 router = APIRouter()
 
@@ -50,15 +55,70 @@ async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db))
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
-@router.post("/login", response_model=TokenResponse)
-async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+@router.post("/login", response_model=LoginResponse)
+async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> LoginResponse:
+    settings = get_settings()
     stmt = select(User).where(User.email == payload.email.lower())
     user = (await db.execute(stmt)).scalar_one_or_none()
 
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    token = create_access_token(str(user.id))
+    # Track last login
+    user.last_login_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(user)
+
+    # If MFA is enabled, return a challenge token instead of a full access token
+    if user.mfa_enabled and user.mfa_secret_encrypted:
+        challenge_token = create_mfa_challenge_token(str(user.id))
+        return LoginResponse(mfa_required=True, mfa_challenge_token=challenge_token)
+
+    # No MFA — issue full access token
+    extra_claims: dict[str, object] = {"mfa": False}
+    expires_delta = None
+    if user.is_admin:
+        extra_claims["adm"] = True
+        expires_delta = timedelta(minutes=settings.admin_access_token_expire_minutes)
+
+    token = create_access_token(str(user.id), expires_delta=expires_delta, extra_claims=extra_claims)
+    return LoginResponse(access_token=token, user=UserOut.model_validate(user))
+
+
+@router.post("/login/mfa-verify", response_model=TokenResponse)
+async def mfa_verify(payload: MfaVerifyRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+    """Second phase of MFA login: verify TOTP code against challenge token."""
+    settings = get_settings()
+    challenge = decode_mfa_challenge_token(payload.mfa_challenge_token)
+    if challenge is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired MFA challenge")
+
+    from uuid import UUID
+    user_id = UUID(challenge["sub"])
+    user = await db.get(User, user_id)
+    if not user or not user.is_active or not user.mfa_enabled:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid MFA challenge")
+
+    # Try TOTP code first, then backup code
+    code = payload.mfa_code.strip()
+    valid = False
+    if len(code) == 6 and user.mfa_secret_encrypted and verify_totp_code(user.mfa_secret_encrypted, code):
+        valid = True
+    elif await verify_backup_code(db, user.id, code):
+        valid = True
+
+    if not valid:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid MFA code")
+
+    # Issue full access token with MFA verified
+    extra_claims: dict[str, object] = {"mfa": True}
+    expires_delta = None
+    if user.is_admin:
+        extra_claims["adm"] = True
+        expires_delta = timedelta(minutes=settings.admin_access_token_expire_minutes)
+
+    token = create_access_token(str(user.id), expires_delta=expires_delta, extra_claims=extra_claims)
+    await db.commit()
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 

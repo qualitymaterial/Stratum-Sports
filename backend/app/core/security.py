@@ -28,11 +28,17 @@ def get_password_hash(password: str) -> str:
     ).decode("utf-8")
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+    extra_claims: dict[str, Any] | None = None,
+) -> str:
     expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
     )
-    to_encode: dict[str, Any] = {"sub": subject, "exp": expire}
+    to_encode: dict[str, Any] = {"sub": subject, "exp": expire, "iat": datetime.now(UTC)}
+    if extra_claims:
+        to_encode.update(extra_claims)
     return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -41,6 +47,31 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
         return None
+
+
+def create_mfa_challenge_token(user_id: str) -> str:
+    """Create a short-lived token for MFA challenge (password verified, MFA pending)."""
+    expire = datetime.now(UTC) + timedelta(minutes=settings.mfa_challenge_token_expire_minutes)
+    to_encode: dict[str, Any] = {
+        "type": "mfa_challenge",
+        "sub": user_id,
+        "nonce": secrets.token_urlsafe(16),
+        "exp": expire,
+    }
+    return jwt.encode(to_encode, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_mfa_challenge_token(token: str) -> dict[str, Any] | None:
+    """Decode and validate an MFA challenge token."""
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+    if payload.get("type") != "mfa_challenge":
+        return None
+    if "sub" not in payload:
+        return None
+    return payload
 
 
 def create_oauth_state_token(provider: str, expires_minutes: int = 10) -> str:

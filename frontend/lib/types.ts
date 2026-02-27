@@ -4,6 +4,7 @@ export type User = {
   tier: "free" | "pro";
   is_admin: boolean;
   admin_role: "super_admin" | "ops_admin" | "support_admin" | "billing_admin" | null;
+  mfa_enabled: boolean;
   created_at: string;
 };
 

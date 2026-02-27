@@ -96,6 +96,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
+    admin_access_token_expire_minutes: int = 240  # 4h for admin sessions
+    mfa_challenge_token_expire_minutes: int = 5   # 5min MFA challenge window
     password_reset_token_expire_minutes: int = 30
 
     database_url: str = ""
