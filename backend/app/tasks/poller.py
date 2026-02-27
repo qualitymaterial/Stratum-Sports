@@ -354,6 +354,8 @@ async def run_polling_cycle(
         polymarket_markets_polled = 0
         polymarket_quotes_inserted = 0
         kalshi_alignments_synced = 0
+        alignment_objs: list = []
+        alignment_ceks: list[str] = []
         try:
             from app.models.canonical_event_alignment import CanonicalEventAlignment
             from app.services.alignment_service import EventAlignmentService
@@ -449,11 +451,9 @@ async def run_polling_cycle(
 
         # --- Cross-market lead-lag (additive) ---
         cross_market_count = 0
+        alignment_ceks = [a.canonical_event_key for a in alignment_objs] if alignment_objs else []
         try:
-            from app.models.canonical_event_alignment import CanonicalEventAlignment  # noqa: F811
-
             lead_lag_service = CrossMarketLeadLagService(db)
-            alignment_ceks = [a.canonical_event_key for a in alignment_objs] if alignment_objs else []
             for cek in alignment_ceks:
                 try:
                     cross_market_count += await lead_lag_service.compute_lead_lag(cek)
