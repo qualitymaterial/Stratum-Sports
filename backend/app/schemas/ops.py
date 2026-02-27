@@ -433,6 +433,78 @@ class AdminApiPartnerEntitlementUpdateOut(BaseModel):
     new_entitlement: AdminApiPartnerEntitlementOut
 
 
+# ── Ops service token admin schemas ──────────────────────────
+
+
+class AdminOpsServiceTokenOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    name: str
+    key_prefix: str
+    scopes: list[str]
+    is_active: bool
+    created_by_user_id: UUID | None
+    last_used_at: datetime | None
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminOpsServiceTokenListOut(BaseModel):
+    total: int
+    active: int
+    items: list[AdminOpsServiceTokenOut]
+
+
+class AdminOpsServiceTokenIssueRequest(BaseModel):
+    name: str = Field(min_length=3, max_length=64)
+    scopes: list[str] = Field(min_length=1)
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminOpsServiceTokenIssueOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    reason: str
+    operation: Literal["issue", "rotate"]
+    token: AdminOpsServiceTokenOut
+    raw_key: str
+
+
+class AdminOpsServiceTokenMutationRequest(BaseModel):
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
+class AdminOpsServiceTokenRevokeOut(BaseModel):
+    action_id: UUID
+    acted_at: datetime
+    actor_user_id: UUID
+    reason: str
+    operation: Literal["revoke"]
+    token_id: UUID
+    key_prefix: str
+    old_is_active: bool
+    new_is_active: bool
+    revoked_at: datetime | None
+
+
+class AdminOpsServiceTokenRotateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=3, max_length=64)
+    scopes: list[str] | None = None
+    expires_in_days: int | None = Field(default=None, ge=1, le=3650)
+    reason: str = Field(min_length=8, max_length=500)
+    step_up_password: str = Field(min_length=8, max_length=128)
+    confirm_phrase: str = Field(min_length=3, max_length=32)
+
+
 class AdminAuditLogItemOut(BaseModel):
     id: UUID
     actor_user_id: UUID

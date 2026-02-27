@@ -15,6 +15,7 @@ import { AdminOverviewTab } from "@/components/admin/AdminOverviewTab";
 import { AdminUsersTab } from "@/components/admin/AdminUsersTab";
 import { AdminBillingTab } from "@/components/admin/AdminBillingTab";
 import { AdminApiPartnersTab } from "@/components/admin/AdminApiPartnersTab";
+import { AdminOpsTokensTab } from "@/components/admin/AdminOpsTokensTab";
 import { AdminAuditTab } from "@/components/admin/AdminAuditTab";
 
 export default function AdminPage() {
@@ -77,6 +78,7 @@ export default function AdminPage() {
         {activeTab === "users" && <AdminUsersTab />}
         {activeTab === "billing" && <AdminBillingTab />}
         {activeTab === "api-partners" && <AdminApiPartnersTab />}
+        {activeTab === "ops-tokens" && <AdminOpsTokensTab />}
         {activeTab === "audit" && <AdminAuditTab token={token!} user={user} />}
       </AdminContextProvider>
     </section>

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import require_ops_token
+from app.api.deps import OpsTokenIdentity, require_ops_scope
 from app.core.database import get_db
 from app.models.cycle_kpi import CycleKpi
 from app.schemas.ops import CycleKpiOut, CycleSummaryOut, OperatorReport, SignalTypeCount
@@ -19,7 +19,7 @@ async def list_cycles(
     days: int = Query(7, ge=1, le=90),
     limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
-    _ops: None = Depends(require_ops_token),
+    _ops: OpsTokenIdentity = Depends(require_ops_scope("ops:read")),
 ) -> list[CycleKpiOut]:
     cutoff = datetime.now(UTC) - timedelta(days=days)
     stmt = (
@@ -36,7 +36,7 @@ async def list_cycles(
 async def cycles_summary(
     days: int = Query(7, ge=1, le=90),
     db: AsyncSession = Depends(get_db),
-    _ops: None = Depends(require_ops_token),
+    _ops: OpsTokenIdentity = Depends(require_ops_scope("ops:read")),
 ) -> CycleSummaryOut:
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
@@ -91,7 +91,7 @@ async def cycles_summary(
 async def operator_report(
     days: int = Query(7, ge=1, le=30),
     db: AsyncSession = Depends(get_db),
-    _ops: None = Depends(require_ops_token),
+    _ops: OpsTokenIdentity = Depends(require_ops_scope("ops:read")),
 ) -> OperatorReport:
     report = await build_operator_report(db, days)
     return OperatorReport(**report)

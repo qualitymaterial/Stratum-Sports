@@ -7,7 +7,8 @@ export type AdminPermission =
   | "user_status_write"
   | "user_password_reset_write"
   | "billing_write"
-  | "partner_api_write";
+  | "partner_api_write"
+  | "ops_token_write";
 
 const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
   super_admin: [
@@ -18,12 +19,14 @@ const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
     "user_password_reset_write",
     "billing_write",
     "partner_api_write",
+    "ops_token_write",
   ],
   ops_admin: [
     "admin_read",
     "user_tier_write",
     "user_status_write",
     "user_password_reset_write",
+    "ops_token_write",
   ],
   support_admin: [
     "admin_read",

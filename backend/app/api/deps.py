@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from secrets import compare_digest
 from uuid import UUID
@@ -158,8 +159,73 @@ def require_admin_permission(permission: str):
     return _dependency
 
 
-def require_ops_token(request: Request) -> None:
+@dataclass
+class OpsTokenIdentity:
+    """Identity info for an authenticated ops token caller."""
+
+    source: str  # "service_token" or "static_token"
+    token_name: str | None = None
+    token_id: str | None = None
+    scopes: list[str] = field(default_factory=list)
+
+
+async def require_ops_token(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> OpsTokenIdentity:
+    provided = request.headers.get("X-Stratum-Ops-Token", "").strip()
+    if not provided:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    # Try DB-backed service token first (ops prefix)
+    if provided.startswith("stratum_ops_"):
+        from app.services.ops_service_tokens import authenticate_ops_service_token
+
+        try:
+            token = await authenticate_ops_service_token(db, provided)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+            ) from exc
+
+        identity = OpsTokenIdentity(
+            source="service_token",
+            token_name=token.name,
+            token_id=str(token.id),
+            scopes=list(token.scopes),
+        )
+        request.state.ops_identity = identity
+        return identity
+
+    # Fall back to static token comparison
     expected = settings.ops_internal_token.strip()
-    provided = request.headers.get("X-Stratum-Ops-Token", "")
     if not expected or not compare_digest(provided, expected):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    identity = OpsTokenIdentity(
+        source="static_token",
+        token_name=None,
+        token_id=None,
+        scopes=[],  # static token: all-access, no scope restriction
+    )
+    request.state.ops_identity = identity
+    return identity
+
+
+def require_ops_scope(scope: str):
+    """Factory that returns a dependency checking a specific ops scope."""
+
+    async def _check_scope(
+        identity: OpsTokenIdentity = Depends(require_ops_token),
+    ) -> OpsTokenIdentity:
+        # Static tokens bypass scope checks (backward compat)
+        if identity.source == "static_token":
+            return identity
+        if scope not in identity.scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Token lacks required scope: {scope}",
+            )
+        return identity
+
+    return _check_scope

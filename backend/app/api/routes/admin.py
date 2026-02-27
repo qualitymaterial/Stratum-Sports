@@ -14,6 +14,7 @@ from app.api.deps import require_admin_permission, require_admin_user
 from app.core.admin_roles import (
     PERMISSION_BILLING_WRITE,
     PERMISSION_ADMIN_READ,
+    PERMISSION_OPS_TOKEN_WRITE,
     PERMISSION_PARTNER_API_WRITE,
     PERMISSION_USER_PASSWORD_RESET_WRITE,
     PERMISSION_USER_ROLE_WRITE,
@@ -50,6 +51,13 @@ from app.schemas.ops import (
     AdminApiPartnerKeyOut,
     AdminApiPartnerKeyRevokeOut,
     AdminApiPartnerKeyRotateRequest,
+    AdminOpsServiceTokenIssueOut,
+    AdminOpsServiceTokenIssueRequest,
+    AdminOpsServiceTokenListOut,
+    AdminOpsServiceTokenMutationRequest,
+    AdminOpsServiceTokenOut,
+    AdminOpsServiceTokenRevokeOut,
+    AdminOpsServiceTokenRotateRequest,
     AdminUserBillingOverviewOut,
     AdminUserActiveUpdateOut,
     AdminUserActiveUpdateRequest,
@@ -83,6 +91,14 @@ from app.services.partner_api_keys import (
     revoke_api_partner_key,
     rotate_api_partner_key,
     serialize_api_partner_key_for_audit,
+)
+from app.services.ops_service_tokens import (
+    get_ops_service_token,
+    issue_ops_service_token,
+    list_ops_service_tokens,
+    revoke_ops_service_token,
+    rotate_ops_service_token,
+    serialize_ops_service_token_for_audit,
 )
 from app.services.stripe_service import (
     admin_cancel_user_subscription,
@@ -1475,3 +1491,195 @@ async def admin_key_api_usage_history(
             for p in periods
         ],
     }
+
+
+# ── Ops service token management ────────────────────────────────────
+
+
+@router.get("/ops-tokens", response_model=AdminOpsServiceTokenListOut)
+async def admin_list_ops_service_tokens(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminOpsServiceTokenListOut:
+    tokens = await list_ops_service_tokens(db)
+    active = sum(1 for t in tokens if t.is_active)
+    return AdminOpsServiceTokenListOut(
+        total=len(tokens),
+        active=active,
+        items=[AdminOpsServiceTokenOut.model_validate(t) for t in tokens],
+    )
+
+
+@router.get("/ops-tokens/{token_id}", response_model=AdminOpsServiceTokenOut)
+async def admin_get_ops_service_token(
+    token_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
+) -> AdminOpsServiceTokenOut:
+    token = await get_ops_service_token(db, token_id)
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ops service token not found")
+    return AdminOpsServiceTokenOut.model_validate(token)
+
+
+@router.post("/ops-tokens", response_model=AdminOpsServiceTokenIssueOut)
+async def admin_issue_ops_service_token(
+    payload: AdminOpsServiceTokenIssueRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_OPS_TOKEN_WRITE)),
+) -> AdminOpsServiceTokenIssueOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
+    try:
+        token, raw_key = await issue_ops_service_token(
+            db,
+            created_by_user_id=admin_user.id,
+            name=payload.name,
+            scopes=payload.scopes,
+            expires_at=_resolve_expires_at(payload.expires_in_days),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.ops_token.issue",
+        target_type="ops_service_token",
+        target_id=str(token.id),
+        reason=payload.reason.strip(),
+        before_payload={},
+        after_payload=serialize_ops_service_token_for_audit(token),
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(token)
+
+    return AdminOpsServiceTokenIssueOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        reason=audit.reason,
+        operation="issue",
+        token=AdminOpsServiceTokenOut.model_validate(token),
+        raw_key=raw_key,
+    )
+
+
+@router.post("/ops-tokens/{token_id}/revoke", response_model=AdminOpsServiceTokenRevokeOut)
+async def admin_revoke_ops_service_token(
+    token_id: UUID,
+    payload: AdminOpsServiceTokenMutationRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_OPS_TOKEN_WRITE)),
+) -> AdminOpsServiceTokenRevokeOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
+    token = await get_ops_service_token(db, token_id)
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ops service token not found")
+
+    old_is_active = token.is_active
+    before_payload = serialize_ops_service_token_for_audit(token)
+    await revoke_ops_service_token(db, token=token)
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.ops_token.revoke",
+        target_type="ops_service_token",
+        target_id=str(token.id),
+        reason=payload.reason.strip(),
+        before_payload=before_payload,
+        after_payload=serialize_ops_service_token_for_audit(token),
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(token)
+
+    return AdminOpsServiceTokenRevokeOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        reason=audit.reason,
+        operation="revoke",
+        token_id=token.id,
+        key_prefix=token.key_prefix,
+        old_is_active=old_is_active,
+        new_is_active=token.is_active,
+        revoked_at=token.revoked_at,
+    )
+
+
+@router.post("/ops-tokens/{token_id}/rotate", response_model=AdminOpsServiceTokenIssueOut)
+async def admin_rotate_ops_service_token(
+    token_id: UUID,
+    payload: AdminOpsServiceTokenRotateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    admin_user: User = Depends(require_admin_permission(PERMISSION_OPS_TOKEN_WRITE)),
+) -> AdminOpsServiceTokenIssueOut:
+    _require_step_up_auth(
+        admin_user,
+        step_up_password=payload.step_up_password,
+        confirm_phrase=payload.confirm_phrase,
+    )
+
+    token = await get_ops_service_token(db, token_id)
+    if token is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ops service token not found")
+    if not token.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only active tokens can be rotated")
+
+    before_payload = serialize_ops_service_token_for_audit(token)
+    try:
+        rotated_token, raw_key = await rotate_ops_service_token(
+            db,
+            token=token,
+            created_by_user_id=admin_user.id,
+            name=payload.name,
+            scopes=payload.scopes,
+            expires_at=_resolve_expires_at(payload.expires_in_days),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    audit = await write_admin_audit_log(
+        db,
+        actor_user_id=admin_user.id,
+        action_type="admin.ops_token.rotate",
+        target_type="ops_service_token",
+        target_id=str(token.id),
+        reason=payload.reason.strip(),
+        before_payload=before_payload,
+        after_payload={
+            "previous_token_id": str(token.id),
+            "new_token": serialize_ops_service_token_for_audit(rotated_token),
+        },
+        request_id=request.headers.get("x-request-id"),
+    )
+    await db.commit()
+    await db.refresh(audit)
+    await db.refresh(rotated_token)
+
+    return AdminOpsServiceTokenIssueOut(
+        action_id=audit.id,
+        acted_at=audit.created_at,
+        actor_user_id=admin_user.id,
+        reason=audit.reason,
+        operation="rotate",
+        token=AdminOpsServiceTokenOut.model_validate(rotated_token),
+        raw_key=raw_key,
+    )

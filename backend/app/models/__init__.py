@@ -15,6 +15,7 @@ from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.ops_digest_sent import OpsDigestSent
+from app.models.ops_service_token import OpsServiceToken
 from app.models.password_reset_token import PasswordResetToken
 from app.models.propagation_event import PropagationEvent
 from app.models.quote_move_event import QuoteMoveEvent
@@ -47,6 +48,7 @@ __all__ = [
     "ExchangeQuoteEvent",
     "MarketConsensusSnapshot",
     "OpsDigestSent",
+    "OpsServiceToken",
     "OddsSnapshot",
     "PropagationEvent",
     "QuoteMoveEvent",

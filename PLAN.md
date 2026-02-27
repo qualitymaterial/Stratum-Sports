@@ -658,8 +658,8 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. Admin dashboard surfaces current system risk.
 
 **Status**
-1. Not started for service-token replacement and in-UI run controls.
-2. This is the highest-impact remaining admin/ops gap after Phase B completion.
+1. Scoped service tokens shipped: `OpsServiceToken` model, issue/revoke/rotate service, DB-backed auth with scope enforcement, static token backward compat, admin CRUD endpoints with step-up auth + audit logging, `ops_token_write` permission on `super_admin` + `ops_admin` roles, frontend tab stub.
+2. Remaining: admin run controls (backfill trigger, poller diagnostics, alert replay), ops telemetry dashboard hooks.
 
 ### 8.6 Phase E (P2) — Security and compliance hardening
 1. MFA for admin accounts.
@@ -680,7 +680,7 @@ Tier labels represent operational priority bands, not predictive certainty.
 1. ~~**PR-A:** Partner entitlement controls~~ — SHIPPED (`64eee49`, `d3da3b6`).
 2. ~~**PR-B:** Partner usage visibility in admin~~ — SHIPPED (`d3da3b6`). Billing summary, usage history, and portal endpoints live.
 3. ~~**PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).~~ — SHIPPED (`fca060b`).
-4. **PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.
+4. ~~**PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.~~ — SHIPPED. DB-backed `OpsServiceToken` with scopes, admin CRUD, backward-compat static token fallback.
 5. **PR-E:** Admin MFA + privileged session TTL enforcement.
 
 ### 8.8 Deferred Follow-Ups (Outcomes Report UX/Export)
