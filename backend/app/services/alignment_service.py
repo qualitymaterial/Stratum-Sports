@@ -121,6 +121,10 @@ class EventAlignmentService:
                 # We use the sportsbook game info to build the canonical fields
                 canonical_key = f"{game.sport_key}_{away_abbrev}_{home_abbrev}_{game.commence_time.strftime('%Y-%m-%d')}".lower()
                 
+                # Kalshi's fetch_market_quotes needs a specific market ticker, not the broad event ticker.
+                # For an event KXNBAGAME-26FEB28NOPUTA, the home team's Yes/No ticker is KXNBAGAME-26FEB28NOPUTA-UTA.
+                kalshi_specific_market_id = f"{matched_event_ticker}-{home_abbrev}"
+                
                 alignments_to_upsert.append({
                     "canonical_event_key": canonical_key,
                     "sport": "basketball",
@@ -129,7 +133,7 @@ class EventAlignmentService:
                     "away_team": game.away_team,
                     "start_time": game.commence_time,
                     "sportsbook_event_id": game.event_id,
-                    "kalshi_market_id": matched_event_ticker,
+                    "kalshi_market_id": kalshi_specific_market_id,
                 })
 
         if not alignments_to_upsert:
