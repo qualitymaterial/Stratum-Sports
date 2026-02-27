@@ -679,7 +679,7 @@ Tier labels represent operational priority bands, not predictive certainty.
 ### 8.7 Next Up (Immediate Execution Order)
 1. ~~**PR-A:** Partner entitlement controls~~ — SHIPPED (`64eee49`, `d3da3b6`).
 2. ~~**PR-B:** Partner usage visibility in admin~~ — SHIPPED (`d3da3b6`). Billing summary, usage history, and portal endpoints live.
-3. **PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).
+3. ~~**PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).~~ — SHIPPED (`fca060b`).
 4. **PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.
 5. **PR-E:** Admin MFA + privileged session TTL enforcement.
 
@@ -756,7 +756,7 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. ~~Merge PR2 and verify consensus rows + endpoint responses.~~
 3. ~~Merge PR3 and verify dislocation signals + Discord payload quality.~~
 4. ~~Merge PR4 and verify low-noise steam behavior in staging.~~
-5. Enable live flag in staging only; validate request burn and stability.
+5. ~~Enable live flag in staging only; validate request burn and stability.~~ — SHIPPED. `staging_validation_mode` flag, `/health/flags` endpoint, credit burn logging added. Set `STAGING_VALIDATION_MODE=true` on staging to enable all subsystems.
 6. ~~Merge PR5 and validate CLV consistency~~ — SHIPPED (`b8c2ba5`).
 7. ~~Ship Admin Phase A and B~~ — SHIPPED. Phase A (`previous`), Phase B (`64eee49`, `d3da3b6`).
 8. ~~Add KPI alerts~~ — M5 anomaly alerting shipped (`73738c4`). Remaining: live/historical/props production enablement gating.

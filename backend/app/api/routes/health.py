@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request
 from sqlalchemy import text
 
+from app.core.config import get_settings
 from app.core.database import AsyncSessionLocal
 
 router = APIRouter()
@@ -33,3 +34,21 @@ async def health_ready(request: Request) -> dict:
 
     status = "ok" if db_ok and redis_ok else "degraded"
     return {"status": status, "db": db_ok, "redis": redis_ok}
+
+
+@router.get("/health/flags")
+async def health_flags() -> dict:
+    s = get_settings()
+    return {
+        "staging_validation_mode": s.staging_validation_mode,
+        "consensus_enabled": s.consensus_enabled,
+        "dislocation_enabled": s.dislocation_enabled,
+        "steam_enabled": s.steam_enabled,
+        "clv_enabled": s.clv_enabled,
+        "regime_detection_enabled": s.effective_regime_detection_enabled,
+        "enable_historical_backfill": s.enable_historical_backfill,
+        "exchange_divergence_signal_enabled": s.exchange_divergence_signal_enabled,
+        "time_bucket_expose_inplay": s.time_bucket_expose_inplay,
+        "free_delay_minutes": s.free_delay_minutes,
+        "api_usage_tracking_enabled": s.api_usage_tracking_enabled,
+    }

@@ -207,6 +207,11 @@ class Settings(BaseSettings):
     # ── Regime detection settings ─────────────────────────────────
     regime_detection_enabled: bool = False
 
+    # ── Staging validation mode ────────────────────────────────
+    # When true, overrides feature flags to enable all signal subsystems.
+    # Use in staging to validate full-feature stability before production.
+    staging_validation_mode: bool = False
+
     ops_internal_token: str = "dev-ops-token"
     ops_digest_enabled: bool = False
     ops_digest_webhook_url: str = ""
@@ -274,6 +279,10 @@ class Settings(BaseSettings):
     def odds_api_sport_keys_list(self) -> list[str]:
         values = [v.strip() for v in self.odds_api_sport_keys.split(",") if v.strip()]
         return values or ["basketball_nba"]
+
+    @property
+    def effective_regime_detection_enabled(self) -> bool:
+        return self.regime_detection_enabled or self.staging_validation_mode
 
     @property
     def anomaly_alert_thresholds_list(self) -> list[int]:

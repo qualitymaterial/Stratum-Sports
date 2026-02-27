@@ -501,7 +501,7 @@ async def run_polling_cycle(
 
         # --- Regime detection (metadata-only enrichment, feature-flagged) ---
         regime_enriched = 0
-        if settings.regime_detection_enabled and signals:
+        if settings.effective_regime_detection_enabled and signals:
             try:
                 from app.regime.config import regime_config_from_settings
                 from app.regime.service import RegimeService
@@ -719,6 +719,25 @@ async def main() -> None:
 
         completed_at = datetime.now(UTC)
         duration_ms = max(0, int((time.monotonic() - cycle_start) * 1000))
+
+        # Credit burn rate logging for staging validation
+        if cycle_result:
+            _burn_remaining = cycle_result.get("api_requests_remaining")
+            _burn_last = cycle_result.get("api_requests_last", 0)
+            if isinstance(_burn_remaining, int) and isinstance(_burn_last, int) and _burn_last > 0:
+                _daily_burn = (_burn_last * 86400) / max(1, target_interval)
+                _daily_budget = max(1, settings.odds_api_target_daily_credits)
+                logger.info(
+                    "Credit burn check",
+                    extra={
+                        "remaining_credits": _burn_remaining,
+                        "credits_used_this_cycle": _burn_last,
+                        "projected_daily_burn": round(_daily_burn),
+                        "daily_budget": _daily_budget,
+                        "budget_pct": round(_daily_burn / _daily_budget * 100, 1),
+                        "staging_validation_mode": settings.staging_validation_mode,
+                    },
+                )
 
         if settings.kpi_enabled:
             kpi_context = {
