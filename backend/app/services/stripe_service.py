@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models.api_partner_entitlement import ApiPartnerEntitlement
 from app.models.subscription import Subscription
 from app.models.user import User
 
@@ -79,6 +80,40 @@ async def create_checkout_session(db: AsyncSession, user: User) -> str:
     return session["url"]
 
 
+async def create_api_checkout_session(db: AsyncSession, user: User, plan: str) -> str:
+    """Create a Stripe checkout session for an API partner plan."""
+    _require_stripe_configured()
+    _set_stripe_api_key()
+
+    if plan == "annual":
+        price_id = settings.stripe_api_annual_price_id
+    else:
+        price_id = settings.stripe_api_monthly_price_id
+
+    if not user.stripe_customer_id:
+        customer = await asyncio.to_thread(
+            stripe.Customer.create,
+            email=user.email,
+            metadata={"user_id": str(user.id)},
+        )
+        user.stripe_customer_id = customer["id"]
+        await db.commit()
+        await db.refresh(user)
+
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.create,
+        customer=user.stripe_customer_id,
+        client_reference_id=str(user.id),
+        payment_method_types=["card"],
+        mode="subscription",
+        line_items=[{"price": price_id, "quantity": 1}],
+        success_url=settings.stripe_api_success_url,
+        cancel_url=settings.stripe_api_cancel_url,
+        metadata={"product_type": "api", "plan_code": plan},
+    )
+    return session["url"]
+
+
 async def create_customer_portal(user: User) -> str:
     _require_stripe_configured()
     if not user.stripe_customer_id:
@@ -127,6 +162,40 @@ async def _upsert_subscription(
     await db.commit()
     await db.refresh(record)
     return record
+
+
+async def _sync_api_entitlement(
+    db: AsyncSession,
+    *,
+    user: User,
+    status: str,
+    plan_code: str,
+) -> None:
+    """Create or update ApiPartnerEntitlement based on API plan subscription status."""
+    stmt = select(ApiPartnerEntitlement).where(ApiPartnerEntitlement.user_id == user.id)
+    ent = (await db.execute(stmt)).scalar_one_or_none()
+
+    if status in {"active", "trialing"}:
+        if ent is None:
+            ent = ApiPartnerEntitlement(
+                user_id=user.id,
+                plan_code=plan_code,
+                api_access_enabled=True,
+                soft_limit_monthly=10000,
+                overage_enabled=True,
+                overage_price_cents=100,
+                overage_unit_quantity=1000,
+            )
+            db.add(ent)
+        else:
+            ent.plan_code = plan_code
+            ent.api_access_enabled = True
+    else:
+        # canceled, unpaid, past_due — disable access, keep plan_code for audit
+        if ent is not None:
+            ent.api_access_enabled = False
+
+    await db.commit()
 
 
 async def process_webhook_event(
@@ -178,23 +247,37 @@ async def process_webhook_event(
         items = data.get("items", {}).get("data", [])
         price_id = items[0]["price"]["id"] if items else settings.stripe_pro_price_id
 
+        api_price_ids = {settings.stripe_api_monthly_price_id, settings.stripe_api_annual_price_id}
+
         if customer_id and subscription_id:
             stmt = select(User).where(User.stripe_customer_id == customer_id)
             user = (await db.execute(stmt)).scalar_one_or_none()
             if user:
-                period_end = data.get("current_period_end")
-                current_period_end = (
-                    datetime.fromtimestamp(period_end, tz=UTC) if period_end else None
-                )
-                await _upsert_subscription(
-                    db,
-                    user=user,
-                    stripe_subscription_id=subscription_id,
-                    stripe_price_id=price_id,
-                    status=status,
-                    current_period_end=current_period_end,
-                    cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
-                )
+                if price_id in api_price_ids:
+                    # API plan subscription — sync entitlement, don't change user.tier
+                    plan_code = (
+                        "api_monthly"
+                        if price_id == settings.stripe_api_monthly_price_id
+                        else "api_annual"
+                    )
+                    await _sync_api_entitlement(
+                        db, user=user, status=status, plan_code=plan_code,
+                    )
+                else:
+                    # Pro web subscription — existing behavior
+                    period_end = data.get("current_period_end")
+                    current_period_end = (
+                        datetime.fromtimestamp(period_end, tz=UTC) if period_end else None
+                    )
+                    await _upsert_subscription(
+                        db,
+                        user=user,
+                        stripe_subscription_id=subscription_id,
+                        stripe_price_id=price_id,
+                        status=status,
+                        current_period_end=current_period_end,
+                        cancel_at_period_end=bool(data.get("cancel_at_period_end", False)),
+                    )
 
     logger.info("Stripe webhook processed", extra={"type": event_type})
     return {"received": True, "type": event_type}

@@ -223,6 +223,10 @@ class Settings(BaseSettings):
     stripe_pro_price_id: str = "price_pro_placeholder"
     stripe_success_url: str = "http://localhost:3000/app/dashboard?billing=success"
     stripe_cancel_url: str = "http://localhost:3000/app/dashboard?billing=cancel"
+    stripe_api_monthly_price_id: str = "price_api_monthly_placeholder"
+    stripe_api_annual_price_id: str = "price_api_annual_placeholder"
+    stripe_api_success_url: str = "http://localhost:3000/app/dashboard?api_billing=success"
+    stripe_api_cancel_url: str = "http://localhost:3000/app/dashboard?api_billing=cancel"
 
     # ── API usage metering ─────────────────────────────────────
     api_usage_tracking_enabled: bool = False
