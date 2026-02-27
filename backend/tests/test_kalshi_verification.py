@@ -2,17 +2,13 @@
 
 from __future__ import annotations
 
-import pytest
 from datetime import UTC, datetime, timedelta
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.adapters.exchange.errors import ExchangeUpstreamError
-from app.adapters.exchange.kalshi_client import KalshiClient
 from app.models.canonical_event_alignment import CanonicalEventAlignment
 from app.models.exchange_quote_event import ExchangeQuoteEvent
-from app.models.cross_market_lead_lag_event import CrossMarketLeadLagEvent
 from app.models.user import User
 
 # Let's import the same register helper used in other tests or redefine locally
