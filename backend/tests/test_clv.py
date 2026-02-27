@@ -10,6 +10,7 @@ from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.signal import Signal
 from app.models.user import User
+from app.services.admin_outcomes import build_admin_outcomes_report
 from app.services.closing import cleanup_old_closing_consensus, compute_and_persist_closing_consensus
 from app.services.clv import american_to_implied_prob, cleanup_old_clv_records, compute_and_persist_clv
 
@@ -653,3 +654,87 @@ async def test_clv_line_sign_totals_under(db_session: AsyncSession) -> None:
     ).scalar_one()
     # entry(225) - close(220) = +5
     assert rec.clv_line == 5.0
+
+
+async def test_clv_sign_flows_through_admin_outcomes_report(db_session: AsyncSession) -> None:
+    """End-to-end: CLV records with corrected signs produce correct positive rates in admin report."""
+    now = datetime.now(UTC)
+    commence = now - timedelta(hours=2)
+
+    # -- Spread signal: entry -3, close -5 => clv_line = +2 (positive) --
+    spread_event = "event_e2e_spread"
+    db_session.add(_game(spread_event, commence))
+    db_session.add(
+        _consensus(
+            event_id=spread_event,
+            market="spreads",
+            outcome_name="BOS",
+            line=-5.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=spread_event,
+            market="spreads",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "BOS", "book_line": -3.0, "book_price": -110.0},
+        )
+    )
+
+    # -- Totals-under signal: entry 225, close 220 => clv_line = +5 (positive) --
+    under_event = "event_e2e_under"
+    db_session.add(_game(under_event, commence))
+    db_session.add(
+        _consensus(
+            event_id=under_event,
+            market="totals",
+            outcome_name="Under",
+            line=220.0,
+            price=-110.0,
+            fetched_at=commence - timedelta(minutes=1),
+        )
+    )
+    db_session.add(
+        _signal(
+            event_id=under_event,
+            market="totals",
+            signal_type="DISLOCATION",
+            created_at=commence - timedelta(minutes=30),
+            metadata={"outcome_name": "Under", "book_line": 225.0, "book_price": -110.0},
+            from_value=222.0,
+            to_value=225.0,
+        )
+    )
+    await db_session.commit()
+
+    # Step 1: Create CLV records
+    inserted = await compute_and_persist_clv(db_session, days_lookback=7)
+    assert inserted == 2
+
+    # Verify the raw records have correct signs
+    records = (
+        await db_session.execute(
+            select(ClvRecord).where(
+                ClvRecord.event_id.in_([spread_event, under_event])
+            )
+        )
+    ).scalars().all()
+    assert all(r.clv_line is not None and r.clv_line > 0 for r in records)
+
+    # Step 2: Read through admin outcomes report
+    report = await build_admin_outcomes_report(db_session, days=7, baseline_days=7)
+
+    # Both CLV records are positive => 100% positive rate
+    assert report["kpis"]["clv_samples"] == 2
+    assert report["kpis"]["clv_positive_rate"] == 1.0
+
+    # avg_clv_line should be (2.0 + 5.0) / 2 = 3.5
+    assert abs(report["kpis"]["avg_clv_line"] - 3.5) < 1e-9
+
+    # Breakdown by market: each market should show 100% positive
+    by_market = {row["name"]: row for row in report["by_market"]}
+    assert by_market["spreads"]["positive_rate"] == 1.0
+    assert by_market["totals"]["positive_rate"] == 1.0
