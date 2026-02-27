@@ -237,11 +237,23 @@ jobs:
             test -f .env.production
 
             git config --global --add safe.directory /opt/stratum-sports || true
-            if [ -n "$(git status --porcelain)" ]; then
-              echo "ERROR: local changes detected in /opt/stratum-sports; aborting non-destructive deploy."
+
+            # Abort on tracked-file modifications (uncommitted changes that could conflict)
+            tracked_changes="$(git diff --name-only HEAD 2>/dev/null || true)$(git diff --cached --name-only HEAD 2>/dev/null || true)"
+            if [ -n "$tracked_changes" ]; then
+              echo "ERROR: uncommitted changes to tracked files in /opt/stratum-sports; aborting."
               git status --short || true
               exit 1
             fi
+
+            # Clean up untracked files (scratch scripts, __pycache__, etc.) so they don't block pulls
+            untracked="$(git ls-files --others --exclude-standard 2>/dev/null || true)"
+            if [ -n "$untracked" ]; then
+              echo "WARNING: removing untracked files from deploy target:"
+              echo "$untracked"
+              git clean -fd
+            fi
+
             git fetch origin main
             git checkout main
             git pull --ff-only origin main

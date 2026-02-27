@@ -42,6 +42,29 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 2. Decide whether to apply structural-core gating to additional analytics endpoints (`/intel/signals/*`) or keep them as internal/pro analytics surfaces.
 3. Frontend can prefer `display_type` over `signal_type` for user copy consistency.
 
+## 1.2) Recent Shipments (2026-02-27)
+
+### PR5 — Regime layer (shipped)
+- Commit: `b8c2ba5`
+- Scope: 2-state Gaussian HMM regime detection (stable/unstable), metadata-only enrichment on signals, feature-flagged OFF by default.
+- Files: 8 new files in `backend/app/regime/`, model + migration for `regime_snapshots`, integration in `poller.py`.
+- Tests: 17 tests covering feature extraction, HMM inference, config, metadata attachment, feature-flag OFF.
+
+### Phase B remainder — Per-key usage endpoints (shipped)
+- Commit: `64eee49`
+- Scope: `get_key_current_usage()` and `get_key_usage_history()` service functions + 2 admin endpoints for per-key usage visibility.
+- Files: `api_usage_tracking.py`, `admin.py`.
+
+### M4 — API plan checkout, webhook entitlement sync, partner billing (shipped)
+- Commit: `d3da3b6`
+- Scope: API plan checkout endpoint (monthly/annual), webhook price-ID routing to sync `ApiPartnerEntitlement` independently from Pro subscriptions, partner self-serve billing summary + usage history + Stripe portal endpoints.
+- Files: `config.py`, `stripe_service.py`, `billing.py`, `partner.py`.
+
+### M5 — Launch hardening (shipped)
+- Commit: `73738c4`
+- Scope: `X-RateLimit-*` headers on all responses from global rate limiter, per-partner 60 req/min rate limiting with `X-Partner-RateLimit-*` headers, usage anomaly alerting at configurable thresholds (80/90/100%) with optional Discord alert, structured lifecycle logging across webhook processing and entitlement state transitions.
+- Files: `config.py`, `rate_limit.py`, `api_usage_middleware.py`, `stripe_meter_publisher.py`, `stripe_service.py`.
+
 ---
 
 ## Stratum API Product Definition (v1)
@@ -352,22 +375,23 @@ Tier labels represent operational priority bands, not predictive certainty.
    - incident communication channel.
 
 ### 6.8 Implementation Sequence (Monetization Track)
-1. **Phase M1: Commercial plumbing**
+1. **Phase M1: Commercial plumbing** — SHIPPED
    - Stripe products/prices/meter setup
    - entitlement fields + webhook sync
-2. **Phase M2: Partner key management**
+2. **Phase M2: Partner key management** — SHIPPED
    - key issuance/revocation/rotation
    - per-key usage counters + logs
-3. **Phase M3: Usage billing**
+3. **Phase M3: Usage billing** — SHIPPED (`b6a7e87`)
    - meter event publisher + retry queue
    - overage calculation and invoice validation
-4. **Phase M4: Customer experience**
-   - API plan checkout + billing portal
-   - usage/overage visibility in app
-5. **Phase M5: Launch hardening**
-   - rate-limit headers
-   - alerting for usage anomalies
-   - runbooks for failed payments and access suspension
+4. **Phase M4: Customer experience** — SHIPPED (`d3da3b6`)
+   - API plan checkout (monthly/annual) + billing portal
+   - usage/overage visibility in app (billing-summary, usage/history, portal endpoints)
+   - webhook price-ID routing for API vs Pro subscription independence
+5. **Phase M5: Launch hardening** — SHIPPED (`73738c4`)
+   - X-RateLimit-* headers on all responses + per-partner 60 req/min rate limiting
+   - usage anomaly alerting at configurable thresholds (80/90/100%) with Discord notifications
+   - structured lifecycle logging for webhook processing + entitlement state transitions (provisioned/restored/suspended)
 
 ### 6.9 Monetization Acceptance Criteria
 1. A customer can purchase API monthly or annual plan via Stripe.
@@ -472,7 +496,9 @@ Tier labels represent operational priority bands, not predictive certainty.
 2. New steam signals are explainable and deduped.
 3. API and Discord include new type without regressions.
 
-### PR5 — Regime layer (metadata-only, feature-flagged)
+### PR5 — Regime layer (metadata-only, feature-flagged) — SHIPPED
+**Status:** Completed. Commit `b8c2ba5`.
+
 **Scope**
 - Add a modular 2-state regime model (`stable`, `unstable`) that runs alongside the current pipeline.
 - Keep existing signal detection/classification untouched.
@@ -489,13 +515,13 @@ Tier labels represent operational priority bands, not predictive certainty.
   - `tests/test_regime.py`
 - Integration points:
   - `backend/app/core/config.py` (feature flag)
-  - `backend/app/services/market_data.py` (metadata attachment point)
-- Optional persistence:
+  - `backend/app/tasks/poller.py` (metadata attachment between exchange divergence and Discord alerts)
+- Persistence:
   - New model `backend/app/models/regime_snapshot.py`
-  - Migration `backend/alembic/versions/<rev>_add_regime_snapshots.py`
+  - Migration `backend/alembic/versions/j4d5e6f7g8h9_add_regime_snapshots.py`
 
 **Config**
-- `ENABLE_REGIME_LAYER=false` (default)
+- `REGIME_DETECTION_ENABLED=false` (default)
 
 **Acceptance**
 1. With flag OFF, output schemas and behavior remain unchanged.
@@ -583,7 +609,8 @@ Tier labels represent operational priority bands, not predictive certainty.
 1. Completed: user search + tier/role/active/password reset mutations.
 2. Completed: billing resync/cancel/reactivate mutations.
 3. Completed: partner API key issue/rotate/revoke lifecycle.
-4. Remaining: partner entitlement plan/limit mutation APIs and key-level usage/overage views.
+4. Completed: partner entitlement plan/limit mutation APIs and key-level usage/overage views (`64eee49`, `d3da3b6`).
+5. Phase B fully shipped.
 
 ### 8.4 Phase C (P1) — Admin UI expansion
 1. Expand `/app/admin` into tabs:
@@ -650,8 +677,8 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. Admin role lifecycle is governed and visible.
 
 ### 8.7 Next Up (Immediate Execution Order)
-1. **PR-A:** Partner entitlement controls (set API plan, soft limit, overage policy) + audited mutations.
-2. **PR-B:** Partner usage visibility in admin (per-key and per-account usage window, overage-to-date).
+1. ~~**PR-A:** Partner entitlement controls~~ — SHIPPED (`64eee49`, `d3da3b6`).
+2. ~~**PR-B:** Partner usage visibility in admin~~ — SHIPPED (`d3da3b6`). Billing summary, usage history, and portal endpoints live.
 3. **PR-C:** Admin UI tab split and permission-scoped action surfaces (Users/Billing/API Partners/Audit).
 4. **PR-D:** Scoped ops service tokens with rotation/revocation and runbook-backed break-glass path.
 5. **PR-E:** Admin MFA + privileged session TTL enforcement.
@@ -725,14 +752,14 @@ Tier labels represent operational priority bands, not predictive certainty.
 ---
 
 ## 12) Execution Checklist
-1. Merge PR1 and verify ingestion parity (no regressions).
-2. Merge PR2 and verify consensus rows + endpoint responses.
-3. Merge PR3 and verify dislocation signals + Discord payload quality.
-4. Merge PR4 and verify low-noise steam behavior in staging.
+1. ~~Merge PR1 and verify ingestion parity (no regressions).~~
+2. ~~Merge PR2 and verify consensus rows + endpoint responses.~~
+3. ~~Merge PR3 and verify dislocation signals + Discord payload quality.~~
+4. ~~Merge PR4 and verify low-noise steam behavior in staging.~~
 5. Enable live flag in staging only; validate request burn and stability.
-6. If historical coverage is confirmed, merge PR5 and validate CLV consistency.
-7. Ship Admin Phase A and B before broad customer/partner ops scaling.
-8. Add KPI alerts before enabling live/historical/props in production.
+6. ~~Merge PR5 and validate CLV consistency~~ — SHIPPED (`b8c2ba5`).
+7. ~~Ship Admin Phase A and B~~ — SHIPPED. Phase A (`previous`), Phase B (`64eee49`, `d3da3b6`).
+8. ~~Add KPI alerts~~ — M5 anomaly alerting shipped (`73738c4`). Remaining: live/historical/props production enablement gating.
 
 ## Future Surface Area (Not in scope now)
 - Historical API access with explicit date-range query support.
