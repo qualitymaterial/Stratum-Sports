@@ -245,9 +245,8 @@ function buildOpportunityInsight(row: OpportunityPoint): { whatChanged: string; 
   const delta =
     row.best_delta == null
       ? "unknown delta"
-      : `${Math.abs(row.best_delta).toFixed(3)} ${
-          row.delta_type === "implied_prob" ? "implied-probability points" : "line points"
-        }`;
+      : `${Math.abs(row.best_delta).toFixed(3)} ${row.delta_type === "implied_prob" ? "implied-probability points" : "line points"
+      }`;
   const whatChanged = `${bestBook} is ${delta} off consensus (${formatOpportunityQuote(
     row.best_line,
     row.best_price,
@@ -723,73 +722,73 @@ export default function PerformancePage() {
           opportunitiesData,
         ] =
           await Promise.all([
-          getClvTrustScorecards(token, {
-            days,
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_samples: minSamples,
-            min_strength: minStrength,
-          }),
-          getClvSummary(token, {
-            days,
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_samples: minSamples,
-            min_strength: minStrength,
-          }),
-          getClvRecap(token, {
-            days,
-            sport_key: selectedSport,
-            grain: recapGrain,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_samples: minSamples,
-            min_strength: minStrength,
-          }),
-          getSignalQualityWeeklySummary(token, {
-            days: Math.min(30, Math.max(7, days)),
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_strength: minStrength,
-            apply_alert_rules: true,
-          }),
-          getSignalLifecycleSummary(token, {
-            days: Math.min(30, Math.max(7, days)),
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_strength: minStrength,
-            apply_alert_rules: true,
-          }),
-          getSignalQuality(token, {
-            days,
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_strength: minStrength,
-            min_books_affected: minBooksAffected,
-            max_dispersion: maxDispersion ?? undefined,
-            window_minutes_max: windowMinutesMax ?? undefined,
-            apply_alert_rules: true,
-            include_hidden: true,
-            limit: 40,
-            offset: 0,
-          }),
-          getBestOpportunities(token, {
-            days: Math.min(days, 7),
-            sport_key: selectedSport,
-            signal_type: resolvedSignalType,
-            market: resolvedMarket,
-            min_strength: minStrength,
-            min_edge: minEdge ?? undefined,
-            max_width: maxWidth ?? undefined,
-            include_stale: includeStaleOpportunities,
-            limit: 10,
-          }),
-        ]);
+            getClvTrustScorecards(token, {
+              days,
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_samples: minSamples,
+              min_strength: minStrength,
+            }),
+            getClvSummary(token, {
+              days,
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_samples: minSamples,
+              min_strength: minStrength,
+            }),
+            getClvRecap(token, {
+              days,
+              sport_key: selectedSport,
+              grain: recapGrain,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_samples: minSamples,
+              min_strength: minStrength,
+            }),
+            getSignalQualityWeeklySummary(token, {
+              days: Math.min(30, Math.max(7, days)),
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_strength: minStrength,
+              apply_alert_rules: true,
+            }),
+            getSignalLifecycleSummary(token, {
+              days: Math.min(30, Math.max(7, days)),
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_strength: minStrength,
+              apply_alert_rules: true,
+            }),
+            getSignalQuality(token, {
+              days,
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_strength: minStrength,
+              min_books_affected: minBooksAffected,
+              max_dispersion: maxDispersion ?? undefined,
+              window_minutes_max: windowMinutesMax ?? undefined,
+              apply_alert_rules: true,
+              include_hidden: true,
+              limit: 40,
+              offset: 0,
+            }),
+            getBestOpportunities(token, {
+              days: Math.min(days, 7),
+              sport_key: selectedSport,
+              signal_type: resolvedSignalType,
+              market: resolvedMarket,
+              min_strength: minStrength,
+              min_edge: minEdge ?? undefined,
+              max_width: maxWidth ?? undefined,
+              include_stale: includeStaleOpportunities,
+              limit: 10,
+            }),
+          ]);
         setScorecards(scorecardsData);
         setSummaryRows(summaryData);
         setRecapRows(recapData.rows);
@@ -903,7 +902,7 @@ export default function PerformancePage() {
       event_name: "viewed_teaser",
       source: "performance_page",
       sport_key: selectedSport,
-    }).catch(() => {});
+    }).catch(() => { });
   }, [filtersHydrated, token, proAccess, selectedSport]);
 
   useEffect(() => {
@@ -1026,11 +1025,11 @@ export default function PerformancePage() {
     <section className="space-y-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Performance</h1>
+          <h1 className="text-xl font-semibold">Institutional Analytics</h1>
           <p className="text-sm text-textMute">
             {proAccess
-              ? "CLV performance and signal-quality diagnostics."
-              : "Free teaser view. Upgrade to unlock full CLV and quality diagnostics."}
+              ? "Institutional grade CLV and signal-quality diagnostics."
+              : "Free teaser view. Upgrade to unlock full CLV and quality analytics."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -1154,11 +1153,10 @@ export default function PerformancePage() {
               <button
                 key={preset}
                 onClick={() => applyPreset(preset)}
-                className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
-                  isActive
+                className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${isActive
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-borderTone text-textMute hover:border-accent hover:text-accent"
-                }`}
+                  }`}
               >
                 {preset === "CUSTOM" ? "Custom" : PRESET_DEFINITIONS[preset].label}
               </button>
@@ -1235,13 +1233,12 @@ export default function PerformancePage() {
         <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
           <p className="text-xs uppercase tracking-wider text-textMute">Operator Summary</p>
           <p
-            className={`mt-2 text-sm font-semibold ${
-              operatorSummary.tone === "positive"
+            className={`mt-2 text-sm font-semibold ${operatorSummary.tone === "positive"
                 ? "text-positive"
                 : operatorSummary.tone === "negative"
                   ? "text-negative"
                   : "text-accent"
-            }`}
+              }`}
           >
             {operatorSummary.headline}
           </p>
@@ -1501,13 +1498,12 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <span
-                          className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                            row.confidence_tier === "A"
+                          className={`rounded px-2 py-0.5 text-xs font-semibold ${row.confidence_tier === "A"
                               ? "bg-positive/10 text-positive"
                               : row.confidence_tier === "B"
                                 ? "bg-accent/15 text-accent"
                                 : "bg-textMute/20 text-textMute"
-                          }`}
+                            }`}
                         >
                           {row.confidence_tier}
                         </span>
@@ -1538,11 +1534,10 @@ export default function PerformancePage() {
                   <button
                     key={grain}
                     onClick={() => setRecapGrain(grain)}
-                    className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
-                      recapGrain === grain
+                    className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${recapGrain === grain
                         ? "border-accent bg-accent/10 text-accent"
                         : "border-borderTone text-textMute hover:border-accent hover:text-accent"
-                    }`}
+                      }`}
                   >
                     {grain}
                   </button>
@@ -1749,148 +1744,147 @@ export default function PerformancePage() {
                   {opportunities.map((row) => {
                     const drilldownHref = buildOpportunityDrilldownHref(row);
                     return (
-                    <tr
-                      key={row.signal_id}
-                      role="link"
-                      tabIndex={0}
-                      onClick={() => router.push(drilldownHref)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          router.push(drilldownHref);
-                        }
-                      }}
-                      className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
-                    >
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        {(() => {
-                          const rankingScore =
-                            typeof row.ranking_score === "number" ? row.ranking_score : row.opportunity_score;
-                          const contextScore = typeof row.context_score === "number" ? row.context_score : null;
-                          const blendedScore = typeof row.blended_score === "number" ? row.blended_score : null;
-                          const scoreBasis = row.score_basis === "blended" ? "blended" : "opportunity";
-                          return (
-                            <>
-                              <p className="inline-flex items-center gap-1">
-                                <span>{rankingScore}</span>
-                                <span className="rounded border border-borderTone px-1 text-[10px] uppercase text-textMute">
-                                  {scoreBasis}
-                                </span>
-                                <span
-                                  className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
-                                  title={buildOpportunityScoreHoverText(row)}
-                                  aria-label="Score breakdown"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
-                                  ?
-                                </span>
-                              </p>
-                              <p className="text-[11px] text-textMute">
-                                Opp {row.opportunity_score} • Ctx {contextScore ?? "-"} • Blend {blendedScore ?? "-"}
-                              </p>
-                              <p className="text-[11px] text-textMute">{row.score_summary}</p>
-                            </>
-                          );
-                        })()}
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2">
-                        <span
-                          className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${
-                            row.opportunity_status === "actionable"
-                              ? "bg-positive/10 text-positive"
-                              : row.opportunity_status === "stale"
-                                ? "bg-negative/10 text-negative"
-                                : "bg-accent/10 text-accent"
-                          }`}
-                        >
-                          {row.opportunity_status}
-                        </span>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <Link
-                          href={drilldownHref}
-                          className="group inline-block cursor-pointer rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
-                        >
-                          <p className="text-accent group-hover:underline">
-                            {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
-                          </p>
-                          {row.game_commence_time && (
-                            <p className="text-[11px] text-textMute group-hover:text-textMain">
-                              {new Date(row.game_commence_time).toLocaleString([], {
-                                month: "short",
-                                day: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
-                          )}
-                        </Link>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <p>
-                          {displaySignalType(row.signal_type, row.display_type)} • {row.market} • {row.outcome_name ?? "-"}
+                      <tr
+                        key={row.signal_id}
+                        role="link"
+                        tabIndex={0}
+                        onClick={() => router.push(drilldownHref)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            router.push(drilldownHref);
+                          }
+                        }}
+                        className="cursor-pointer transition hover:bg-panelSoft/40 focus-within:bg-panelSoft/40"
+                      >
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {(() => {
+                            const rankingScore =
+                              typeof row.ranking_score === "number" ? row.ranking_score : row.opportunity_score;
+                            const contextScore = typeof row.context_score === "number" ? row.context_score : null;
+                            const blendedScore = typeof row.blended_score === "number" ? row.blended_score : null;
+                            const scoreBasis = row.score_basis === "blended" ? "blended" : "opportunity";
+                            return (
+                              <>
+                                <p className="inline-flex items-center gap-1">
+                                  <span>{rankingScore}</span>
+                                  <span className="rounded border border-borderTone px-1 text-[10px] uppercase text-textMute">
+                                    {scoreBasis}
+                                  </span>
+                                  <span
+                                    className="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                                    title={buildOpportunityScoreHoverText(row)}
+                                    aria-label="Score breakdown"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    ?
+                                  </span>
+                                </p>
+                                <p className="text-[11px] text-textMute">
+                                  Opp {row.opportunity_score} • Ctx {contextScore ?? "-"} • Blend {blendedScore ?? "-"}
+                                </p>
+                                <p className="text-[11px] text-textMute">{row.score_summary}</p>
+                              </>
+                            );
+                          })()}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2">
                           <span
-                            className="ml-2 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
-                            title={buildOpportunityHoverText(row)}
-                            aria-label="What this means"
-                            onClick={(event) => event.stopPropagation()}
+                            className={`rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wider ${row.opportunity_status === "actionable"
+                                ? "bg-positive/10 text-positive"
+                                : row.opportunity_status === "stale"
+                                  ? "bg-negative/10 text-negative"
+                                  : "bg-accent/10 text-accent"
+                              }`}
                           >
-                            ?
+                            {row.opportunity_status}
                           </span>
-                        </p>
-                        <p className="text-[11px] text-textMute">
-                          {row.reason_tags.join(" • ")}
-                          <span className="mx-1">•</span>
-                          <Link href={drilldownHref} className="text-accent hover:underline">
-                            open drilldown
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          <Link
+                            href={drilldownHref}
+                            className="group inline-block cursor-pointer rounded-sm focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                          >
+                            <p className="text-accent group-hover:underline">
+                              {row.game_label ?? `Event ${row.event_id.slice(0, 8)}`}
+                            </p>
+                            {row.game_commence_time && (
+                              <p className="text-[11px] text-textMute group-hover:text-textMain">
+                                {new Date(row.game_commence_time).toLocaleString([], {
+                                  month: "short",
+                                  day: "2-digit",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                            )}
                           </Link>
-                        </p>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <p>
-                          {row.best_book_key ?? "-"}{" "}
-                          {row.best_line != null
-                            ? `${formatLine(row.best_line)} (${formatAmerican(row.best_price)})`
-                            : formatAmerican(row.best_price)}
-                        </p>
-                        <p className="text-[11px] text-textMute">
-                          vs{" "}
-                          {row.consensus_line != null
-                            ? `${formatLine(row.consensus_line)} (${formatAmerican(row.consensus_price)})`
-                            : formatAmerican(row.consensus_price)}{" "}
-                          • Δ {row.best_delta != null ? row.best_delta.toFixed(3) : "-"}
-                        </p>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">{formatOpportunityEdge(row)}</td>
-                      <td className="border-b border-borderTone/50 py-2">
-                        <p className="text-textMain">{formatOpportunityWidth(row)}</p>
-                        <p className="text-[11px] uppercase tracking-wider text-textMute">
-                          {classifyMarketWidth(row)}
-                        </p>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        <p className="capitalize">{row.freshness_bucket}</p>
-                        <p className="text-[11px] text-textMute">
-                          {row.freshness_seconds != null ? `${Math.floor(row.freshness_seconds / 60)}m` : "-"} • books{" "}
-                          {row.books_considered}
-                        </p>
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMain">
-                        {row.clv_prior_pct_positive != null &&
-                        row.clv_prior_samples != null &&
-                        row.clv_prior_samples >= 10
-                          ? `${row.clv_prior_pct_positive.toFixed(1)}% (${row.clv_prior_samples})`
-                          : "N/A (n<10)"}
-                      </td>
-                      <td className="border-b border-borderTone/50 py-2 text-textMute">
-                        {new Date(row.created_at).toLocaleString([], {
-                          month: "short",
-                          day: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </td>
-                    </tr>
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          <p>
+                            {displaySignalType(row.signal_type, row.display_type)} • {row.market} • {row.outcome_name ?? "-"}
+                            <span
+                              className="ml-2 inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-borderTone text-[10px] text-textMute"
+                              title={buildOpportunityHoverText(row)}
+                              aria-label="What this means"
+                              onClick={(event) => event.stopPropagation()}
+                            >
+                              ?
+                            </span>
+                          </p>
+                          <p className="text-[11px] text-textMute">
+                            {row.reason_tags.join(" • ")}
+                            <span className="mx-1">•</span>
+                            <Link href={drilldownHref} className="text-accent hover:underline">
+                              open drilldown
+                            </Link>
+                          </p>
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          <p>
+                            {row.best_book_key ?? "-"}{" "}
+                            {row.best_line != null
+                              ? `${formatLine(row.best_line)} (${formatAmerican(row.best_price)})`
+                              : formatAmerican(row.best_price)}
+                          </p>
+                          <p className="text-[11px] text-textMute">
+                            vs{" "}
+                            {row.consensus_line != null
+                              ? `${formatLine(row.consensus_line)} (${formatAmerican(row.consensus_price)})`
+                              : formatAmerican(row.consensus_price)}{" "}
+                            • Δ {row.best_delta != null ? row.best_delta.toFixed(3) : "-"}
+                          </p>
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">{formatOpportunityEdge(row)}</td>
+                        <td className="border-b border-borderTone/50 py-2">
+                          <p className="text-textMain">{formatOpportunityWidth(row)}</p>
+                          <p className="text-[11px] uppercase tracking-wider text-textMute">
+                            {classifyMarketWidth(row)}
+                          </p>
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          <p className="capitalize">{row.freshness_bucket}</p>
+                          <p className="text-[11px] text-textMute">
+                            {row.freshness_seconds != null ? `${Math.floor(row.freshness_seconds / 60)}m` : "-"} • books{" "}
+                            {row.books_considered}
+                          </p>
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMain">
+                          {row.clv_prior_pct_positive != null &&
+                            row.clv_prior_samples != null &&
+                            row.clv_prior_samples >= 10
+                            ? `${row.clv_prior_pct_positive.toFixed(1)}% (${row.clv_prior_samples})`
+                            : "N/A (n<10)"}
+                        </td>
+                        <td className="border-b border-borderTone/50 py-2 text-textMute">
+                          {new Date(row.created_at).toLocaleString([], {
+                            month: "short",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </td>
+                      </tr>
                     );
                   })}
                   {opportunities.length === 0 && (
@@ -2043,15 +2037,14 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <p
-                          className={`text-xs font-semibold uppercase tracking-wider ${
-                            row.lifecycle_stage === "sent"
+                          className={`text-xs font-semibold uppercase tracking-wider ${row.lifecycle_stage === "sent"
                               ? "text-positive"
                               : row.lifecycle_stage === "filtered"
                                 ? "text-negative"
                                 : row.lifecycle_stage === "stale"
                                   ? "text-accent"
                                   : "text-textMain"
-                          }`}
+                            }`}
                         >
                           {row.lifecycle_stage}
                         </p>
@@ -2059,9 +2052,8 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <p
-                          className={`text-xs font-semibold uppercase tracking-wider ${
-                            row.alert_decision === "sent" ? "text-positive" : "text-negative"
-                          }`}
+                          className={`text-xs font-semibold uppercase tracking-wider ${row.alert_decision === "sent" ? "text-positive" : "text-negative"
+                            }`}
                         >
                           {row.alert_decision}
                         </p>

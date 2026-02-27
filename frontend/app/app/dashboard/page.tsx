@@ -147,20 +147,18 @@ export default function DashboardPage() {
       <header className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold">Market Dashboard</h1>
+            <h1 className="text-xl font-semibold">Institutional Intel Feed</h1>
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
-                !proAccess
-                  ? "bg-textMute/10 text-textMute border border-textMute/20"
-                  : connected
-                    ? "bg-positive/10 text-positive border border-positive/20"
-                    : "bg-textMute/10 text-textMute border border-textMute/20"
-              }`}
+              className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${!proAccess
+                ? "bg-textMute/10 text-textMute border border-textMute/20"
+                : connected
+                  ? "bg-positive/10 text-positive border border-positive/20"
+                  : "bg-textMute/10 text-textMute border border-textMute/20"
+                }`}
             >
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  !proAccess ? "bg-textMute" : connected ? "bg-positive animate-pulse" : "bg-textMute"
-                }`}
+                className={`h-1.5 w-1.5 rounded-full ${!proAccess ? "bg-textMute" : connected ? "bg-positive animate-pulse" : "bg-textMute"
+                  }`}
               />
               {!proAccess ? "Realtime Pro Only" : connected ? "Live Update Active" : "Stream Offline"}
             </span>
@@ -178,8 +176,8 @@ export default function DashboardPage() {
           </div>
           <p className="text-sm text-textMute">
             {!proAccess
-              ? "Free tier data is delayed by 10 minutes."
-              : "Pro tier access granted."}
+              ? "Free tier data is delayed by 10 minutes. Real-time sub-second relay requires Infrastructure access."
+              : "Institutional-grade real-time stream active."}
           </p>
           <div className="mt-3 inline-flex flex-wrap gap-2">
             {DASHBOARD_SPORT_OPTIONS.map((option) => {
@@ -188,11 +186,10 @@ export default function DashboardPage() {
                 <button
                   key={option.key}
                   onClick={() => setSelectedSport(option.key)}
-                  className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${
-                    active
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-borderTone text-textMute hover:border-accent hover:text-accent"
-                  }`}
+                  className={`rounded border px-2.5 py-1 text-xs uppercase tracking-wider transition ${active
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-borderTone text-textMute hover:border-accent hover:text-accent"
+                    }`}
                 >
                   {option.label}
                 </button>
@@ -213,7 +210,7 @@ export default function DashboardPage() {
       <div className="grid gap-3 md:grid-cols-3">
         {/* ... (Summary stats same as before) */}
         <div className="rounded-lg border border-borderTone bg-panel p-3">
-          <p className="text-xs uppercase tracking-wider text-textMute">Tracked Games</p>
+          <p className="text-xs uppercase tracking-wider text-textMute">Active Markets</p>
           <p className="mt-2 text-2xl font-semibold">{summary.games}</p>
         </div>
         <div className="rounded-lg border border-borderTone bg-panel p-3">
@@ -269,22 +266,22 @@ export default function DashboardPage() {
 
             <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-textMute">
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-spreads`] === "up" ? "animate-flash-green" :
-                  flashing[`${card.event_id}-spreads`] === "down" ? "animate-flash-red" : ""
+                flashing[`${card.event_id}-spreads`] === "down" ? "animate-flash-red" : ""
                 }`}>
                 Spread: <span className="text-textMain">{formatLine(card.consensus.spreads)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-totals`] === "up" ? "animate-flash-green" :
-                  flashing[`${card.event_id}-totals`] === "down" ? "animate-flash-red" : ""
+                flashing[`${card.event_id}-totals`] === "down" ? "animate-flash-red" : ""
                 }`}>
                 Total: <span className="text-textMain">{formatLine(card.consensus.totals)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_home`] === "up" ? "animate-flash-green" :
-                  flashing[`${card.event_id}-h2h_home`] === "down" ? "animate-flash-red" : ""
+                flashing[`${card.event_id}-h2h_home`] === "down" ? "animate-flash-red" : ""
                 }`}>
                 ML Home: <span className="text-textMain">{formatMoneyline(card.consensus.h2h_home)}</span>
               </div>
               <div className={`rounded border border-borderTone bg-panelSoft p-2 transition-colors duration-500 ${flashing[`${card.event_id}-h2h_away`] === "up" ? "animate-flash-green" :
-                  flashing[`${card.event_id}-h2h_away`] === "down" ? "animate-flash-red" : ""
+                flashing[`${card.event_id}-h2h_away`] === "down" ? "animate-flash-red" : ""
                 }`}>
                 ML Away: <span className="text-textMain">{formatMoneyline(card.consensus.h2h_away)}</span>
               </div>

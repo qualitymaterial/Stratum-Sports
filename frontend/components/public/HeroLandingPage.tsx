@@ -188,19 +188,19 @@ export default function HeroLandingPage() {
       <section className="hero-shell border-b border-borderTone/60">
         <div className="mx-auto grid w-full max-w-7xl gap-8 px-6 py-16 lg:grid-cols-[1.35fr_1fr]">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-accent">Real-Time Market Intelligence</p>
+            <p className="text-xs uppercase tracking-[0.24em] text-accent">Institutional Data Infrastructure</p>
             <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight md:text-5xl">
-              Read the market before the number moves.
+              The real-time backbone of market intelligence.
             </h1>
             <p className="mt-5 max-w-2xl text-base text-textMute md:text-lg">
-              Stratum monitors cross-book price movement, dislocation, and signal quality in real time.
-              Built for disciplined market operators.
+              Stratum provides high-availability signal distribution, cross-book dislocation detection, and execution integrity tracking.
+              Built for institutional data partners and disciplined operators.
             </p>
             <p className="mt-3 max-w-2xl text-sm text-textMute">
-              Execution quality and CLV process matter more than noise. Paid Intel API partner access starts at $99/month.
+              Reliability and speed for the next generation of sports-market builders. Infrastructure tiers start at $149/month.
             </p>
             <p className="mt-2 max-w-2xl text-sm text-textMute">
-              API partner access is a separate subscription from Stratum Pro. Customers can purchase Pro only, API only, or both.
+              API partner access includes a dedicated webhook engine, HMAC-SHA256 signing, and metered usage monitoring.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link
@@ -228,7 +228,7 @@ export default function HeroLandingPage() {
               <div className="mt-5 inline-flex items-center gap-2 rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-xs text-accent">
                 <span>You&apos;re signed in.</span>
                 <Link href="/app/dashboard" className="font-semibold underline">
-                  Go to Dashboard
+                  Go to Intel Feed
                 </Link>
               </div>
             )}
@@ -238,13 +238,13 @@ export default function HeroLandingPage() {
             <p className="text-xs uppercase tracking-[0.22em] text-textMute">Credibility Snapshot</p>
             <ul className="mt-4 space-y-3 text-sm">
               <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Multi-book coverage across major U.S. operators
+                Unified Institutional GraphQL & Webhook distribution
               </li>
               <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
                 Structured taxonomy: MOVE, KEY_CROSS, DISLOCATION, STEAM
               </li>
               <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Paid partner API access for private integrations ($99/month)
+                Advanced CLV Integrity & Trust Scorecarding
               </li>
             </ul>
             <p className="mt-4 text-xs text-textMute">
@@ -274,11 +274,10 @@ export default function HeroLandingPage() {
                     reason: "manual",
                   });
                 }}
-                className={`rounded border px-3 py-1 text-xs font-semibold uppercase tracking-wider transition ${
-                  selectedSport === sport.key
+                className={`rounded border px-3 py-1 text-xs font-semibold uppercase tracking-wider transition ${selectedSport === sport.key
                     ? "border-accent bg-accent/10 text-accent"
                     : "border-borderTone text-textMute hover:border-accent hover:text-accent"
-                }`}
+                  }`}
               >
                 {sport.label}
               </button>
@@ -390,15 +389,15 @@ export default function HeroLandingPage() {
           <div className="mt-6 grid gap-4 md:grid-cols-3">
             <article className="rounded-lg border border-borderTone bg-panel p-4 shadow-terminal">
               <p className="text-xs uppercase tracking-wider text-textMute">Ingest</p>
-              <p className="mt-2 text-sm text-textMain">Continuously collect multi-book market snapshots by sport and market.</p>
+              <p className="mt-2 text-sm text-textMain">Low-latency polling across 15+ institutional and retail endpoints.</p>
             </article>
             <article className="rounded-lg border border-borderTone bg-panel p-4 shadow-terminal">
-              <p className="text-xs uppercase tracking-wider text-textMute">Detect</p>
-              <p className="mt-2 text-sm text-textMain">Apply signal rules and quality filters to isolate meaningful market movement.</p>
+              <p className="text-xs uppercase tracking-wider text-textMute">Analyze</p>
+              <p className="mt-2 text-sm text-textMain">Real-time dislocation scoring and cross-market lead-lag detection.</p>
             </article>
             <article className="rounded-lg border border-borderTone bg-panel p-4 shadow-terminal">
-              <p className="text-xs uppercase tracking-wider text-textMute">Decide</p>
-              <p className="mt-2 text-sm text-textMain">Rank opportunities with execution context and CLV feedback loops.</p>
+              <p className="text-xs uppercase tracking-wider text-textMute">Deliver</p>
+              <p className="mt-2 text-sm text-textMain">Instant relay via enterprise-grade webhooks for automated execution.</p>
             </article>
           </div>
         </div>
@@ -419,12 +418,12 @@ export default function HeroLandingPage() {
             </ul>
           </article>
           <article className="rounded-lg border border-accent/40 bg-panel p-5 shadow-terminal">
-            <p className="text-xs uppercase tracking-wider text-accent">Pro</p>
+            <p className="text-xs uppercase tracking-wider text-accent">Infrastructure Partner</p>
             <ul className="mt-3 space-y-2 text-sm text-textMain">
-              <li>Full real-time signal feed</li>
-              <li>Performance intelligence and recap surfaces</li>
-              <li>Deeper opportunity drilldown and prioritization</li>
-              <li>Intel API partner access ($99/month)</li>
+              <li>Full real-time signal relay via Webhooks</li>
+              <li>Signature verification & payload security</li>
+              <li>Metered usage & consumption analytics</li>
+              <li>Priority support & backfill access</li>
             </ul>
           </article>
         </div>
@@ -433,8 +432,8 @@ export default function HeroLandingPage() {
       <section className="hero-shell border-t border-borderTone/60">
         <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-10">
           <p className="max-w-3xl text-sm text-textMute">
-            Stratum is market intelligence software, not a picks guarantee. Use disciplined bankroll and risk management.
-            Developers: request API access at api-access@yourdomain.com.
+            Stratum is an infrastructure and data distribution service. No picks, no betting guarantees.
+            Institutional builders: contact dev-access@stratum.sports for custom quota increases.
           </p>
           <Link
             href="/register"
