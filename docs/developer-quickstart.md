@@ -7,9 +7,10 @@ Stratum provides the infrastructure you need to build professional betting tools
 ---
 
 ## 1. Get Your Access
-1.  **Partner Whitelist:** Ensure your user account has been granted the `Partner` role.
-2.  **API Key:** Generate your access token via `POST /api/v1/auth/login`. This token will be used in your `Authorization: Bearer <token>` header.
-3.  **Webhook Secret:** Create your first webhook target via the Partner Console or API. You will receive a **Webhook Secret** (e.g., `whsec_...`). **Store this securely.**
+1.  **Whitelist & Tier:** Ensure your account is upgraded to the **Infrastructure Tier** ($149/mo).
+2.  **The Portal:** Navigate to the [Infrastructure Portal](/app/developer). This is your command center for keys, logs, and monitoring.
+3.  **API Key:** Generate your access token in the **Portal**. This token is used in your `Authorization: Bearer <token>` header for all REST calls.
+4.  **Webhooks:** Add your first endpoint in the **Portal**. You will immediately receive a **Webhook Secret** (e.g., `whsec_...`).
 
 ---
 
@@ -41,10 +42,16 @@ curl -X GET "https://api.stratumsports.com/api/v1/intel/signals?min_score=75&mar
 Don't poll us—let us push to you. 
 
 ### Step 1: Set up a Listener
-Your server needs a POST endpoint that returns a `200 OK` within 5 seconds.
+Configure your server to receive POST requests. Your endpoint must return a `200 OK` within **5 seconds** to prevent retries.
 
-### Step 2: Verify the Signature
-Every payload is signed using your `whsec_...` key. **Never trust an unsigned request.**
+### Step 2: Live Monitoring (Infrastructure Portal)
+Once your listener is live, use the **Delivery Logs** in the Portal to:
+*   **Audit Status:** See real-time HTTP response codes from your server.
+*   **Measure Latency:** Track the "relay-to-receive" time (ms) to ensure your execution bot is competitive.
+*   **Debug Failures:** Review error payloads and retry attempts.
+
+### Step 3: Verify the Signature
+    Every payload is signed using your `whsec_...` key. **Never trust an unsigned request.**
 
 **Python (FastAPI) Example:**
 ```python
@@ -94,10 +101,11 @@ Stratum is the "Intelligence Layer." Here are few patterns we support:
 
 ---
 
-## 6. Rate Limits & Quotas
-*   **Standard Partner:** 120 requests per minute.
-*   **Soft Limit:** 50,000 signal deliveries per month.
-*   **Headers:** Monitor `X-RateLimit-Remaining` to stay within your tier.
+## 6. Monitoring & Quotas
+Track your consumption in real-time via the **Metered Usage** dashboard in the Portal:
+*   **Infrastructure Tier:** Includes 50,000 monthly deliveries.
+*   **Rate Limits:** 120 requests per minute by default.
+*   **Status Indicators:** A green "Live Update Active" light in the Portal confirms your data stream is synchronized with the Stratum backbone.
 
 ---
 
