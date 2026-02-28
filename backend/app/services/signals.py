@@ -1339,7 +1339,9 @@ async def detect_market_movements(
     if not all_created:
         return []
 
-    from app.services.kalshi_gating import compute_kalshi_skew_gate
+    from app.services.kalshi_gating import attach_exchange_liquidity_skew, compute_kalshi_skew_gate
+    await attach_exchange_liquidity_skew(db, all_created)
+
     for signal in all_created:
         skew = signal.metadata_json.get("exchange_liquidity_skew")
         gate_info = compute_kalshi_skew_gate(skew)
