@@ -159,6 +159,20 @@ export default function HeroLandingPage() {
           <p className="text-sm font-semibold uppercase tracking-[0.28em]">STRATUM</p>
           <nav className="hidden items-center gap-6 text-sm text-textMute md:flex">
             <a href="#how-it-works" className="hover:text-accent">How It Works</a>
+            <Link
+              href="/infrastructure"
+              className="hover:text-accent"
+              onClick={() => trackLandingEvent("landing_infrastructure_click", { source: "nav" })}
+            >
+              Infrastructure
+            </Link>
+            <Link
+              href="/docs"
+              className="hover:text-accent"
+              onClick={() => trackLandingEvent("landing_docs_click", { source: "nav" })}
+            >
+              Docs
+            </Link>
             <a href="#live-teaser" className="hover:text-accent">Live Teaser</a>
             <a
               href="#pricing"
@@ -175,13 +189,29 @@ export default function HeroLandingPage() {
               Sign In
             </Link>
           </nav>
-          <Link
-            href="/register"
-            className="rounded-md border border-accent bg-accent/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-accent transition hover:bg-accent/20"
-            onClick={() => trackLandingEvent("landing_cta_start_free_click", { source: "header" })}
-          >
-            Start Free
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/infrastructure"
+              className="text-xs uppercase tracking-wider text-textMute transition hover:text-accent md:hidden"
+              onClick={() => trackLandingEvent("landing_infrastructure_click", { source: "header_mobile" })}
+            >
+              Infrastructure
+            </Link>
+            <Link
+              href="/docs"
+              className="text-xs uppercase tracking-wider text-textMute transition hover:text-accent md:hidden"
+              onClick={() => trackLandingEvent("landing_docs_click", { source: "header_mobile" })}
+            >
+              Docs
+            </Link>
+            <Link
+              href="/register"
+              className="rounded-md border border-accent bg-accent/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-accent transition hover:bg-accent/20"
+              onClick={() => trackLandingEvent("landing_cta_start_free_click", { source: "header" })}
+            >
+              Start Free
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -449,13 +479,29 @@ export default function HeroLandingPage() {
             Stratum is an infrastructure and data distribution service. No picks, no betting guarantees.
             Institutional builders: contact dev-access@stratum.sports for custom quota increases.
           </p>
-          <Link
-            href="/register"
-            className="rounded-md border border-accent bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20"
-            onClick={() => trackLandingEvent("landing_cta_start_free_click", { source: "footer" })}
-          >
-            Start Free
-          </Link>
+          <div className="flex items-center gap-3">
+            <Link
+              href="/infrastructure"
+              className="rounded-md border border-borderTone px-4 py-2 text-sm text-textMute transition hover:border-accent hover:text-accent"
+              onClick={() => trackLandingEvent("landing_infrastructure_click", { source: "footer" })}
+            >
+              Infrastructure
+            </Link>
+            <Link
+              href="/docs"
+              className="rounded-md border border-borderTone px-4 py-2 text-sm text-textMute transition hover:border-accent hover:text-accent"
+              onClick={() => trackLandingEvent("landing_docs_click", { source: "footer" })}
+            >
+              Docs
+            </Link>
+            <Link
+              href="/register"
+              className="rounded-md border border-accent bg-accent/10 px-4 py-2 text-sm font-semibold text-accent transition hover:bg-accent/20"
+              onClick={() => trackLandingEvent("landing_cta_start_free_click", { source: "footer" })}
+            >
+              Start Free
+            </Link>
+          </div>
         </div>
       </section>
     </main>

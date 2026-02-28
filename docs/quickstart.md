@@ -1,4 +1,4 @@
-# 🚀 Stratum Sports: Developer Quickstart
+# Stratum Sports: Docs Quickstart
 
 Welcome to the **Market Intelligence Backbone**. This guide will take you from "Zero to First Signal" in under 5 minutes. 
 
@@ -8,7 +8,7 @@ Stratum provides the infrastructure you need to build professional betting tools
 
 ## 1. Get Your Access
 1.  **Whitelist & Tier:** Ensure your account is upgraded to the **Infrastructure Tier** ($149/mo).
-2.  **The Portal:** Navigate to the [Infrastructure Portal](/app/developer). This is your command center for keys, logs, and monitoring.
+2.  **The Portal:** Navigate to the [Infrastructure Portal](/docs). This is your command center for keys, logs, and monitoring.
 3.  **API Key:** Generate your access token in the **Portal**. This token is used in your `Authorization: Bearer <token>` header for all REST calls.
 4.  **Webhooks:** Add your first endpoint in the **Portal**. You will immediately receive a **Webhook Secret** (e.g., `whsec_...`).
 
@@ -113,4 +113,4 @@ Track your consumption in real-time via the **Metered Usage** dashboard in the P
 We boost our polling frequency to **60s** during the "Golden Hour" (60 minutes before tip-off). If you are building an execution bot, listen for signals in this window for the highest liquidity and most accurate CLV projections.
 
 ---
-**Need Help?** Join our [Developer Discord](#) or email `dev-support@stratumsports.com`.
+**Need Help?** Join our [Docs Discord](#) or email `dev-support@stratumsports.com`.

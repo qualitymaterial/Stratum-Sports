@@ -11,8 +11,8 @@ const ARTICLES = [
     {
         title: "The Science of CLV",
         description: "Unlike other platforms that focus on \"win rates,\" Stratum focuses on **Closing Line Value (CLV)**. If your entry price is consistently better than the market consensus at kick-off, you have a mathematical edge. Our platform audits thousands of data points daily to ensure our signals capture this edge.",
-        link: "/docs/signal-integrity",
-        linkText: "Read the Whitepaper",
+        link: "/docs/quickstart",
+        linkText: "Read Docs",
         stat: "+6.2%",
         statLabel: "Avg Tier-S Alpha",
         statProgress: "w-2/3"
@@ -20,8 +20,8 @@ const ARTICLES = [
     {
         title: "Structural Core Events",
         description: "Not all line movements are created equal. We classify sharp, coordinated shifts across primary sportsbooks that cross key numbers as 'Structural Core Events'. These represent true market repricing, stripping out recreational noise.",
-        link: "/docs/product-tiers",
-        linkText: "Learn About Infrastructure",
+        link: "/docs/rate-limits-and-billing",
+        linkText: "Review Access Model",
         stat: "55.0%",
         statLabel: "Base Win Rate",
         statProgress: "w-1/2"
@@ -29,8 +29,8 @@ const ARTICLES = [
     {
         title: "Market Dislocation Dynamics",
         description: "When a single sportsbook is slow to adjust to a consensus shift, a 'dislocation' occurs. Stratum's low-latency ingestion engine flags these temporary mispricings before they are arbitraged away.",
-        link: "/docs/developer-quickstart",
-        linkText: "View Developer Docs",
+        link: "/docs/webhooks",
+        linkText: "View Docs",
         stat: "< 10s",
         statLabel: "Detection Latency",
         statProgress: "w-5/6"

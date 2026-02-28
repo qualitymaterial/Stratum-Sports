@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { createCheckoutSession, createPortalSession } from "@/lib/api";
 import { clearSession, useCurrentUser } from "@/lib/auth";
-import { hasPartnerAccess, hasProAccess } from "@/lib/access";
+import { hasProAccess } from "@/lib/access";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -45,7 +45,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     { href: "/app/overview", label: "Overview", proOnly: false, partnerOnly: false },
     { href: "/app/dashboard", label: "Intel Feed", proOnly: false, partnerOnly: false },
     { href: "/app/performance", label: "Analytics", proOnly: false, partnerOnly: false },
-    { href: "/app/developer", label: "Developer", proOnly: false, partnerOnly: true },
+    { href: "/docs", label: "Docs", proOnly: false, partnerOnly: false },
     { href: "/app/watchlist", label: "Watchlist", proOnly: false, partnerOnly: false },
     { href: "/app/discord", label: "Discord Alerts", proOnly: true, partnerOnly: false },
   ];
@@ -53,7 +53,6 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     links.push({ href: "/app/admin", label: "Admin", proOnly: false, partnerOnly: false });
   }
   const proAccess = hasProAccess(user);
-  const partnerAccess = hasPartnerAccess(user);
 
   return (
     <div className="min-h-screen">
@@ -66,7 +65,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <nav className="flex gap-2 text-sm text-textMute">
               {links.map((link) => {
                 const active = pathname.startsWith(link.href);
-                const locked = (link.proOnly && !proAccess) || (link.partnerOnly && !partnerAccess);
+                const locked = link.proOnly && !proAccess;
                 return (
                   <Link
                     key={link.href}

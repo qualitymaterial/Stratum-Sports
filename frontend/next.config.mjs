@@ -11,6 +11,31 @@ const nextConfig = {
       },
     ];
   },
+
+  async redirects() {
+    return [
+      {
+        source: "/developer",
+        destination: "/docs",
+        permanent: false,
+      },
+      {
+        source: "/developers",
+        destination: "/docs",
+        permanent: false,
+      },
+      {
+        source: "/developer/:path*",
+        destination: "/docs/:path*",
+        permanent: false,
+      },
+      {
+        source: "/developers/:path*",
+        destination: "/docs/:path*",
+        permanent: false,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

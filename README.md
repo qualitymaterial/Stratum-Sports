@@ -127,7 +127,7 @@ Landing page rollout flag:
 - `NEXT_PUBLIC_LANDING_V1_ENABLED=false` keeps legacy behavior (`/` redirects to `/login`)
 
 - Product Tiers & Customer Segments: [docs/product-tiers.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/product-tiers.md)
-- Developer Quickstart: [docs/developer-quickstart.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/developer-quickstart.md)
+- Developer Quickstart: [docs/quickstart.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/quickstart.md)
 - End-user + operator guide: [docs/user-guide.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/user-guide.md)
 - Release notes / changelog: `CHANGELOG.md`
 
