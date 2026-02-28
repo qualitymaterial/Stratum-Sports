@@ -1,0 +1,19 @@
+name: Reboot Droplet
+on: workflow_dispatch
+jobs:
+  reboot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Force Reboot
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          command_timeout: 1m
+          script: |
+            echo "Rebooting Droplet forcefully..."
+            sudo timeout 10 sudo shutdown -r now || sudo reboot -f || true
+            sleep 3
+            echo 1 | sudo tee /proc/sys/kernel/sysrq || true
+            echo b | sudo tee /proc/sysrq-trigger || true
