@@ -265,23 +265,44 @@ export default function HeroLandingPage() {
             )}
           </div>
 
-          <aside className="hero-panel">
+          <aside className="hero-panel flex flex-col justify-center">
+            <div className="overflow-hidden rounded border border-borderTone shadow-terminal transition hover:border-accent">
+              <video
+                src="/videos/stratum-mcp-demo.mp4"
+                controls
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="h-auto w-full object-cover"
+                preload="metadata"
+              >
+                Your browser does not support the video tag.
+              </video>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section className="border-b border-borderTone/60 bg-panelSoft">
+        <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-6 px-6 py-10 md:flex-row">
+          <div className="md:max-w-xs">
             <p className="text-xs uppercase tracking-[0.22em] text-textMute">Credibility Snapshot</p>
-            <ul className="mt-4 space-y-3 text-sm">
-              <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Unified Institutional GraphQL & Webhook distribution
-              </li>
-              <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Structured taxonomy: MOVE, KEY_CROSS, DISLOCATION, STEAM
-              </li>
-              <li className="rounded border border-borderTone bg-panelSoft px-3 py-2">
-                Advanced CLV Integrity & Trust Scorecarding
-              </li>
-            </ul>
-            <p className="mt-4 text-xs text-textMute">
+            <p className="mt-2 text-xs text-textMute">
               Intelligence tool only. No picks and no outcome promises.
             </p>
-          </aside>
+          </div>
+          <ul className="flex w-full flex-col gap-3 text-sm md:w-auto md:flex-row">
+            <li className="rounded border border-borderTone bg-panel px-4 py-3 shadow-sm">
+              <span className="font-semibold text-textMain">Unified Distribution:</span> GraphQL & Webhooks
+            </li>
+            <li className="rounded border border-borderTone bg-panel px-4 py-3 shadow-sm">
+              <span className="font-semibold text-textMain">Taxonomy:</span> MOVE, KEY_CROSS, STEAM
+            </li>
+            <li className="rounded border border-borderTone bg-panel px-4 py-3 shadow-sm">
+              <span className="font-semibold text-textMain">Assurance:</span> CLV Integrity & Trust Scorecards
+            </li>
+          </ul>
         </div>
       </section>
 
