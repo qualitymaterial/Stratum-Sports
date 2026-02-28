@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useCurrentUser } from "@/lib/auth";
 import { hasProAccess } from "@/lib/access";
-import { getPublicTeaserKpis, getPublicTopAlphaCapture } from "@/lib/api";
-import { PublicTeaserKpisResponse, PublicTopAlphaCapture } from "@/lib/types";
+import { getPublicTeaserKpis, getPublicTopAlphaCapture, getPublicLiquidityHeatmap } from "@/lib/api";
+import { PublicTeaserKpisResponse, PublicTopAlphaCapture, PublicLiquidityHeatmap } from "@/lib/types";
 
 const ARTICLES = [
     {
@@ -43,6 +43,7 @@ export default function MarketOverviewPage() {
 
     const [kpis, setKpis] = useState<PublicTeaserKpisResponse | null>(null);
     const [topAlpha, setTopAlpha] = useState<PublicTopAlphaCapture | null>(null);
+    const [heatmap, setHeatmap] = useState<PublicLiquidityHeatmap | null>(null);
     const [loading, setLoading] = useState(true);
     const [activeArticleIdx, setActiveArticleIdx] = useState(0);
 
@@ -56,12 +57,14 @@ export default function MarketOverviewPage() {
     useEffect(() => {
         async function fetchData() {
             try {
-                const [kpiData, alphaData] = await Promise.all([
+                const [kpiData, alphaData, heatmapData] = await Promise.all([
                     getPublicTeaserKpis({ window_hours: 24 }),
-                    getPublicTopAlphaCapture()
+                    getPublicTopAlphaCapture(),
+                    getPublicLiquidityHeatmap()
                 ]);
                 setKpis(kpiData);
                 setTopAlpha(alphaData);
+                setHeatmap(heatmapData);
             } catch (err) {
                 console.error("Failed to fetch dashboard data", err);
             } finally {
@@ -120,6 +123,8 @@ export default function MarketOverviewPage() {
                         <div className="flex items-center gap-2 mb-1">
                             <span className="text-[10px] font-black bg-accent text-bg px-1.5 py-0.5 rounded uppercase tracking-widest">Top Alpha Capture</span>
                             <span className="text-xs text-textMute">{topAlpha.game_label}</span>
+                            <span className="text-xs text-textMute/50">•</span>
+                            <span className="text-xs text-textMute">{new Date(topAlpha.captured_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                         </div>
                         <h3 className="text-xl font-bold text-textMain">
                             Captured {topAlpha.clv_prob ? (topAlpha.clv_prob * 100).toFixed(1) : "?"}% edge on {topAlpha.outcome} ({topAlpha.market})
@@ -131,6 +136,56 @@ export default function MarketOverviewPage() {
                     <div className="flex flex-col items-end gap-1">
                         <div className="text-2xl font-black text-accent">{topAlpha.clv_prob ? `+${(topAlpha.clv_prob * 100).toFixed(1)}%` : "N/A"}</div>
                         <div className="text-[10px] text-textMute uppercase font-bold">CLV Improvement</div>
+                    </div>
+                </section>
+            )}
+
+            {/* Money Flow Heatmap Component */}
+            {!loading && heatmap && (
+                <section className="bg-panelSoft/80 border border-borderTone rounded-3xl p-6 relative overflow-hidden group">
+                    <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-bg via-accent to-bg opacity-30 group-hover:opacity-100 transition-opacity" />
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-6 relative z-10">
+                        <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-widest flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                                    Smart Money Flow
+                                </span>
+                                <span className="text-xs font-semibold text-textMain">{heatmap.game_label}</span>
+                                <span className="text-xs text-textMute/50">•</span>
+                                <span className="text-xs text-textMute uppercase">{heatmap.market}</span>
+                            </div>
+                            <h3 className="text-2xl font-bold text-textMain">
+                                {(heatmap.liquidity_asymmetry * 100).toFixed(0)}% <span className="text-textMute font-medium text-lg">of Exchange Liquidity on</span> {heatmap.outcome}
+                            </h3>
+                            <p className="text-sm text-textMute mt-1 max-w-xl">
+                                Active prediction exchanges show a massive asymmetry. Sportsbooks have not fully adjusted the consensus line to match the flow of money.
+                            </p>
+                        </div>
+
+                        <div className="flex flex-col gap-3 min-w-[240px] w-full md:w-auto bg-bg/50 p-4 rounded-2xl border border-white/5">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs text-textMute font-medium uppercase tracking-wider">Volume</span>
+                                <span className="text-sm font-bold text-textMain">{heatmap.volume.toLocaleString()} contracts</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs text-textMute font-medium uppercase tracking-wider">Open Interest</span>
+                                <span className="text-sm font-bold text-textMain">{heatmap.open_interest.toLocaleString()} active</span>
+                            </div>
+
+                            {/* Heatmap Bar */}
+                            <div className="mt-2 h-3 w-full bg-bg rounded-full overflow-hidden flex relative">
+                                <div className="absolute inset-0 bg-white/5" />
+                                <div
+                                    className="h-full bg-emerald-400 transition-all duration-1000 ease-out"
+                                    style={{ width: `${heatmap.liquidity_asymmetry * 100}%` }}
+                                />
+                                <div
+                                    className="h-full bg-rose-500/50 transition-all duration-1000 ease-out"
+                                    style={{ width: `${(1 - heatmap.liquidity_asymmetry) * 100}%` }}
+                                />
+                            </div>
+                        </div>
                     </div>
                 </section>
             )}

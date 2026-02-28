@@ -45,6 +45,7 @@ import {
   WebhookLogOut,
   PartnerBillingSummary,
   PublicTopAlphaCapture,
+  PublicLiquidityHeatmap,
 } from "@/lib/types";
 import { apiRequest, getApiBaseUrl } from "@/lib/apiClient";
 
@@ -1008,10 +1009,17 @@ export async function getPublicTeaserKpis(options: {
 export async function getPublicTopAlphaCapture(options: {
   sport_key?: SportKey;
 } = {}) {
-  const params = new URLSearchParams();
-  appendOptionalParam(params, "sport_key", options.sport_key);
-  const query = params.toString();
+  const cleanedOptions = Object.fromEntries(Object.entries(options).filter(([_, v]) => v != null));
+  const query = new URLSearchParams(cleanedOptions as Record<string, string>).toString();
   return apiRequest<PublicTopAlphaCapture | null>(`/public/teaser/top-alpha${query ? `?${query}` : ""}`);
+}
+
+export async function getPublicLiquidityHeatmap(options: {
+  sport_key?: string;
+} = {}): Promise<PublicLiquidityHeatmap | null> {
+  const cleanedOptions = Object.fromEntries(Object.entries(options).filter(([_, v]) => v != null));
+  const query = new URLSearchParams(cleanedOptions as Record<string, string>).toString();
+  return apiRequest<PublicLiquidityHeatmap | null>(`/public/teaser/liquidity-heatmap${query ? `?${query}` : ""}`);
 }
 
 // ── Partner/Developer self-serve ──────────────────────

@@ -267,3 +267,13 @@ class PublicTopAlphaCapture(BaseModel):
     clv_line: float | None
     strength: int
     captured_at: datetime
+
+
+class PublicLiquidityHeatmap(BaseModel):
+    game_label: str
+    market: str
+    outcome: str
+    volume: int
+    open_interest: int
+    liquidity_asymmetry: float
+    updated_at: datetime

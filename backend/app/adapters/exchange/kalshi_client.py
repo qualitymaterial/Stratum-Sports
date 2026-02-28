@@ -100,10 +100,15 @@ class KalshiClient:
         if not outcomes and "outcomes" in market_data:
             outcomes = market_data["outcomes"]
 
+        volume = market_data.get("volume")
+        open_interest = market_data.get("open_interest")
+
         result = {
             "market_id": market_id,
             "outcomes": outcomes,
             "timestamp": market_data.get("close_time") or market_data.get("timestamp"),
+            "volume": int(volume) if volume is not None else 0,
+            "open_interest": int(open_interest) if open_interest is not None else 0,
         }
 
         logger.debug(

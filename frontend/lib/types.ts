@@ -367,6 +367,16 @@ export type PublicTopAlphaCapture = {
   captured_at: string;
 };
 
+export type PublicLiquidityHeatmap = {
+  game_label: string;
+  market: string;
+  outcome: string;
+  volume: number;
+  open_interest: number;
+  liquidity_asymmetry: number;
+  updated_at: string;
+};
+
 export type AdminClvBySignalType = {
   signal_type: string;
   count: number;
