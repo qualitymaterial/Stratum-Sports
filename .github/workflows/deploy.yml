@@ -254,9 +254,36 @@ jobs:
               git clean -fd
             fi
 
-            git fetch origin main
+            # Network Check/Debug: Sometimes droplets experience transient DNS failures during heavy deployment.
+            echo "--- Checking network / DNS ---"
+            ping -c 2 github.com || { echo "WARNING: ping to github.com failed. Checking resolvectl and resolv.conf:"; resolvectl status || true; cat /etc/resolv.conf || true; }
+            
+            # Temporary GitHub DNS Resilience: If git fetch fails because of DNS, retry up to 5 times.
+            for attempt in {1..5}; do
+              if git fetch origin main; then
+                break
+              fi
+              echo "WARNING: git fetch failed on attempt $attempt. Retrying in 10s..."
+              sleep 10
+              if [ "$attempt" -eq 5 ]; then
+                echo "ERROR: git fetch failed after 5 attempts."
+                exit 1
+              fi
+            done
+            
             git checkout main
-            git pull --ff-only origin main
+            
+            for attempt in {1..5}; do
+              if git pull --ff-only origin main; then
+                break
+              fi
+              echo "WARNING: git pull failed on attempt $attempt. Retrying in 10s..."
+              sleep 10
+              if [ "$attempt" -eq 5 ]; then
+                echo "ERROR: git pull failed after 5 attempts."
+                exit 1
+              fi
+            done
 
             if docker compose version >/dev/null 2>&1; then
               compose() { docker compose "$@"; }
