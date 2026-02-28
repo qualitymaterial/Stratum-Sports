@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "stratum-sports": {
+      "url": "http://localhost:8001/sse",
+      "type": "sse"
+    }
+  }
+}
