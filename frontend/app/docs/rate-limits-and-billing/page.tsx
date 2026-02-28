@@ -1,5 +1,6 @@
 import { createDocsMetadata } from "@/app/docs/docsConfig";
 import DocsPage from "@/components/docs/DocsPage";
+import DocsVerifiedNote from "@/components/docs/DocsVerifiedNote";
 
 export const metadata = createDocsMetadata({
   title: "Rate Limits & Billing",
@@ -90,6 +91,7 @@ Tracking:                     Usage is metered via Redis and flushed to the bill
           Monitor <code className="rounded bg-bg px-1.5 py-0.5 text-accent">X-RateLimit-Remaining</code> on every response. Alert internally at 20% remaining capacity. Add internal throttling and queued retry controls so client systems remain stable during upstream or downstream constraint periods.
         </p>
       </section>
+      <DocsVerifiedNote />
     </DocsPage>
   );
 }

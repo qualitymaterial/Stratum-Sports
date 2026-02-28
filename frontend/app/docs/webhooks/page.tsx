@@ -1,5 +1,6 @@
 import { createDocsMetadata } from "@/app/docs/docsConfig";
 import DocsPage from "@/components/docs/DocsPage";
+import DocsVerifiedNote from "@/components/docs/DocsVerifiedNote";
 
 export const metadata = createDocsMetadata({
   title: "Webhooks",
@@ -135,6 +136,7 @@ def verify_webhook(raw_body: bytes, headers: dict[str, str]) -> bool:
           </table>
         </div>
       </section>
+      <DocsVerifiedNote />
     </DocsPage>
   );
 }

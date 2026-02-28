@@ -58,9 +58,9 @@ export default function DocsOverviewPage() {
         <h2 className="text-xl font-semibold">Data Lineage</h2>
         <ul className="list-disc space-y-1 pl-5 text-textMute">
           <li>Upstream sources: Live odds data is ingested from The Odds API covering major sportsbook feeds. Exchange data is sourced from Kalshi for regulated prediction market liquidity.</li>
-          <li>Refresh cadence: Primary polling operates at 60-second intervals during active events, with adaptive cadence that increases to 15-minute intervals for events more than 3 hours from commencement.</li>
-          <li>Retention policy: Odds snapshots and signal history are retained for operational analysis. (TODO: Confirm and publish formal retention window.)</li>
-          <li>Backfill: Historical data can be backfilled using internal tooling. Backfilled data is idempotent and deduplicated at the snapshot level.</li>
+          <li>Refresh cadence: Primary polling operates at 60-second intervals during active events, with adaptive cadence increasing to up to 15-minute intervals for idle or low-credit states.</li>
+          <li>Retention: Odds snapshots retained for 48 hours. Signal records retained for 30 days. CLV records retained for 60 days.</li>
+          <li>Backfill: Historical data can be backfilled over a 72-hour lookback window. Backfilled data is idempotent and deduplicated at the snapshot level.</li>
         </ul>
       </section>
 
@@ -70,6 +70,7 @@ export default function DocsOverviewPage() {
           <li>Public documentation only. No authentication gate.</li>
           <li>Stable, version-aware guidance for institutional integration.</li>
           <li>Explicit placeholders where implementation details are pending.</li>
+          <li>Endpoint paths and behavior verified against backend source at each publication revision.</li>
         </ul>
       </section>
     </DocsPage>
