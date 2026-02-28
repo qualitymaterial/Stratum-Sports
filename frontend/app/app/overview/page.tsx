@@ -7,6 +7,36 @@ import { hasProAccess } from "@/lib/access";
 import { getPublicTeaserKpis, getPublicTopAlphaCapture } from "@/lib/api";
 import { PublicTeaserKpisResponse, PublicTopAlphaCapture } from "@/lib/types";
 
+const ARTICLES = [
+    {
+        title: "The Science of CLV",
+        description: "Unlike other platforms that focus on \"win rates,\" Stratum focuses on **Closing Line Value (CLV)**. If your entry price is consistently better than the market consensus at kick-off, you have a mathematical edge. Our platform audits thousands of data points daily to ensure our signals capture this edge.",
+        link: "/docs/signal-integrity",
+        linkText: "Read the Whitepaper",
+        stat: "+6.2%",
+        statLabel: "Avg Tier-S Alpha",
+        statProgress: "w-2/3"
+    },
+    {
+        title: "Structural Core Events",
+        description: "Not all line movements are created equal. We classify sharp, coordinated shifts across primary sportsbooks that cross key numbers as 'Structural Core Events'. These represent true market repricing, stripping out recreational noise.",
+        link: "/docs/product-tiers",
+        linkText: "Learn About Infrastructure",
+        stat: "55.0%",
+        statLabel: "Base Win Rate",
+        statProgress: "w-1/2"
+    },
+    {
+        title: "Market Dislocation Dynamics",
+        description: "When a single sportsbook is slow to adjust to a consensus shift, a 'dislocation' occurs. Stratum's low-latency ingestion engine flags these temporary mispricings before they are arbitraged away.",
+        link: "/docs/developer-quickstart",
+        linkText: "View Developer Docs",
+        stat: "< 10s",
+        statLabel: "Detection Latency",
+        statProgress: "w-5/6"
+    }
+];
+
 export default function MarketOverviewPage() {
     const { user } = useCurrentUser(true);
     const isPro = hasProAccess(user);
@@ -14,6 +44,14 @@ export default function MarketOverviewPage() {
     const [kpis, setKpis] = useState<PublicTeaserKpisResponse | null>(null);
     const [topAlpha, setTopAlpha] = useState<PublicTopAlphaCapture | null>(null);
     const [loading, setLoading] = useState(true);
+    const [activeArticleIdx, setActiveArticleIdx] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setActiveArticleIdx((prev) => (prev + 1) % ARTICLES.length);
+        }, 8000);
+        return () => clearInterval(interval);
+    }, []);
 
     useEffect(() => {
         async function fetchData() {
@@ -157,30 +195,40 @@ export default function MarketOverviewPage() {
                 </div>
             </div>
 
-            {/* Educational Promo Section */}
-            <section className="bg-panelSoft/30 border border-borderTone rounded-3xl p-8 flex flex-col md:flex-row gap-8 items-center">
-                <div className="flex-1 space-y-4">
-                    <h2 className="text-2xl font-bold">The Science of CLV</h2>
-                    <p className="text-textMute text-sm leading-relaxed">
-                        Unlike other platforms that focus on "win rates," Stratum focuses on **Closing Line Value (CLV)**.
-                        If your entry price is consistently better than the market consensus at kick-off, you have a mathematical edge.
-                        Our platform audits thousands of data points daily to ensure our signals capture this edge.
+            {/* Educational Promo Carousel Section */}
+            <section className="bg-panelSoft/30 border border-borderTone rounded-3xl p-8 flex flex-col md:flex-row gap-8 items-center relative overflow-hidden transition-all duration-500 min-h-[250px]">
+                <div className="flex-1 space-y-4 z-10 w-full">
+                    <h2 className="text-2xl font-bold transition-opacity duration-500">{ARTICLES[activeArticleIdx].title}</h2>
+                    <p className="text-textMute text-sm leading-relaxed transition-opacity duration-500">
+                        {ARTICLES[activeArticleIdx].description}
                     </p>
-                    <div className="flex gap-4">
-                        <Link href="/docs/signal-integrity" className="px-4 py-2 bg-panel border border-borderTone rounded-lg text-xs font-bold hover:border-accent transition-colors">
-                            Read the Whitepaper
+                    <div className="flex gap-4 pt-2">
+                        <Link href={ARTICLES[activeArticleIdx].link} className="px-4 py-2 bg-panel border border-borderTone rounded-lg text-xs font-bold hover:border-accent transition-colors">
+                            {ARTICLES[activeArticleIdx].linkText}
                         </Link>
                     </div>
                 </div>
-                <div className="w-full md:w-64 aspect-square bg-bg rounded-2xl border border-borderTone/50 relative overflow-hidden flex items-center justify-center p-6 text-center">
+                <div className="w-full md:w-64 aspect-square bg-bg rounded-2xl border border-borderTone/50 relative overflow-hidden flex items-center justify-center p-6 text-center z-10 transition-all duration-500">
                     <div className="absolute inset-0 bg-accent/5" />
-                    <div className="relative space-y-2">
-                        <div className="text-3xl font-bold text-accent">+6.2%</div>
-                        <div className="text-[10px] text-textMute uppercase tracking-widest font-bold">Avg Tier-S Alpha</div>
+                    <div className="relative space-y-2 w-full">
+                        <div className="text-3xl font-bold text-accent">{ARTICLES[activeArticleIdx].stat}</div>
+                        <div className="text-[10px] text-textMute uppercase tracking-widest font-bold">{ARTICLES[activeArticleIdx].statLabel}</div>
                         <div className="h-1 w-full bg-accent/20 rounded-full mt-2 overflow-hidden">
-                            <div className="h-full bg-accent w-2/3" />
+                            <div className={`h-full bg-accent transition-all duration-1000 ${ARTICLES[activeArticleIdx].statProgress}`} />
                         </div>
                     </div>
+                </div>
+
+                {/* Carousel Indicators */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-2 z-20">
+                    {ARTICLES.map((_, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => setActiveArticleIdx(idx)}
+                            className={`h-1.5 rounded-full transition-all duration-300 ${activeArticleIdx === idx ? "w-6 bg-accent" : "w-1.5 bg-borderTone hover:bg-textMute"}`}
+                            aria-label={`Go to slide ${idx + 1}`}
+                        />
+                    ))}
                 </div>
             </section>
         </div>

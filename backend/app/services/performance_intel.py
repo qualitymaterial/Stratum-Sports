@@ -389,8 +389,10 @@ def _edge_points(pct_positive: float) -> int:
         return 20
     if edge >= 10.0:
         return 14
+    if edge >= 8.0:
+        return 10
     if edge >= 5.0:
-        return 8
+        return 6
     return 3
 
 
