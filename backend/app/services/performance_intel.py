@@ -366,6 +366,8 @@ def _stability_points(ratio: float | None) -> int:
 
 
 def _sample_points(count: int) -> int:
+    if count >= 500:
+        return 55
     if count >= 200:
         return 45
     if count >= 100:
@@ -398,6 +400,8 @@ def _confidence_tier(
     pct_positive: float,
     confidence_score: int,
 ) -> str:
+    if count >= 500 and confidence_score >= 85 and pct_positive >= 58.0:
+        return "S"
     if count >= 100 and confidence_score >= 70 and pct_positive >= 54.0:
         return "A"
     if count >= 30 and confidence_score >= 50 and pct_positive >= 52.0:

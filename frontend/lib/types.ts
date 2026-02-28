@@ -168,7 +168,7 @@ export type ClvTrustScorecard = {
   stddev_clv_line: number | null;
   stddev_clv_prob: number | null;
   confidence_score: number;
-  confidence_tier: "A" | "B" | "C";
+  confidence_tier: "S" | "A" | "B" | "C";
   stability_ratio_line: number | null;
   stability_ratio_prob: number | null;
   stability_label: "stable" | "moderate" | "noisy" | "unknown";

@@ -1498,11 +1498,13 @@ export default function PerformancePage() {
                       </td>
                       <td className="border-b border-borderTone/50 py-2">
                         <span
-                          className={`rounded px-2 py-0.5 text-xs font-semibold ${row.confidence_tier === "A"
-                            ? "bg-positive/10 text-positive"
-                            : row.confidence_tier === "B"
-                              ? "bg-accent/15 text-accent"
-                              : "bg-textMute/20 text-textMute"
+                          className={`rounded px-2 py-0.5 text-xs font-semibold ${row.confidence_tier === "S"
+                            ? "bg-[#FFD700]/15 text-[#FFD700] border border-[#FFD700]/30 shadow-[0_0_10px_rgba(255,215,0,0.2)]"
+                            : row.confidence_tier === "A"
+                              ? "bg-positive/10 text-positive"
+                              : row.confidence_tier === "B"
+                                ? "bg-accent/15 text-accent"
+                                : "bg-textMute/20 text-textMute"
                             }`}
                         >
                           {row.confidence_tier}
