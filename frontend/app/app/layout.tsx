@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { LoadingState } from "@/components/LoadingState";
 import { createCheckoutSession, createPortalSession } from "@/lib/api";
 import { clearSession, useCurrentUser } from "@/lib/auth";
-import { hasProAccess } from "@/lib/access";
+import { hasPartnerAccess, hasProAccess } from "@/lib/access";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -42,16 +42,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   }
 
   const links = [
-    { href: "/app/dashboard", label: "Intel Feed", proOnly: false },
-    { href: "/app/performance", label: "Analytics", proOnly: false },
-    { href: "/app/developer", label: "Developer", proOnly: true },
-    { href: "/app/watchlist", label: "Watchlist", proOnly: false },
-    { href: "/app/discord", label: "Discord Alerts", proOnly: true },
+    { href: "/app/overview", label: "Overview", proOnly: false, partnerOnly: false },
+    { href: "/app/dashboard", label: "Intel Feed", proOnly: false, partnerOnly: false },
+    { href: "/app/performance", label: "Analytics", proOnly: false, partnerOnly: false },
+    { href: "/app/developer", label: "Developer", proOnly: false, partnerOnly: true },
+    { href: "/app/watchlist", label: "Watchlist", proOnly: false, partnerOnly: false },
+    { href: "/app/discord", label: "Discord Alerts", proOnly: true, partnerOnly: false },
   ];
   if (user.is_admin) {
-    links.push({ href: "/app/admin", label: "Admin", proOnly: false });
+    links.push({ href: "/app/admin", label: "Admin", proOnly: false, partnerOnly: false });
   }
   const proAccess = hasProAccess(user);
+  const partnerAccess = hasPartnerAccess(user);
 
   return (
     <div className="min-h-screen">
@@ -64,12 +66,12 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <nav className="flex gap-2 text-sm text-textMute">
               {links.map((link) => {
                 const active = pathname.startsWith(link.href);
-                const locked = link.proOnly && !proAccess;
+                const locked = (link.proOnly && !proAccess) || (link.partnerOnly && !partnerAccess);
                 return (
                   <Link
                     key={link.href}
                     href={link.href}
-                    title={locked ? "Pro feature" : undefined}
+                    title={locked ? "Access restricted" : undefined}
                     className={`rounded px-3 py-1.5 transition ${active
                       ? "bg-accent/15 text-accent"
                       : locked

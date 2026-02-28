@@ -39,6 +39,7 @@ class UserOut(BaseModel):
     is_admin: bool
     admin_role: str | None = None
     mfa_enabled: bool = False
+    has_partner_access: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

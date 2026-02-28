@@ -52,3 +52,9 @@ class User(Base, TimestampMixin):
     password_reset_tokens = relationship("PasswordResetToken", back_populates="user", lazy="noload")
     mfa_backup_codes = relationship("MfaBackupCode", back_populates="user", lazy="noload")
     webhooks = relationship("ApiPartnerWebhook", back_populates="user", lazy="noload")
+
+    @property
+    def has_partner_access(self) -> bool:
+        if self.api_partner_entitlement:
+            return self.api_partner_entitlement.api_access_enabled
+        return False
