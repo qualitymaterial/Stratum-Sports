@@ -1,0 +1,28 @@
+name: Repair Droplet
+on: workflow_dispatch
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into droplet and fix
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            echo "--- Memory ---"
+            free -m
+            echo "--- Disk ---"
+            df -h
+            echo "--- Top processes ---"
+            top -bn1 -o %MEM | head -15
+            echo "--- Restarting DNS ---"
+            sudo systemctl restart systemd-resolved || true
+            cat /etc/resolv.conf
+            ping -c 1 github.com || true
+            echo "--- Docker status ---"
+            docker ps -a
+            echo "--- Fixing potential hung processes ---"
+            # KILL any huge git processes hanging?
+            sudo killall -9 git || true
