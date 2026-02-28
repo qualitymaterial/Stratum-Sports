@@ -558,6 +558,49 @@ async def run_polling_cycle(
         return ingest_result
 
 
+async def run_live_watchlist_loop(redis: Redis | None):
+    from app.models.watchlist import Watchlist
+    from app.services.discord_alerts import dispatch_discord_alerts_for_signals
+    from app.services.webhook_delivery import dispatch_signal_to_webhooks
+    from app.services.ingestion import ingest_odds_cycle
+    from app.services.signals import detect_market_movements
+    
+    while True:
+        try:
+            async with AsyncSessionLocal() as db:
+                now_utc = datetime.now(UTC)
+                # Live = starts within 5 mins, or started up to 4 hours ago
+                stmt = select(Game).join(Watchlist, Watchlist.event_id == Game.event_id).where(
+                    Game.commence_time <= now_utc + timedelta(minutes=5),
+                    Game.commence_time >= now_utc - timedelta(hours=4)
+                ).distinct()
+                live_games = (await db.execute(stmt)).scalars().all()
+                
+                if live_games:
+                    sport_event_ids: Dict[str, list[str]] = {}
+                    eligible_ids = set()
+                    for g in live_games:
+                        sport_event_ids.setdefault(g.sport_key, []).append(g.event_id)
+                        eligible_ids.add(g.event_id)
+                    
+                    logger.info("Starting live watchlist poll", extra={"games": len(live_games), "sports": list(sport_event_ids.keys())})
+                    
+                    async with redis_cycle_lock(redis, "poller:live-watchlist-lock", ttl_seconds=50) as acquired:
+                        if acquired:
+                            result = await ingest_odds_cycle(
+                                db, redis, eligible_event_ids=eligible_ids, sport_event_ids=sport_event_ids
+                            )
+                            event_ids = result.get("event_ids_updated") or result.get("event_ids", [])
+                            if event_ids:
+                                signals = await detect_market_movements(db, redis, event_ids)
+                                if signals:
+                                    await dispatch_discord_alerts_for_signals(db, signals, redis=redis)
+                                    await dispatch_signal_to_webhooks(db, signals)
+        except Exception:
+            logger.exception("Live watchlist polling failed")
+            
+        await asyncio.sleep(60)
+
 async def main() -> None:
     setup_logging()
     logger.info(
@@ -581,6 +624,8 @@ async def main() -> None:
     except Exception:
         logger.exception("Redis unavailable, poller running without lock/dedupe cache")
         redis = None
+
+    asyncio.create_task(run_live_watchlist_loop(redis))
 
     last_cleanup_monotonic = 0.0
     last_clv_monotonic = 0.0

@@ -137,6 +137,7 @@ class OddsApiClient:
         markets: str | None = None,
         regions: str | None = None,
         bookmakers: str | None = None,
+        event_ids: str | None = None,
     ) -> OddsFetchResult:
         if not settings.odds_api_key:
             logger.warning("ODDS_API_KEY missing; skipping polling cycle")
@@ -163,6 +164,9 @@ class OddsApiClient:
             "oddsFormat": "american",
             "dateFormat": "iso",
         }
+        if event_ids:
+            params["eventIds"] = event_ids
+            
         configured_books = bookmakers if bookmakers is not None else settings.odds_api_bookmakers
         if configured_books.strip():
             params["bookmakers"] = configured_books

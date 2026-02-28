@@ -98,6 +98,17 @@ def _format_alert(signal: Signal, game: Game | None) -> str:
     market_label = signal.market.replace("h2h", "Moneyline").title()
     move = f"{signal.from_value} -> {signal.to_value}"
 
+    if signal.signal_type == "LIVE_SHOCK":
+        return (
+            "**🚨 LIVE SHOCK ALERT 🚨**\n"
+            f"Game: {game_line}\n"
+            f"Market: {market_label}\n"
+            f"Move: {move}\n"
+            f"Velocity: {round(signal.velocity_minutes, 2)} minutes\n"
+            f"Books: {signal.books_affected}\n"
+            f"Strength: {signal.strength_score}"
+        )
+
     return (
         "**STRATUM SIGNAL - NBA**\n"
         f"Title: {signal_title}\n"

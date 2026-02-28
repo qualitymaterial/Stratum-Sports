@@ -436,6 +436,109 @@ async def _detect_line_move_signals(
     return created
 
 
+async def _detect_live_shock_signals(
+    db: AsyncSession,
+    redis: Redis | None,
+    event_ids: list[str],
+    commence_time_map: dict[str, datetime] | None = None,
+) -> list[Signal]:
+    now = datetime.now(UTC)
+    # Check if the event is actually live (started in the last 4 hours or starting in <5 mins)
+    live_event_ids = []
+    for eid in event_ids:
+        mins_to_tip = _minutes_to_tip(event_id=eid, commence_time_map=commence_time_map, now=now)
+        if mins_to_tip is not None and -240 <= mins_to_tip <= 5:
+            live_event_ids.append(eid)
+            
+    if not live_event_ids:
+        return []
+
+    window_minutes = 5
+    start_ts = now - timedelta(minutes=window_minutes)
+
+    stmt = (
+        select(OddsSnapshot)
+        .where(
+            OddsSnapshot.event_id.in_(live_event_ids),
+            OddsSnapshot.fetched_at >= start_ts,
+        )
+        .order_by(OddsSnapshot.event_id, OddsSnapshot.market, OddsSnapshot.outcome_name, OddsSnapshot.fetched_at)
+    )
+    snapshots = (await db.execute(stmt)).scalars().all()
+    if not snapshots:
+        return []
+
+    grouped: dict[tuple[str, str, str], list[OddsSnapshot]] = defaultdict(list)
+    for snap in snapshots:
+        grouped[(snap.event_id, snap.market, snap.outcome_name)].append(snap)
+
+    created: list[Signal] = []
+    for (event_id, market, outcome_name), snaps in grouped.items():
+        if len(snaps) < 2:
+            continue
+
+        from_snap = snaps[0]
+        to_snap = snaps[-1]
+        
+        from_value = float(from_snap.line) if from_snap.line is not None else float(from_snap.price)
+        to_value = float(to_snap.line) if to_snap.line is not None else float(to_snap.price)
+        magnitude = abs(to_value - from_value)
+        direction = _direction(from_value, to_value)
+        
+        triggered = False
+        if market == "spreads" and magnitude >= 4.5:
+             triggered = True
+        elif market == "totals" and magnitude >= 6.5:
+             triggered = True
+        elif market == "h2h":
+             prob_from = american_to_implied_prob(from_snap.price)
+             prob_to = american_to_implied_prob(to_snap.price)
+             if prob_from is not None and prob_to is not None and abs(prob_to - prob_from) >= 0.15:
+                 triggered = True
+
+        if not triggered:
+            continue
+            
+        dedupe_key = (
+            f"signal:{event_id}:{market}:LIVE_SHOCK:{direction}:"
+            f"{outcome_name}:{round(from_value, 2)}:{round(to_value, 2)}"
+        )
+        if await _dedupe_signal(redis, dedupe_key, ttl_seconds=window_minutes * 60):
+            continue
+
+        books = sorted({snap.sportsbook_key for snap in snaps})
+        mins_to_tip = _minutes_to_tip(event_id=event_id, commence_time_map=commence_time_map, now=now)
+        time_bucket = compute_time_bucket(mins_to_tip)
+        
+        # Override strength statically for shocks
+        strength = 100 
+
+        signal = Signal(
+            event_id=event_id,
+            market=market,
+            signal_type="LIVE_SHOCK",
+            direction=direction,
+            from_value=from_value,
+            to_value=to_value,
+            from_price=from_snap.price,
+            to_price=to_snap.price,
+            window_minutes=window_minutes,
+            books_affected=len(books),
+            velocity_minutes=max(0.1, (to_snap.fetched_at - from_snap.fetched_at).total_seconds() / 60.0),
+            time_bucket=time_bucket,
+            strength_score=strength,
+            metadata_json={
+                "outcome_name": outcome_name,
+                "magnitude": round(magnitude, 3),
+                "books": books,
+                "minutes_to_tip": round(mins_to_tip, 2) if mins_to_tip is not None else None,
+            },
+        )
+        db.add(signal)
+        created.append(signal)
+
+    return created
+
 async def _detect_multibook_sync_signals(
     db: AsyncSession,
     redis: Redis | None,
@@ -1224,6 +1327,14 @@ async def detect_market_movements(
     )
     all_created.extend(await detect_dislocations(event_ids, db, redis, commence_time_map=commence_time_map))
     all_created.extend(await detect_steam_v2(event_ids, db, redis, commence_time_map=commence_time_map))
+    all_created.extend(
+        await _detect_live_shock_signals(
+            db,
+            redis,
+            event_ids,
+            commence_time_map=commence_time_map,
+        )
+    )
 
     if not all_created:
         return []

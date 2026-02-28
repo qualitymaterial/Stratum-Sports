@@ -180,13 +180,21 @@ async def ingest_odds_cycle(
     db: AsyncSession,
     redis: Redis | None,
     eligible_event_ids: set[str] | None = None,
+    sport_event_ids: dict[str, list[str]] | None = None,
 ) -> dict:
     settings = get_settings()
     client = OddsApiClient()
     sport_keys = settings.odds_api_sport_keys_list
     fetch_results: list[tuple[str, OddsFetchResult]] = []
+    
     for sport_key in sport_keys:
-        fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key)))
+        if sport_event_ids is not None:
+            if sport_key not in sport_event_ids or not sport_event_ids[sport_key]:
+                continue
+            event_ids_csv = ",".join(sport_event_ids[sport_key])
+            fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key, event_ids=event_ids_csv)))
+        else:
+            fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key)))
 
     events: list[dict] = []
     requests_remaining_values: list[int] = []
