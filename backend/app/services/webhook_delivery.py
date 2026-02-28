@@ -46,7 +46,6 @@ async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -
     # Internal Observability / logging config
     k_enabled = settings.kalshi_skew_gate_enabled
     k_mode = settings.kalshi_skew_gate_mode
-    k_thresh = settings.kalshi_skew_gate_threshold
     
     for signal in signals:
         gate_data = None

@@ -41,9 +41,12 @@ def wilson_score_interval(k, n, confidence=0.95):
     return max(0.0, lower), min(1.0, upper)
 
 def bucket_skew(skew):
-    if skew < 0.55: return "A: <0.55"
-    if skew < 0.60: return "B: 0.55-0.60"
-    if skew <= 0.65: return "C: 0.60-0.65"
+    if skew < 0.55:
+        return "A: <0.55"
+    if skew < 0.60:
+        return "B: 0.55-0.60"
+    if skew <= 0.65:
+        return "C: 0.60-0.65"
     return "D: >0.65"
 
 def analyze_dataset(rows, name):

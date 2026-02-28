@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from app.tasks.poller import run_polling_cycle
 from app.core.database import AsyncSessionLocal

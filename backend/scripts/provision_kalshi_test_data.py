@@ -17,9 +17,7 @@ async def main():
             events = resp.json().get('events', [])
             
             for ev in events[:3]: 
-                # e.g., "KXNBAGAME-260226-NYK-DET"
                 event_ticker = ev['event_ticker']
-                title = ev.get('title', 'Unknown Game')
                 
                 # Fetch markets for the event
                 resp2 = await c.get("https://api.elections.kalshi.com/trade-api/v2/markets", params={"event_ticker": event_ticker})

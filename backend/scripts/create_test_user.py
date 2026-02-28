@@ -1,6 +1,5 @@
 import asyncio
 import sys
-from uuid import UUID
 
 from app.core.database import AsyncSessionLocal
 from app.models.user import User

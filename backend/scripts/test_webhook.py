@@ -2,7 +2,6 @@ import hmac
 import hashlib
 import json
 import uuid
-import sys
 import argparse
 from datetime import UTC, datetime
 
@@ -56,7 +55,7 @@ async def send_test_webhook(url: str, secret: str):
             if response.status_code >= 200 and response.status_code < 300:
                 print("\n✨ SUCCESS: Webhook received and acknowledged.")
             else:
-                print(f"\n⚠️  WARNING: Received non-2xx status code.")
+                print("\n⚠️  WARNING: Received non-2xx status code.")
                 
     except Exception as e:
         print(f"\n❌ ERROR: Delivery failed: {str(e)}")
