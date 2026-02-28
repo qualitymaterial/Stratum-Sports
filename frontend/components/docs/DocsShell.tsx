@@ -34,6 +34,9 @@ export default function DocsShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
           <div className="flex items-center gap-3">
+            <Link href="/infrastructure" className="text-xs uppercase tracking-wider text-textMute transition hover:text-accent md:hidden">
+              Infrastructure
+            </Link>
             <Link href="/docs" className="text-xs uppercase tracking-wider text-accent md:hidden">
               Docs
             </Link>
@@ -57,11 +60,10 @@ export default function DocsShell({ children }: { children: React.ReactNode }) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`shrink-0 rounded border px-3 py-1.5 text-xs uppercase tracking-wider transition ${
-                    active
+                  className={`shrink-0 rounded border px-3 py-1.5 text-xs uppercase tracking-wider transition ${active
                       ? "border-accent bg-accent/10 text-accent"
                       : "border-borderTone text-textMute hover:border-accent hover:text-accent"
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </Link>
@@ -73,7 +75,12 @@ export default function DocsShell({ children }: { children: React.ReactNode }) {
         <div className="grid gap-8 md:grid-cols-[260px_1fr]">
           <aside className="hidden md:block">
             <div className="sticky top-24 rounded-lg border border-borderTone bg-panel p-4 shadow-terminal">
-              <p className="text-xs uppercase tracking-[0.22em] text-textMute">Documentation</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs uppercase tracking-[0.22em] text-textMute">Documentation</p>
+                <span className="rounded border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-accent">
+                  API v1
+                </span>
+              </div>
               <nav className="mt-4 space-y-2">
                 {DOCS_NAV.map((item) => {
                   const active = isActive(pathname, item.href);
@@ -81,11 +88,10 @@ export default function DocsShell({ children }: { children: React.ReactNode }) {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`block rounded px-3 py-2 text-sm transition ${
-                        active
+                      className={`block rounded px-3 py-2 text-sm transition ${active
                           ? "bg-accent/15 text-accent"
                           : "text-textMute hover:bg-panelSoft hover:text-textMain"
-                      }`}
+                        }`}
                     >
                       {item.label}
                     </Link>

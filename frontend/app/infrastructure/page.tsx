@@ -57,6 +57,9 @@ export default function InfrastructurePage() {
             >
               Infrastructure
             </Link>
+            <Link href="/docs" className="rounded px-3 py-1.5 transition hover:bg-panel hover:text-textMain">
+              Docs
+            </Link>
             <Link href="/login" className="rounded px-3 py-1.5 transition hover:bg-panel hover:text-textMain">
               Sign In
             </Link>
@@ -68,6 +71,9 @@ export default function InfrastructurePage() {
               aria-current="page"
             >
               Infrastructure
+            </Link>
+            <Link href="/docs" className="text-xs uppercase tracking-wider text-textMute transition hover:text-accent md:hidden">
+              Docs
             </Link>
             <Link
               href="/register"
