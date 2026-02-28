@@ -40,16 +40,20 @@ Content-Type: application/json
         <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
           {`{
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
   "user": {
-    "id": "uuid",
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "email": "user@example.com",
     "tier": "pro",
-    "is_active": true
+    "is_admin": false,
+    "mfa_enabled": false,
+    "has_partner_access": false,
+    "created_at": "2026-01-15T10:00:00Z"
   }
 }`}
         </pre>
         <p className="text-textMute">
-          If multi-factor authentication (MFA) is enabled on the account, the response returns a <code className="rounded bg-bg px-1.5 py-0.5 text-accent">mfa_challenge_token</code> instead. Submit the TOTP code to <code className="rounded bg-bg px-1.5 py-0.5 text-accent">POST /api/v1/auth/mfa/verify</code> to obtain the full access token.
+          If multi-factor authentication (MFA) is enabled on the account, the response returns a <code className="rounded bg-bg px-1.5 py-0.5 text-accent">mfa_challenge_token</code> instead of an access token. Submit the TOTP code to <code className="rounded bg-bg px-1.5 py-0.5 text-accent">POST /api/v1/auth/login/mfa-verify</code> to obtain the full access token.
         </p>
       </section>
 
@@ -65,10 +69,13 @@ Content-Type: application/json
         <h3 className="pt-2 text-base font-semibold">Response (200 OK)</h3>
         <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
           {`{
-  "id": "uuid",
+  "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
   "email": "user@example.com",
   "tier": "pro",
-  "is_active": true
+  "is_admin": false,
+  "mfa_enabled": false,
+  "has_partner_access": false,
+  "created_at": "2026-01-15T10:00:00Z"
 }`}
         </pre>
       </section>
