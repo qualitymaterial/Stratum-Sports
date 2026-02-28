@@ -14,6 +14,8 @@ Depending on your goals—whether you are looking for an edge in your weekly pla
 | **Stratum Pro** | Serious / Pro Bettors | "Give me an edge." | Real-time Web + Discord Alerts |
 | **Infrastructure (API)** | Builders / Funds / Tools | "Let me build on it." | Webhooks + REST API + Commercial Rights |
 
+*   **Signal Integrity & CLV Audit:** Learn how we [automatically audit every signal against the market Close](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/signal-integrity.md).
+
 ---
 
 ## 2. Tier Details
@@ -45,6 +47,18 @@ Depending on your goals—whether you are looking for an edge in your weekly pla
 *   **Commercial Rights:** Permitted use of Stratum data in 3rd party applications or client-facing tools.
 *   **Anomaly Monitoring:** Real-time monitoring of your API consumption with dedicated support.
 *   **Historical Data:** Programmatic access to the full historical library of signals and consensus movements.
+
+---
+
+## 3. The Science of the "S-Tier" Signal
+
+Stratum is a self-correcting intelligence backbone. Every signal we send is automatically audited against the final market closing price. 
+
+*   **Tier A (Institutional Standard):** Signals that beat the closing price > 54% of the time over 100+ samples.
+*   **Tier B (Pro Standard):** Signals that beat the closing price > 52% of the time over 30+ samples.
+*   **Tier S (Elite Edge):** Reserved for elite moves beating the close > 58% of the time over 500+ samples.
+
+[Read the full Signal Integrity & CLV Audit Guide](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/signal-integrity.md)
 
 ---
 
