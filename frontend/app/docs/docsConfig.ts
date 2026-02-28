@@ -27,6 +27,11 @@ export const DOCS_NAV: DocsNavItem[] = [
     label: "API Reference",
     description: "Endpoint catalog placeholders for implementation details.",
   },
+  {
+    href: "/docs/mcp-server",
+    label: "MCP Server",
+    description: "Stratum intelligence as AI-callable tools for Claude & Cursor.",
+  },
   { href: "/docs/changelog", label: "Changelog", description: "Release notes and documented deprecations." },
   { href: "/docs/status", label: "Status", description: "Operational status and incident communication model." },
 ];
