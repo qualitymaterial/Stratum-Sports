@@ -44,6 +44,7 @@ import {
   WebhookOut,
   WebhookLogOut,
   PartnerBillingSummary,
+  PublicTopAlphaCapture,
 } from "@/lib/types";
 import { apiRequest, getApiBaseUrl } from "@/lib/apiClient";
 
@@ -1002,6 +1003,15 @@ export async function getPublicTeaserKpis(options: {
   appendOptionalParam(params, "window_hours", options.window_hours);
   const query = params.toString();
   return apiRequest<PublicTeaserKpisResponse>(`/public/teaser/kpis${query ? `?${query}` : ""}`);
+}
+
+export async function getPublicTopAlphaCapture(options: {
+  sport_key?: SportKey;
+} = {}) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  const query = params.toString();
+  return apiRequest<PublicTopAlphaCapture | null>(`/public/teaser/top-alpha${query ? `?${query}` : ""}`);
 }
 
 // ── Partner/Developer self-serve ──────────────────────

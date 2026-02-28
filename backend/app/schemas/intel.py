@@ -256,3 +256,14 @@ class TeaserInteractionEventIn(BaseModel):
 
 class TeaserInteractionEventOut(BaseModel):
     status: str
+
+
+class PublicTopAlphaCapture(BaseModel):
+    game_label: str
+    signal_type: str
+    market: str
+    outcome: str
+    clv_prob: float | None
+    clv_line: float | None
+    strength: int
+    captured_at: datetime

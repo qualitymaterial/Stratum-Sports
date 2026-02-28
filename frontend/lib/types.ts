@@ -356,6 +356,17 @@ export type PublicTeaserKpisResponse = {
   updated_at: string;
 };
 
+export type PublicTopAlphaCapture = {
+  game_label: string;
+  signal_type: string;
+  market: string;
+  outcome: string;
+  clv_prob: number | null;
+  clv_line: number | null;
+  strength: number;
+  captured_at: string;
+};
+
 export type AdminClvBySignalType = {
   signal_type: string;
   count: number;

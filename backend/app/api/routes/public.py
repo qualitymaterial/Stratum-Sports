@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.schemas.intel import PublicTeaserKpis, PublicTeaserOpportunityPoint
-from app.services.performance_intel import get_delayed_opportunity_teaser, get_public_teaser_kpis
+from app.schemas.intel import PublicTeaserKpis, PublicTeaserOpportunityPoint, PublicTopAlphaCapture
+from app.services.performance_intel import get_delayed_opportunity_teaser, get_public_teaser_kpis, get_top_alpha_capture
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -130,3 +130,20 @@ async def get_public_teaser_kpis_view(
         },
     )
     return PublicTeaserKpis(**payload)
+
+
+@router.get("/teaser/top-alpha", response_model=PublicTopAlphaCapture | None)
+async def get_public_teaser_top_alpha(
+    response: Response,
+    sport_key: str = Query("basketball_nba"),
+    db: AsyncSession = Depends(get_db),
+) -> PublicTopAlphaCapture | None:
+    _ensure_public_teaser_enabled()
+    response.headers["Cache-Control"] = "public, s-maxage=30, stale-while-revalidate=120"
+
+    resolved_sport_key = _resolve_public_sport_key(sport_key)
+    row = await get_top_alpha_capture(db, sport_key=resolved_sport_key, days=2)
+    if not row:
+        return None
+
+    return PublicTopAlphaCapture(**row)

@@ -1819,3 +1819,42 @@ async def get_public_teaser_kpis(
         "pct_fresh": round(pct_fresh, 1),
         "updated_at": now,
     }
+
+
+async def get_top_alpha_capture(
+    db: AsyncSession,
+    *,
+    sport_key: str | None = None,
+    days: int = 2,
+) -> dict[str, Any] | None:
+    cutoff = datetime.now(UTC) - timedelta(days=max(1, int(days)))
+
+    stmt = (
+        select(ClvRecord, Game.home_team, Game.away_team, Signal.strength_score)
+        .join(Signal, Signal.id == ClvRecord.signal_id)
+        .join(Game, Game.event_id == ClvRecord.event_id)
+        .where(ClvRecord.computed_at >= cutoff)
+        .where(ClvRecord.clv_prob.is_not(None))
+    )
+
+    if sport_key:
+        stmt = stmt.where(Game.sport_key == sport_key)
+
+    # Prioritize absolute prob improvement
+    stmt = stmt.order_by(desc(func.abs(ClvRecord.clv_prob))).limit(1)
+
+    result = (await db.execute(stmt)).first()
+    if not result:
+        return None
+
+    record, home, away, strength = result
+    return {
+        "game_label": f"{home} vs {away}",
+        "signal_type": record.signal_type,
+        "market": record.market,
+        "outcome": record.outcome_name,
+        "clv_prob": record.clv_prob,
+        "clv_line": record.clv_line,
+        "strength": strength,
+        "captured_at": record.computed_at,
+    }
