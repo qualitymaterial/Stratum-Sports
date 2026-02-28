@@ -66,6 +66,7 @@ export default function HeroLandingPage() {
   const [emptyHint, setEmptyHint] = useState<string | null>(null);
   const [sportNotice, setSportNotice] = useState<string | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
+  const [isVideoMuted, setIsVideoMuted] = useState(true);
   const autoSwitched = useRef(false);
 
   const activeSportLabel = useMemo(
@@ -271,7 +272,8 @@ export default function HeroLandingPage() {
                 src="/videos/stratum-mcp-demo.mp4"
                 controls
                 autoPlay
-                muted
+                muted={isVideoMuted}
+                onVolumeChange={(e) => setIsVideoMuted(e.currentTarget.muted)}
                 loop
                 playsInline
                 className="h-auto w-full object-cover"
