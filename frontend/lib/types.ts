@@ -73,6 +73,7 @@ export type GameDetail = {
     event_id: string;
     components: Array<Record<string, unknown>>;
   };
+  liquidity_heatmap?: PublicLiquidityHeatmap | null;
 };
 
 export type WatchlistItem = {

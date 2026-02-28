@@ -405,6 +405,55 @@ export default function GameDetailPage() {
 
       {error && <p className="text-sm text-negative">{error}</p>}
 
+      {detail.liquidity_heatmap && (
+        <section className="bg-panelSoft/80 border border-borderTone rounded-3xl p-6 relative overflow-hidden group">
+          <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-bg via-accent to-bg opacity-30 group-hover:opacity-100 transition-opacity" />
+          <div className="flex flex-col md:flex-row justify-between items-center gap-6 relative z-10">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[10px] font-black bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded uppercase tracking-widest flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  Smart Money Flow
+                </span>
+                <span className="text-xs font-semibold text-textMain">{detail.liquidity_heatmap.game_label}</span>
+                <span className="text-xs text-textMute/50">•</span>
+                <span className="text-xs text-textMute uppercase">{detail.liquidity_heatmap.market}</span>
+              </div>
+              <h3 className="text-2xl font-bold text-textMain">
+                {(detail.liquidity_heatmap.liquidity_asymmetry * 100).toFixed(0)}% <span className="text-textMute font-medium text-lg">of Exchange Liquidity on</span> {detail.liquidity_heatmap.outcome}
+              </h3>
+              <p className="text-sm text-textMute mt-1 max-w-xl">
+                Active prediction exchanges show a massive asymmetry. Sportsbooks have not fully adjusted the consensus line to match the flow of money.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3 min-w-[240px] w-full md:w-auto bg-bg/50 p-4 rounded-2xl border border-white/5">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-textMute font-medium uppercase tracking-wider">Volume</span>
+                <span className="text-sm font-bold text-textMain">{detail.liquidity_heatmap.volume.toLocaleString()} contracts</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-textMute font-medium uppercase tracking-wider">Open Interest</span>
+                <span className="text-sm font-bold text-textMain">{detail.liquidity_heatmap.open_interest.toLocaleString()} active</span>
+              </div>
+
+              {/* Heatmap Bar */}
+              <div className="mt-2 h-3 w-full bg-bg rounded-full overflow-hidden flex relative">
+                <div className="absolute inset-0 bg-white/5" />
+                <div
+                  className="h-full bg-emerald-400 transition-all duration-1000 ease-out"
+                  style={{ width: `${detail.liquidity_heatmap.liquidity_asymmetry * 100}%` }}
+                />
+                <div
+                  className="h-full bg-rose-500/50 transition-all duration-1000 ease-out"
+                  style={{ width: `${(1 - detail.liquidity_heatmap.liquidity_asymmetry) * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
+
       {focusedSignal && (
         <div className="rounded-xl border border-accent/40 bg-panel p-4 shadow-terminal">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -581,11 +630,10 @@ export default function GameDetailPage() {
             return (
               <div
                 key={signal.id}
-                className={`rounded border p-3 ${
-                  isFocusedSignal
+                className={`rounded border p-3 ${isFocusedSignal
                     ? "border-accent bg-panelSoft/90 shadow-[0_0_0_1px_rgba(77,208,181,0.35)]"
                     : "border-borderTone bg-panelSoft"
-                }`}
+                  }`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
@@ -618,13 +666,12 @@ export default function GameDetailPage() {
                             Rank {actionable.execution_rank}
                           </span>
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wider ${
-                              actionable.freshness_bucket === "fresh"
+                            className={`rounded px-1.5 py-0.5 text-[11px] uppercase tracking-wider ${actionable.freshness_bucket === "fresh"
                                 ? "bg-positive/10 text-positive"
                                 : actionable.freshness_bucket === "aging"
                                   ? "bg-accent/15 text-accent"
                                   : "bg-negative/15 text-negative"
-                            }`}
+                              }`}
                           >
                             {actionable.freshness_bucket}
                           </span>

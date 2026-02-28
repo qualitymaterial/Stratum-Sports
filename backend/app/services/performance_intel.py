@@ -1862,6 +1862,27 @@ async def get_top_alpha_capture(
     }
 
 
+def build_liquidity_heatmap(game: Game) -> dict:
+    now_utc = datetime.now(UTC)
+    
+    # Hash the event_id deterministically for mock data per-game
+    h_value = hash(game.event_id)
+    
+    # Scale from 0.55 to 0.95
+    asymmetry = 0.55 + ((h_value % 40) / 100.0) 
+    base_vol = 100000 + (h_value % 400000)
+    base_oi = base_vol * (3 + (h_value % 3))
+    
+    return {
+        "game_label": f"{game.away_team} @ {game.home_team}",
+        "market": "spreads",
+        "outcome": game.home_team if h_value % 2 == 0 else game.away_team,
+        "volume": base_vol,
+        "open_interest": base_oi,
+        "liquidity_asymmetry": asymmetry,
+        "updated_at": now_utc
+    }
+
 async def get_public_liquidity_heatmap(db: AsyncSession, sport_key: str = "basketball_nba") -> dict | None:
     now_utc = datetime.now(UTC)
     stmt = select(Game).where(
@@ -1873,14 +1894,4 @@ async def get_public_liquidity_heatmap(db: AsyncSession, sport_key: str = "baske
     if not game:
         return None
         
-    # Generate realistic looking asymmetric liquidity for the heatmap
-    return {
-        "game_label": f"{game.away_team} @ {game.home_team}",
-        "market": "spreads",
-        "outcome": game.home_team,
-        "volume": 245000,
-        "open_interest": 890000,
-        "liquidity_asymmetry": 0.82, # 82% of money is on this side
-        "updated_at": now_utc
-    }
-
+    return build_liquidity_heatmap(game)

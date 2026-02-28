@@ -11,6 +11,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.signal import Signal
 from app.models.user import User
 from app.services.context_score import build_context_score
+from app.services.performance_intel import build_liquidity_heatmap
 from app.services.public_signal_surface import is_structural_core_visible
 from app.services.signals import serialize_signal
 
@@ -253,4 +254,5 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         "chart_series": chart_series,
         "signals": [serialize_signal(signal, pro_user=pro_user) for signal in signals],
         "context_scaffold": await build_context_score(db, event_id),
+        "liquidity_heatmap": build_liquidity_heatmap(game),
     }
