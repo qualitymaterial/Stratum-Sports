@@ -11,18 +11,19 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            echo "--- Memory ---"
-            free -m
-            echo "--- Disk ---"
-            df -h
-            echo "--- Top processes ---"
-            top -bn1 -o %MEM | head -15
-            echo "--- Restarting DNS ---"
-            sudo systemctl restart systemd-resolved || true
-            cat /etc/resolv.conf
-            ping -c 1 github.com || true
-            echo "--- Docker status ---"
-            docker ps -a
-            echo "--- Fixing potential hung processes ---"
-            # KILL any huge git processes hanging?
-            sudo killall -9 git || true
+            echo "===================================="
+            echo "PRODUCTION DB SKEW DATA ACQUIRED"
+            echo "===================================="
+            cd /opt/stratum-sports
+            
+            echo "1. Kalshi Mappings (Canonical Alignments)"
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db psql -U stratum_prod -d stratum_sports -c "SELECT source, count(*) FROM canonical_event_alignments GROUP BY source;"
+            
+            echo "2. Raw Exchange Quotes (Kalshi ticks)"
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db psql -U stratum_prod -d stratum_sports -c "SELECT source, count(*) FROM exchange_quote_events GROUP BY source;"
+            
+            echo "3. Total Signals with Kalshi Liquidity Skew"
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db psql -U stratum_prod -d stratum_sports -c "SELECT count(*) FROM signals WHERE kalshi_liquidity_skew IS NOT NULL;"
+            
+            echo "4. Skew Distribution (Min, Max, Avg)"
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T db psql -U stratum_prod -d stratum_sports -c "SELECT MIN(kalshi_liquidity_skew) as min_skew, MAX(kalshi_liquidity_skew) as max_skew, AVG(kalshi_liquidity_skew) as avg_skew FROM signals WHERE kalshi_liquidity_skew IS NOT NULL;"
