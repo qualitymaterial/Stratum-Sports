@@ -1,0 +1,61 @@
+name: Skew Stats
+on: workflow_dispatch
+jobs:
+  run_stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Copy script and run on Droplet
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            cd /opt/stratum-sports
+            cat << 'INNER_EOF' > backend/scripts/get_skew_stats.py
+import asyncio
+from sqlalchemy import select, func, not_
+from app.api.deps import get_db
+
+async def main():
+    async for db in get_db():
+        from app.models.canonical_event_alignment import CanonicalEventAlignment
+        from app.models.exchange_quote_event import ExchangeQuoteEvent
+        from app.models.signal import Signal
+
+        alignments = (await db.execute(select(func.count(CanonicalEventAlignment.id)))).scalar()
+        quotes = (await db.execute(select(func.count(ExchangeQuoteEvent.id)))).scalar()
+        sigs = (await db.execute(select(func.count(Signal.id)))).scalar()
+        skew_sigs = (await db.execute(select(func.count(Signal.id)).where(Signal.kalshi_liquidity_skew.isnot(None)))).scalar()
+
+        print("====================================")
+        print("PRODUCTION DB SKEW DATA ACQUIRED")
+        print("====================================")
+        print(f"Canonical Alignments (Kalshi IDs): {alignments}")
+        print(f"Exchange Quote Events (Raw Data): {quotes}")
+        print(f"Total Signals Indexed: {sigs}")
+        print(f"Signals with Kalshi Liquidity Skew: {skew_sigs}")
+
+        if skew_sigs > 0:
+            min_skew, max_skew, avg_skew = (await db.execute(
+                select(
+                    func.min(Signal.kalshi_liquidity_skew),
+                    func.max(Signal.kalshi_liquidity_skew),
+                    func.avg(Signal.kalshi_liquidity_skew)
+                ).where(Signal.kalshi_liquidity_skew.isnot(None))
+            )).fetchone()
+            print(f"Metrics -> Min: {min_skew:.3f} | Max: {max_skew:.3f} | Avg: {avg_skew:.3f}")
+
+            res = await db.execute(select(Signal.metadata_json).where(Signal.kalshi_liquidity_skew.isnot(None)))
+            signals = res.scalars().all()
+            buckets = {}
+            for meta in signals:
+                if meta and "kalshi_gate" in meta:
+                    b = meta["kalshi_gate"].get("kalshi_skew_bucket", "Unknown")
+                    buckets[b] = buckets.get(b, 0) + 1
+            print(f"Bucket Distribution: {buckets}")
+
+INNER_EOF
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend python -m scripts.get_skew_stats
