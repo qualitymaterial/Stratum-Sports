@@ -1093,7 +1093,7 @@ export default function PerformancePage() {
           >
             {SIGNAL_OPTIONS.map((option) => (
               <option key={option} value={option}>
-                {option}
+                {option === "ALL" ? "All Signal Types" : displaySignalType(option)}
               </option>
             ))}
           </select>
@@ -1110,7 +1110,7 @@ export default function PerformancePage() {
           >
             {MARKET_OPTIONS.map((option) => (
               <option key={option} value={option}>
-                {option}
+                {option === "ALL" ? "All Markets" : option === "h2h" ? "Moneyline" : option.charAt(0).toUpperCase() + option.slice(1)}
               </option>
             ))}
           </select>
