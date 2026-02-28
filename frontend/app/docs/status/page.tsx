@@ -95,7 +95,14 @@ export default function DocsStatusPage() {
       <section className="space-y-3">
         <h2 className="text-xl font-semibold">Public Status Page</h2>
         <p className="text-textMute">
-          (TODO: Replace with real public status page URL when operational dashboard is deployed.)
+          A hosted public status dashboard is not yet deployed. In the interim, operational status can be verified programmatically via:
+        </p>
+        <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
+          {`GET /api/v1/health/ready
+# Returns: { "status": "ok" | "degraded", "db": true|false, "redis": true|false }`}
+        </pre>
+        <p className="text-textMute">
+          (TODO: Replace with public status page URL when operational dashboard is deployed.)
         </p>
       </section>
     </DocsPage>

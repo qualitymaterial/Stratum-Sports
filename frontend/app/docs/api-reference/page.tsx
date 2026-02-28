@@ -235,8 +235,215 @@ Content-Type: application/json
           </table>
         </div>
         <p className="text-textMute">
-          (TODO: Publish full request/response schemas and query parameter reference for intel endpoints.)
+          Full schemas for the 3 highest-value endpoints are documented below. Remaining endpoint schemas are pending publication.
         </p>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">GET /api/v1/intel/opportunities</h2>
+        <p className="text-textMute">
+          Returns current best opportunities ranked by edge, signal strength, and market width. Requires Pro or Partner auth.
+        </p>
+        <h3 className="pt-1 text-base font-semibold">Query Parameters</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Param</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Default</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">days</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">2</td><td className="px-3 py-2">Lookback window in days (1–30).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">sport_key</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by sport (e.g. basketball_nba).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">market</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by market: spreads, totals, h2h.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">min_strength</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Minimum signal strength score (1–100).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">limit</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">10</td><td className="px-3 py-2">Max results (1–50).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 className="pt-1 text-base font-semibold">Response — Array of OpportunityPoint</h3>
+        <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
+          {`[
+  {
+    "signal_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "event_id": "nba_20260301_lakers_celtics",
+    "game_label": "Lakers @ Celtics",
+    "game_commence_time": "2026-03-01T23:00:00Z",
+    "signal_type": "steam",
+    "display_type": "Steam Move",
+    "market": "spreads",
+    "outcome_name": "Celtics -4.5",
+    "direction": "DOWN",
+    "strength_score": 82,
+    "created_at": "2026-03-01T21:14:00Z",
+    "best_book_key": "draftkings",
+    "best_line": -4.0,
+    "best_price": -110,
+    "consensus_line": -4.5,
+    "consensus_price": -112,
+    "best_delta": 0.5,
+    "best_edge_line": 0.5,
+    "best_edge_prob": 0.021,
+    "market_width": 1.8,
+    "delta_type": "line",
+    "books_considered": 7,
+    "freshness_seconds": 42,
+    "freshness_bucket": "Fresh",
+    "execution_rank": 1,
+    "clv_prior_samples": 38,
+    "clv_prior_pct_positive": 0.71,
+    "opportunity_score": 87,
+    "context_score": null,
+    "blended_score": null,
+    "ranking_score": 87,
+    "score_basis": "opportunity",
+    "score_components": { "strength": 30, "edge": 25, "freshness": 20, "clv_prior": 12 },
+    "score_summary": "Strong steam with positive CLV and live edge.",
+    "opportunity_status": "ACTIONABLE",
+    "reason_tags": ["steam_move", "live_edge", "clv_positive"],
+    "actionable_reason": "DraftKings is off consensus; edge present."
+  }
+]`}
+        </pre>
+        <h3 className="pt-1 text-base font-semibold">Key Fields</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Field</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">signal_id</td><td className="px-3 py-2">UUID</td><td className="px-3 py-2">Stable unique identifier for the signal. Use for deduplication.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">strength_score</td><td className="px-3 py-2">integer 1–100</td><td className="px-3 py-2">Signal confidence. Higher is stronger.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">opportunity_status</td><td className="px-3 py-2">string</td><td className="px-3 py-2">ACTIONABLE, MONITOR, or STALE.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">best_delta</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Line or probability gap between best book and consensus.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">freshness_bucket</td><td className="px-3 py-2">string</td><td className="px-3 py-2">Fresh / Aging / Stale — derived from freshness_seconds.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">clv_prior_pct_positive</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Historical positive CLV rate for this signal type. null if insufficient samples.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">GET /api/v1/intel/signals/quality</h2>
+        <p className="text-textMute">
+          Returns the active signal quality feed with lifecycle stage, alert decisions, and freshness metadata. Requires Pro or Partner auth.
+        </p>
+        <h3 className="pt-1 text-base font-semibold">Query Parameters</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Param</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Default</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">sport_key</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by sport.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">signal_type</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by type: steam, dislocation, exchange_divergence.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">market</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by market: spreads, totals, h2h.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">min_strength</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Minimum strength score (1–100).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">limit</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">50</td><td className="px-3 py-2">Max results (1–200).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 className="pt-1 text-base font-semibold">Response — Array of SignalQualityPoint</h3>
+        <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
+          {`[
+  {
+    "id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "event_id": "nba_20260301_lakers_celtics",
+    "game_label": "Lakers @ Celtics",
+    "game_commence_time": "2026-03-01T23:00:00Z",
+    "market": "spreads",
+    "signal_type": "steam",
+    "display_type": "Steam Move",
+    "direction": "DOWN",
+    "strength_score": 82,
+    "time_bucket": "PRETIP",
+    "books_affected": 5,
+    "window_minutes": 3,
+    "created_at": "2026-03-01T21:14:00Z",
+    "outcome_name": "Celtics -4.5",
+    "book_key": "pinnacle",
+    "delta": -0.5,
+    "dispersion": 0.8,
+    "freshness_seconds": 42,
+    "freshness_bucket": "Fresh",
+    "lifecycle_stage": "live",
+    "lifecycle_reason": "Within active event window",
+    "alert_decision": "SEND",
+    "alert_reason": "Strength above threshold",
+    "metadata": {}
+  }
+]`}
+        </pre>
+        <h3 className="pt-1 text-base font-semibold">Key Fields</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Field</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">id</td><td className="px-3 py-2">UUID</td><td className="px-3 py-2">Signal identifier. Use for deduplication and webhook correlation.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">time_bucket</td><td className="px-3 py-2">string</td><td className="px-3 py-2">OPEN, MID, LATE, PRETIP, INPLAY, or UNKNOWN — market timing classification.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">lifecycle_stage</td><td className="px-3 py-2">string</td><td className="px-3 py-2">live, stale, or resolved.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">alert_decision</td><td className="px-3 py-2">string</td><td className="px-3 py-2">SEND or FILTERED — whether this signal passed alerting rules.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">dispersion</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Spread across book prices at time of detection. Lower is tighter consensus.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <h2 className="text-xl font-semibold">GET /api/v1/intel/clv</h2>
+        <p className="text-textMute">
+          Returns closing line value records for signals where final market prices were captured. Used for performance attribution. Requires Pro or Partner auth.
+        </p>
+        <h3 className="pt-1 text-base font-semibold">Query Parameters</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Param</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Default</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">days</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">30</td><td className="px-3 py-2">Lookback window (1–90).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">event_id</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter to a single event.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">signal_type</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by signal type.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">market</td><td className="px-3 py-2">string</td><td className="px-3 py-2">null</td><td className="px-3 py-2">Filter by market.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">limit</td><td className="px-3 py-2">integer</td><td className="px-3 py-2">100</td><td className="px-3 py-2">Max results (1–1000).</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 className="pt-1 text-base font-semibold">Response — Array of ClvRecordPoint</h3>
+        <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
+          {`[
+  {
+    "signal_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "event_id": "nba_20260228_heat_bucks",
+    "signal_type": "steam",
+    "market": "spreads",
+    "outcome_name": "Bucks -3.5",
+    "strength_score": 78,
+    "entry_line": -3.5,
+    "entry_price": -112,
+    "close_line": -5.0,
+    "close_price": -110,
+    "clv_line": 1.5,
+    "clv_prob": 0.034,
+    "computed_at": "2026-02-28T02:10:00Z"
+  }
+]`}
+        </pre>
+        <h3 className="pt-1 text-base font-semibold">Key Fields</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="border-b border-borderTone text-textMute">
+              <tr><th className="px-3 py-2">Field</th><th className="px-3 py-2">Type</th><th className="px-3 py-2">Description</th></tr>
+            </thead>
+            <tbody className="divide-y divide-borderTone/40 text-textMute">
+              <tr><td className="px-3 py-2 font-mono">entry_line / entry_price</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Market line and juice at signal detection time.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">close_line / close_price</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Market line and juice at event close (tipoff).</td></tr>
+              <tr><td className="px-3 py-2 font-mono">clv_line</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Closing line value in points. Positive = signal beat the close.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">clv_prob</td><td className="px-3 py-2">float | null</td><td className="px-3 py-2">Closing line value in probability units. Positive = signal beat the close.</td></tr>
+              <tr><td className="px-3 py-2 font-mono">computed_at</td><td className="px-3 py-2">datetime</td><td className="px-3 py-2">ISO 8601 timestamp when CLV was computed post-event.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="space-y-3">

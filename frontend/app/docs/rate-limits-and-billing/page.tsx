@@ -66,8 +66,8 @@ Behavior:  Requests exceeding the limit receive HTTP 429.
         </p>
         <pre className="overflow-x-auto rounded border border-borderTone bg-bg p-4 text-xs text-textMain">
           {`Default Monthly Soft Limit:   50,000 requests
-Overage:                      Billed transparently at $2.00 per additional unit
-                              (TODO: Confirm overage unit quantity per contract)
+Overage Unit:                 1,000 requests
+Overage Price:                $2.00 per overage unit (i.e. per 1,000 requests over the soft limit)
 Tracking:                     Usage is metered via Redis and flushed to the billing ledger.`}
         </pre>
         <p className="text-textMute">
