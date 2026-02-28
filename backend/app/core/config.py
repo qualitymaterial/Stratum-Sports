@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     odds_api_circuit_failures_to_open: int = 3
     odds_api_circuit_open_seconds: int = 120
     stratum_close_capture_enabled: bool = True
+    
+    # Kalshi Gating
+    kalshi_skew_gate_enabled: bool = False
+    kalshi_skew_gate_mode: str = "shadow" # "shadow" or "enforce"
+    kalshi_skew_gate_threshold: float = 0.60
     stratum_close_capture_max_events_per_cycle: int = 10
     nba_key_numbers: str = "2,3,4,5,6,7,8,10"
 

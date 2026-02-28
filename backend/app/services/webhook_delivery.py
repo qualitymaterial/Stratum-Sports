@@ -42,7 +42,46 @@ async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -
 
     # 2. Build delivery tasks
     tasks = []
+    
+    # Internal Observability / logging config
+    k_enabled = settings.kalshi_skew_gate_enabled
+    k_mode = settings.kalshi_skew_gate_mode
+    k_thresh = settings.kalshi_skew_gate_threshold
+    
     for signal in signals:
+        gate_data = None
+        if k_enabled:
+            gate_data = {
+                "kalshi_liquidity_skew": signal.kalshi_liquidity_skew,
+                "kalshi_skew_bucket": signal.kalshi_skew_bucket,
+                "kalshi_gate_pass": signal.kalshi_gate_pass,
+                "kalshi_gate_threshold": signal.kalshi_gate_threshold,
+                "kalshi_gate_mode": k_mode
+            }
+            
+            # None counts as a pass in shadow mode. But in enforce, if it explicitly failed:
+            if k_mode == "enforce" and signal.kalshi_gate_pass is False:
+                logger.info(
+                    "KalshiGate[ENFORCE] Signal suppressed",
+                    extra={
+                        "signal_id": str(signal.id),
+                        "skew": signal.kalshi_liquidity_skew,
+                        "pass": False,
+                        "mode": k_mode
+                    }
+                )
+                continue
+                
+            logger.info(
+                f"KalshiGate[{k_mode.upper()}] Signal processed",
+                extra={
+                    "signal_id": str(signal.id),
+                    "skew": signal.kalshi_liquidity_skew,
+                    "pass": signal.kalshi_gate_pass,
+                    "mode": k_mode
+                }
+            )
+
         # Prepare the payload once per signal
         payload = {
             "event": "signal.detected",
@@ -58,6 +97,9 @@ async def dispatch_signal_to_webhooks(db: AsyncSession, signals: list[Signal]) -
             "created_at": signal.created_at.isoformat(),
             "metadata": signal.metadata_json
         }
+        
+        if gate_data:
+            payload["kalshi_gate"] = gate_data
         
         for webhook in webhooks:
             # Note: In an institutional setup, we would verify the user_id 

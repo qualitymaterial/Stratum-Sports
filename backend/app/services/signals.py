@@ -1339,6 +1339,16 @@ async def detect_market_movements(
     if not all_created:
         return []
 
+    from app.services.kalshi_gating import compute_kalshi_skew_gate
+    for signal in all_created:
+        skew = signal.metadata_json.get("exchange_liquidity_skew")
+        gate_info = compute_kalshi_skew_gate(skew)
+        signal.kalshi_liquidity_skew = gate_info["kalshi_liquidity_skew"]
+        signal.kalshi_skew_bucket = gate_info["kalshi_skew_bucket"]
+        signal.kalshi_gate_threshold = gate_info["kalshi_gate_threshold"]
+        signal.kalshi_gate_mode = gate_info["kalshi_gate_mode"]
+        signal.kalshi_gate_pass = gate_info["kalshi_gate_pass"]
+
     await db.commit()
 
     # Reload with ids so created_at values are available and sorted for downstream alerts.

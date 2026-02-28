@@ -7,7 +7,7 @@ except ImportError:
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, String
+from sqlalchemy import DateTime, Float, Integer, String, Boolean
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,3 +35,10 @@ class Signal(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False, index=True
     )
     metadata_json: Mapped[dict] = mapped_column("metadata", JSONB, default=dict, nullable=False)
+
+    # Kalshi Gate Metadata
+    kalshi_liquidity_skew: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    kalshi_skew_bucket: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    kalshi_gate_pass: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    kalshi_gate_threshold: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    kalshi_gate_mode: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
