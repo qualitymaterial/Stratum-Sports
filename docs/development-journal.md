@@ -1,5 +1,79 @@
 # Development Journal
 
+## 2026-02-28: Stratum MCP Server (SSE-Ready, Pro-Tier Gated)
+
+### Overview
+We designed and built a complete, standalone MCP (Model Context Protocol) server package that exposes the Stratum Sports intelligence API as AI-callable tools for Claude Desktop, Cursor, and any MCP-compatible agent. The server lives at `mcp/` in the repo root (sibling to `backend/` and `frontend/`), is installable as `stratum-mcp`, and is SSE-ready out of the box.
+
+### Why
+MCP lets AI clients natively call Stratum's signal, CLV, and opportunity feeds without any REST integration work on the client side. An AI analyst can ask *"Show me the highest-conviction STEAM moves in NBA spreads from the last 48 hours"* and receive live data. This is a meaningful product differentiator and a distribution channel into the AI tooling ecosystem (Claude Desktop, Cursor, etc.).
+
+### What Was Built
+**New package: `mcp/`** — 11 Python files, all compiling cleanly.
+
+| File | Purpose |
+|---|---|
+| `pyproject.toml` | Package definition; entry point: `stratum-mcp` |
+| `.env.example` | `STRATUM_API_KEY`, `STRATUM_API_BASE_URL`, `MCP_HOST`, `MCP_PORT` |
+| `Dockerfile` | `python:3.12-slim`, `EXPOSE 8001` |
+| `README.md` | Full docs: install, Claude Desktop config, Docker, tools table |
+| `claude_desktop_config.json` | Ready-to-paste `mcpServers` snippet |
+| `stratum_mcp/app.py` | Shared `FastMCP("Stratum Sports")` singleton |
+| `stratum_mcp/client.py` | `httpx` singleton + retry/backoff (429/5xx) + safe `{meta, data, error}` responses |
+| `stratum_mcp/server.py` | Pro-tier gate (startup + per-call), SSE transport |
+| `stratum_mcp/tools/signals.py` | `get_signal_quality`, `get_signals_weekly_summary`, `get_signal_lifecycle` |
+| `stratum_mcp/tools/clv.py` | `get_clv_records`, `get_clv_summary`, `get_clv_recap`, `get_clv_scorecards` |
+| `stratum_mcp/tools/opportunities.py` | `get_opportunities` |
+| `stratum_mcp/tools/consensus.py` | `get_consensus` |
+| `stratum_mcp/tools/games.py` | `list_games`, `get_game_detail` |
+| `stratum_mcp/tools/watchlist.py` | `list_watchlist` |
+| `stratum_mcp/tools/books.py` | `get_actionable_books`, `get_actionable_books_batch` |
+
+**Total: 13 tools registered.**
+
+### Pro-Tier Enforcement
+No backend changes were needed — `GET /api/v1/auth/me` already returns `{ tier, has_partner_access }`. We enforce gating at two layers:
+
+1. **Startup gate**: On `stratum-mcp` launch, `asyncio.run(_check_pro_tier())` calls `/api/v1/auth/me`. If `tier` is not `"pro"` or `"enterprise"` and `has_partner_access` is `False`, the process exits immediately with a clear error message and code 1.
+2. **Per-call cache**: A 5-minute TTL in-memory cache re-validates the key on each tool call. If the key was downgraded mid-session, the tool returns a `PermissionError`.
+
+### Client Design
+`client.py` exposes a singleton `httpx.AsyncClient` with:
+- `Authorization: Bearer <STRATUM_API_KEY>` (from env)
+- Timeouts: connect=5s, read=30s
+- Automatic retries (up to 3×) with exponential backoff for `429 / 502 / 503 / 504`
+- A `request()` helper that always returns `{"meta": {...}, "data": ..., "error": ...}` — no raw exceptions reach the AI client
+
+### How to Run
+```bash
+cd mcp
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+cp .env.example .env  # set STRATUM_API_KEY
+
+stratum-mcp
+# ✅ Pro-tier verified. Starting Stratum MCP SSE server on 0.0.0.0:8001
+```
+
+### Docker
+```bash
+docker build -t stratum-mcp ./mcp
+docker run -d -e STRATUM_API_KEY=token -p 8001:8001 stratum-mcp
+```
+
+### Suggested Commit Message
+```
+feat(mcp): add Stratum MCP SSE server with Pro-tier gating
+
+- New package at mcp/ (stratum-mcp, entrypoint: stratum-mcp)
+- 13 tools covering signals, CLV, opportunities, consensus, games, watchlist, books
+- Pro-tier gate: startup exit + 5-min cached per-call check via GET /api/v1/auth/me
+- httpx client with retry/backoff and safe {meta, data, error} responses
+- SSE transport, Docker-ready, Claude Desktop config included
+```
+
+---
+
 ## 2026-02-27: Kalshi Liquidity Skew Gating and Quantitative Analysis
 
 ### 1. Quantitative Analysis of Kalshi Liquidity Skew vs CLV
