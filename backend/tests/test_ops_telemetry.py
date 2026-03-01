@@ -8,7 +8,6 @@ Verifies graceful degradation when external dependencies fail:
 4. ingest_odds_cycle survives Redis being None
 """
 
-import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -251,9 +250,9 @@ async def test_ingest_odds_cycle_works_without_redis(db_session: AsyncSession):
                 requests_used=10,
             )
         )
-        result = await __import__("app.services.ingestion", fromlist=["ingest_odds_cycle"]).ingest_odds_cycle(
-            db_session, redis=None
-        )
+        from app.services.ingestion import ingest_odds_cycle
+
+        result = await ingest_odds_cycle(db_session, redis=None)
 
     assert result is not None
     # Should have processed events without crashing

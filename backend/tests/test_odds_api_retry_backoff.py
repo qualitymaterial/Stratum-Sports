@@ -8,8 +8,6 @@ Fills gaps NOT covered by test_odds_api_resilience.py:
 - Circuit breaker opens after configured consecutive failures
 """
 
-from datetime import UTC, datetime
-
 import httpx
 import pytest
 
