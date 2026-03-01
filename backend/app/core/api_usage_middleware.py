@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse, Response
 
 from app.core.config import get_settings
 from app.services.api_usage_tracking import (
+    get_cached_rate_limit,
     get_cached_soft_limit,
     increment_usage,
 )
@@ -51,7 +52,10 @@ class ApiUsageTrackingMiddleware(BaseHTTPMiddleware):
 
         # ── Per-partner rate limiting (per minute) ──────────────────
         try:
-            partner_limit = settings.partner_rate_limit_per_minute
+            partner_limit = await get_cached_rate_limit(redis, user_id)
+            if partner_limit is None:
+                # Fallback to Builder limit until cache is populated
+                partner_limit = 100
             now = datetime.now(UTC)
             minute_bucket = now.strftime("%Y%m%d%H%M")
             rate_key = f"partner_ratelimit:{user_id}:{minute_bucket}"
@@ -78,7 +82,7 @@ class ApiUsageTrackingMiddleware(BaseHTTPMiddleware):
 
         # ── Attach partner rate headers to successful responses ─────
         if rate_remaining is not None:
-            response.headers["X-Partner-RateLimit-Limit"] = str(settings.partner_rate_limit_per_minute)
+            response.headers["X-Partner-RateLimit-Limit"] = str(partner_limit)
             response.headers["X-Partner-RateLimit-Remaining"] = str(rate_remaining)
             response.headers["X-Partner-RateLimit-Reset"] = str(rate_reset)
 

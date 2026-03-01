@@ -73,6 +73,22 @@ async def get_cached_soft_limit(redis: Redis, user_id: str) -> int | None:
     return int(val)
 
 
+async def get_cached_rate_limit(redis: Redis, user_id: str) -> int | None:
+    """Read cached per-minute rate limit."""
+    prefix = get_settings().api_usage_redis_key_prefix
+    val = await redis.get(f"{prefix}:ratelimit:{user_id}")
+    if val is None:
+        return None
+    return int(val)
+
+
+async def cache_rate_limit(redis: Redis, user_id: str, limit: int) -> None:
+    """Cache per-minute rate limit for 24 hours."""
+    prefix = get_settings().api_usage_redis_key_prefix
+    cache_key = f"{prefix}:ratelimit:{user_id}"
+    await redis.set(cache_key, str(limit), ex=86400)
+
+
 async def cache_soft_limit(redis: Redis, user_id: str, limit: int | None) -> None:
     """Cache soft_limit for 24 hours. Stores -1 for 'no limit'."""
     prefix = get_settings().api_usage_redis_key_prefix
@@ -99,7 +115,14 @@ async def get_usage_and_limits(
         ent = (await db.execute(stmt)).scalar_one_or_none()
         soft_limit = ent.soft_limit_monthly if ent else None
         overage_enabled = ent.overage_enabled if ent else False
+        
+        if ent and ent.plan_code in ("api_monthly", "api_annual"):
+            rate_limit = 100
+        else:
+            rate_limit = get_settings().partner_rate_limit_per_minute
+
         await cache_soft_limit(redis, user_id, soft_limit)
+        await cache_rate_limit(redis, user_id, rate_limit)
     else:
         soft_limit = None if cached == -1 else cached
         # For overage_enabled we need DB — only matters for detailed view
