@@ -34,14 +34,15 @@ pre-push-check:
 	./scripts/pre_push_check.sh
 
 prod-smoke:
-	@HOST="$${PROD_HOST:-104.236.237.83}"; \
-	echo "Running production smoke checks against $$HOST"; \
+	@HOST="$${PROD_HOST:-157.230.222.181}"; \
+	PORT="$${PROD_PORT:-80}"; \
+	echo "Running production smoke checks against $$HOST:$$PORT"; \
 	echo "--- GET /"; \
-	curl -fsS -I --max-time 10 "http://$$HOST:3000" | sed -n '1,6p'; \
+	curl -fsS -I --max-time 10 "http://$$HOST:$$PORT" | sed -n '1,6p'; \
 	echo "--- GET /api/v1/health/live"; \
-	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/health/live"; echo; \
+	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/health/live"; echo; \
 	echo "--- GET /api/v1/health/ready"; \
-	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/health/ready"; echo; \
+	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/health/ready"; echo; \
 	echo "--- GET /api/v1/public/teaser/kpis?sport_key=basketball_nba"; \
-	curl -fsS --max-time 10 "http://$$HOST:3000/api/v1/public/teaser/kpis?sport_key=basketball_nba"; echo; \
+	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/public/teaser/kpis?sport_key=basketball_nba"; echo; \
 	echo "prod-smoke complete"
