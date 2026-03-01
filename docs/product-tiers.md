@@ -68,7 +68,7 @@ The Infrastructure tier is further segmented by scale and technical requirements
 
 | Plan | Pricing | Target | Features |
 | :--- | :--- | :--- | :--- |
-| **Builder** | $49/mo | Individual Devs | 30 req/min, 1 Webhook |
+| **Builder** | $49/mo | Individual Devs | 100 req/min, 1 Webhook |
 | **Pro Infra** | $149/mo | Growing Apps / Small Funds | 120 req/min, 5 Webhooks, Soft Limit 50k/mo |
 | **Enterprise** | Contact Sales | Large Platforms / High Freq Labs | Custom limits, Dedicated Webhook queue, SLA |
 

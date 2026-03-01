@@ -1,43 +1,45 @@
-# Admin Control Plane Work Queue
+# Admin Control Plane
 
-This document turns the `PLAN.md` admin roadmap into actionable implementation slices.
+The Stratum Admin Control Plane is an institutional-grade security and operations dashboard built directly into the web app (`/app/admin`). It replaces manual script-based operations with auditable, UI-driven governance.
 
-## Current Baseline
+## 1. Security & Authentication Models
 
-1. Admin API is read-only (`/api/v1/admin/overview`, `/api/v1/admin/conversion/funnel`).
-2. Admin access is a binary flag (`is_admin`).
-3. Promotion and grants still rely on scripts.
-4. Admin UI is visibility/reporting only.
+### Role-Based Access Control (RBAC)
+Admin access is no longer a binary flag. Instead, users are assigned granular scopes to ensure principle-of-least-privilege:
+*   `super_admin`: Full access to mutations, billing, and system configuration.
+*   `ops_admin`: Access to system health, logs, and webhook delivery overrides.
+*   `billing_admin`: Access to Stripe integrations, usage limits, and partner tiering.
+*   `support_admin`: Read-only access or low-level account remediation.
 
-## Today Queue (Low-Risk P0 Slice)
+### Privileged Session Hardening
+*   **Time-To-Live (TTL):** While standard user sessions last 24 hours, an Admin session expires after 4 hours.
+*   **Multi-Factor Authentication (MFA):** Admin accounts support TOTP-based MFA (Time-based One-Time Password) using a two-phase login flow.
+*   **Step-Up Authentication:** Sensitive destructive actions (like suspending a partner or resetting a password) require re-authentication (password confirmation + MFA code) at the moment of mutation.
 
-1. Add immutable admin audit log foundation.
-2. Add scoped admin role model with backward-compatible `is_admin` fallback.
-3. Add one admin mutation endpoint with required `reason` and audit write.
-4. Add role + audit tests for the new mutation path.
+## 2. The Audit Trail
 
-## Next Queue (P0 Completion)
+Transparency is guaranteed by an immutable **Audit Log** that tracks every action taken by an admin.
 
-1. User admin APIs: search, tier change, grant/revoke admin, activate/deactivate.
-2. Billing admin APIs: subscription view, resync, grace controls.
-3. Partner admin APIs: issue/revoke/rotate keys, plan/limit updates.
+Each action receipt includes:
+1.  **Actor:** The Admin UUID who executed the mutation.
+2.  **Target:** The affected endpoint or User UUID.
+3.  **Action Type:** Example: `partner.key.rotated`
+4.  **Delta:** A "Before & After" JSON payload of the state change.
+5.  **Reason:** Mandatory text justification for why the action was taken.
 
-## UI Expansion Queue (P1)
+## 3. Operations & Telemetry
 
-1. Expand `/app/admin` into tabs: Overview, Users, Billing, API Partners, Ops, Audit Log.
-2. Add destructive action safeguards (confirm dialogs + typed confirmation).
-3. Show action receipts with action ID and timestamp.
+The `Operations` tab exposes backend subsystem health to the administrative team without requiring SSH access to the droplet:
 
-## Reliability and Security Queue (P1/P2)
+*   **Poller Health:** Monitor the uptime and cycle lock status of the primary odds ingestion worker.
+*   **Backfill Triggers:** Manually trigger historical data backfilling (bounded by rate limits) via the UI.
+*   **Alert Replay:** Re-dispatch Webhook payloads or Discord alerts that may have failed delivery.
+*   **Scoped Service Tokens:** Instead of a single static `OPS_INTERNAL_TOKEN`, admins can rotate and revoke time-bound service tokens for external automation scripts.
 
-1. Replace shared ops token with scoped service tokens and rotation.
-2. Add step-up auth for sensitive writes.
-3. Add MFA for admin users.
-4. Enforce privileged session controls (shorter TTL, re-auth on elevation).
+## 4. API Partner Lifecycle Management
 
-## Definition of Done for Admin Control Plane
+The `API Partners` tab allows administrators to manage institutional consumers:
 
-1. Routine admin operations are UI/API-driven (not script-only).
-2. Every admin write is audited with actor, target, reason, before/after.
-3. Permissions are role-scoped and test-covered.
-4. Sensitive actions require step-up auth.
+*   **Key Issuance:** Generate and rotate REST API tokens for partners with one-time reveal.
+*   **Limit Enforcement:** Instantly upgrade a partner's rate limit or monthly data allowance.
+*   **Anomaly Dashboards:** Visibility into which partners are approaching or exceeding their 50k monthly soft-limit quotas.

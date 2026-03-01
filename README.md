@@ -229,9 +229,14 @@ Optional live injury context (SportsDataIO):
 - `SPORTSDATAIO_NFL_INJURIES_SEASON` (required when NFL endpoint uses `{season}`)
 - `SPORTSDATAIO_NFL_INJURIES_WEEK` (required when NFL endpoint uses `{week}`)
 
-Notes:
+- Notes:
 - Endpoints are plan-specific at SportsDataIO. Leave endpoint vars blank to keep heuristic fallback behavior.
 - If live feed is unavailable for any reason, context scoring automatically falls back to spread-velocity heuristics.
+
+## Optional Intelligence Feature Flags
+
+- `PUBLIC_STRUCTURAL_CORE_MODE` (default `true`): Enforces structural gatekeeping on public signal feeds (hides low-conviction pre-tip noise).
+- `REGIME_DETECTION_ENABLED` (default `false`): Enables the Bayesian Hidden Markov Model to attach probabilistic market state metadata (`stable` vs `unstable`) to signals.
 
 ## Discord OAuth Setup
 
