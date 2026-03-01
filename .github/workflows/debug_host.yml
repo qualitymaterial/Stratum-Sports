@@ -11,12 +11,13 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            echo "Droplet IP is $(curl -s ifconfig.me)"
             cd /opt/stratum-sports
-            echo "Docker ps:"
-            docker compose -f docker-compose.prod.yml --env-file .env.production ps
-            echo "Internal Health Check (Backend):"
-            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -v http://localhost:8000/api/v1/health/live || echo "failed"
+            echo "Current Directory Files:"
+            ls -al
+            echo "Production Env (sanitized):"
+            grep -E "APP_|URL|PORT|HOST|ORIGIN" .env.production || echo "env file issues"
+            echo "Health Check manually from host using docker exec:"
+            docker exec stratum-sports-backend-1 curl -v http://localhost:8000/api/v1/health/live || echo "failed"
             echo "Backend logs:"
             docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 backend
             echo "Worker logs:"
