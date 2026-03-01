@@ -1,0 +1,12 @@
+flowchart TD
+    SB[Sportsbooks] --> CEL[Canonical Event Layer]
+    K[Kalshi Exchange] --> CEL
+    CEL --> IS[Ingestion Stores]
+    IS --> EIL[Exchange Intelligence Layer]
+    EIL --> D[Cross-market Divergence]
+    EIL --> LS[Liquidity Skew]
+    D --> SF[Signals Feed]
+    LS --> SF
+    SF --> UI[UI Clients]
+    SF --> API[API Clients]
+    SF --> MCP[MCP Clients]

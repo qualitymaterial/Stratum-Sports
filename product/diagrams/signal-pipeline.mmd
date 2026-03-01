@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant W as Worker Poll Cycle
+    participant SAPI as Sportsbook API
+    participant DB as Persistence Stores
+    participant KAPI as Kalshi API
+    participant CEL as Canonical Alignment
+    participant SC as Signal Compute
+    participant OUT as Outputs
+
+    W->>SAPI: Fetch legacy snapshots
+    SAPI-->>W: Return snapshots
+    W->>DB: Persist snapshots
+    W->>KAPI: Fetch exchange states
+    KAPI-->>W: Return exchange states
+    W->>DB: Persist quote events
+    W->>CEL: Load alignments
+    CEL-->>W: Aligned event contexts
+    W->>SC: Compute signals (movement, divergence, skew)
+    SC-->>W: Generated signals
+    W->>DB: Persist signals
+    W->>OUT: Emit to UI, API, Discord, MCP

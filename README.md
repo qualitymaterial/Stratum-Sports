@@ -130,6 +130,7 @@ Landing page rollout flag:
 - Developer Quickstart: [docs/quickstart.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/quickstart.md)
 - End-user + operator guide: [docs/user-guide.md](file:///Users/briananderson/Documents/Prototypes/Stratum%20Sports/docs/user-guide.md)
 - Release notes / changelog: `CHANGELOG.md`
+- Product source of truth: ./product/README.md
 
 ## Auth Smoke Test
 
