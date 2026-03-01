@@ -12,9 +12,18 @@ jobs:
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
             echo "Droplet IP is $(curl -s ifconfig.me)"
+            cd /opt/stratum-sports
             echo "Docker ps:"
-            docker ps
-            echo "curl frontend locally:"
-            curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 || echo "failed"
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps
+            echo "Internal Health Check (Backend):"
+            docker compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -v http://localhost:8000/api/v1/health/live || echo "failed"
+            echo "Backend logs:"
+            docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 backend
+            echo "Worker logs:"
+            docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 worker
             echo "Frontend logs:"
-            docker logs stratum-sports-frontend-1 --tail 50
+            docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 frontend
+            echo "UFW Status:"
+            ufw status || echo "ufw not available"
+            echo "Network listening ports:"
+            ss -tulpn || netstat -tulpn || echo "network tools not found"
