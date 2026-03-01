@@ -124,7 +124,7 @@ async def test_webhook_delivery_logs_error_on_connection_failure():
         MockClient.return_value = mock_client_instance
 
         # Also mock the DB session used for logging
-        with patch("app.services.webhook_delivery.AsyncSessionLocal") as MockSession:
+        with patch("app.core.database.AsyncSessionLocal") as MockSession:
             mock_db = AsyncMock()
             mock_db.add = MagicMock()
             mock_db.commit = AsyncMock()
@@ -189,7 +189,7 @@ async def test_webhook_delivery_retries_on_5xx():
         mock_client_instance.__aexit__ = AsyncMock(return_value=False)
         MockClient.return_value = mock_client_instance
 
-        with patch("app.services.webhook_delivery.AsyncSessionLocal") as MockSession:
+        with patch("app.core.database.AsyncSessionLocal") as MockSession:
             mock_db = AsyncMock()
             mock_db.add = MagicMock()
             mock_db.commit = AsyncMock()
