@@ -17,6 +17,7 @@ from app.core.tier import is_pro
 from app.models.discord_connection import DiscordConnection
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
 from app.models.user import User
+from app.schemas.signal import SignalOut
 from app.schemas.intel import (
     ActionableBookCard,
     ClvRecapResponse,
@@ -46,6 +47,7 @@ from app.services.performance_intel import (
     get_signal_lifecycle_summary,
     get_signal_quality_rows,
     get_signal_quality_weekly_summary,
+    get_signals_feed,
 )
 from app.services.teaser_analytics import persist_teaser_interaction_event
 
@@ -895,3 +897,85 @@ async def get_actionable_books_batch(
         },
     )
     return [ActionableBookCard(**payload) for payload in payloads]
+
+
+@router.get("/dislocations", response_model=list[SignalOut])
+async def get_dislocations_feed(
+    sport_key: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_or_api_partner),
+) -> list[SignalOut]:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
+    resolved_market = _resolve_single_market(market)
+
+    signals = await get_signals_feed(
+        db,
+        signal_type="DISLOCATION",
+        days=days,
+        sport_key=resolved_sport_key,
+        market=resolved_market,
+        min_strength=min_strength,
+        limit=limit,
+        offset=offset,
+    )
+    logger.info(
+        "Intel dislocations feed served",
+        extra={
+            "sport_key": resolved_sport_key,
+            "market": resolved_market,
+            "days": days,
+            "limit": limit,
+            "offset": offset,
+            "rows": len(signals),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [SignalOut.model_validate(sig) for sig in signals]
+
+
+@router.get("/steam", response_model=list[SignalOut])
+async def get_steam_feed(
+    sport_key: str | None = Query(None),
+    market: str | None = Query(None),
+    min_strength: int | None = Query(None, ge=1, le=100),
+    days: int = Query(get_settings().performance_default_days, ge=1, le=90),
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_pro_or_api_partner),
+) -> list[SignalOut]:
+    _ensure_performance_enabled()
+    start = perf_counter()
+    resolved_sport_key = _resolve_sport_key(sport_key)
+    resolved_market = _resolve_single_market(market)
+
+    signals = await get_signals_feed(
+        db,
+        signal_type="STEAM",
+        days=days,
+        sport_key=resolved_sport_key,
+        market=resolved_market,
+        min_strength=min_strength,
+        limit=limit,
+        offset=offset,
+    )
+    logger.info(
+        "Intel steam feed served",
+        extra={
+            "sport_key": resolved_sport_key,
+            "market": resolved_market,
+            "days": days,
+            "limit": limit,
+            "offset": offset,
+            "rows": len(signals),
+            "duration_ms": round((perf_counter() - start) * 1000.0, 2),
+        },
+    )
+    return [SignalOut.model_validate(sig) for sig in signals]

@@ -34,6 +34,7 @@ import {
   PollerHealth,
   PublicTeaserKpisResponse,
   PublicTeaserOpportunity,
+  Signal,
   SignalLifecycleSummary,
   SignalQualityWeeklySummary,
   SignalQualityRow,
@@ -905,6 +906,50 @@ export async function getOpportunityTeaser(
   appendOptionalParam(params, "limit", options.limit);
 
   return apiRequest<OpportunityTeaserPoint[]>(`/intel/opportunities/teaser?${params.toString()}`, { token });
+}
+
+export async function getDislocationsFeed(
+  token: string,
+  options: {
+    days?: number;
+    sport_key?: SportKey;
+    market?: string;
+    min_strength?: number;
+    limit?: number;
+    offset?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "limit", options.limit);
+  appendOptionalParam(params, "offset", options.offset);
+
+  return apiRequest<Signal[]>(`/intel/dislocations?${params.toString()}`, { token });
+}
+
+export async function getSteamFeed(
+  token: string,
+  options: {
+    days?: number;
+    sport_key?: SportKey;
+    market?: string;
+    min_strength?: number;
+    limit?: number;
+    offset?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "days", options.days);
+  appendOptionalParam(params, "sport_key", options.sport_key);
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "min_strength", options.min_strength);
+  appendOptionalParam(params, "limit", options.limit);
+  appendOptionalParam(params, "offset", options.offset);
+
+  return apiRequest<Signal[]>(`/intel/steam?${params.toString()}`, { token });
 }
 
 export async function trackTeaserInteraction(

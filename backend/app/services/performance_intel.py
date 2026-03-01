@@ -1895,3 +1895,39 @@ async def get_public_liquidity_heatmap(db: AsyncSession, sport_key: str = "baske
         return None
         
     return build_liquidity_heatmap(game)
+
+
+async def get_signals_feed(
+    db: AsyncSession,
+    *,
+    signal_type: str,
+    days: int,
+    sport_key: str | None = None,
+    market: str | None = None,
+    min_strength: int | None = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Signal]:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    normalized_limit = _normalize_limit(limit)
+    normalized_offset = max(0, int(offset))
+
+    stmt = (
+        select(Signal)
+        .where(
+            Signal.created_at >= cutoff,
+            Signal.signal_type == signal_type,
+        )
+        .order_by(Signal.created_at.desc())
+    )
+
+    if min_strength is not None:
+        stmt = stmt.where(Signal.strength_score >= int(min_strength))
+    if market:
+        stmt = stmt.where(Signal.market == market)
+        
+    if sport_key:
+        stmt = stmt.join(Game, Game.event_id == Signal.event_id).where(Game.sport_key == sport_key)
+
+    stmt = stmt.limit(normalized_limit).offset(normalized_offset)
+    return (await db.execute(stmt)).scalars().all()

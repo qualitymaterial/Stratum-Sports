@@ -178,6 +178,16 @@ Content-Type: application/json
               </tr>
               <tr>
                 <td className="px-3 py-2 font-mono">GET</td>
+                <td className="px-3 py-2 font-mono">/api/v1/intel/dislocations</td>
+                <td className="px-3 py-2">Book Dislocation scanner signal feed filtered by event, sport, or market.</td>
+              </tr>
+              <tr>
+                <td className="px-3 py-2 font-mono">GET</td>
+                <td className="px-3 py-2 font-mono">/api/v1/intel/steam</td>
+                <td className="px-3 py-2">Steam Detection v2 signal feed filtered by event, sport, or market.</td>
+              </tr>
+              <tr>
+                <td className="px-3 py-2 font-mono">GET</td>
                 <td className="px-3 py-2 font-mono">/api/v1/intel/clv</td>
                 <td className="px-3 py-2">Closing line value records filtered by event, sport, market, or strength.</td>
               </tr>

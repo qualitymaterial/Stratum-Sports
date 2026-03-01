@@ -2041,3 +2041,102 @@ async def test_clv_scorecards_rank_and_tier_by_quality(
     assert move_scorecard["confidence_score"] > dislocation_scorecard["confidence_score"]
     assert move_scorecard["confidence_tier"] in {"A", "B"}
     assert dislocation_scorecard["confidence_tier"] == "C"
+
+
+async def test_intel_dislocations_feed_endpoint(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id_a = "event_perf_dislocations_a"
+    event_id_b = "event_perf_dislocations_b"
+
+    db_session.add_all(
+        [
+            _game(event_id=event_id_a, commence_time=now + timedelta(hours=2), sport_key="basketball_nba"),
+            _game(event_id=event_id_b, commence_time=now + timedelta(hours=3), sport_key="basketball_ncaab"),
+        ]
+    )
+
+    sig1 = _signal(
+        event_id=event_id_a,
+        market="spreads",
+        signal_type="DISLOCATION",
+        strength=85,
+        created_at=now - timedelta(minutes=10),
+        metadata={"outcome": "Home"},
+    )
+    sig2 = _signal(
+        event_id=event_id_b,
+        market="spreads",
+        signal_type="DISLOCATION",
+        strength=70,
+        created_at=now - timedelta(minutes=20),
+        metadata={"outcome": "Away"},
+    )
+    # Different type
+    sig3 = _signal(
+        event_id=event_id_a,
+        market="totals",
+        signal_type="MOVE",
+        strength=90,
+        created_at=now - timedelta(minutes=5),
+        metadata={"outcome": "Over"},
+    )
+    db_session.add_all([sig1, sig2, sig3])
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-dislocations@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Fetch all dislocations
+    response = await async_client.get("/api/v1/intel/dislocations?days=7", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 2
+    assert payload[0]["id"] == str(sig1.id)  # Descending created_at
+    assert payload[1]["id"] == str(sig2.id)
+
+    # Filter by min_strength
+    response = await async_client.get("/api/v1/intel/dislocations?days=7&min_strength=80", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == str(sig1.id)
+
+    # Filter by sport_key
+    response = await async_client.get("/api/v1/intel/dislocations?days=7&sport_key=basketball_ncaab", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == str(sig2.id)
+
+
+async def test_intel_steam_feed_endpoint(
+    async_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "event_perf_steam_a"
+    db_session.add(_game(event_id=event_id, commence_time=now + timedelta(hours=2)))
+
+    sig1 = _signal(
+        event_id=event_id,
+        market="totals",
+        signal_type="STEAM",
+        strength=95,
+        created_at=now - timedelta(minutes=5),
+        metadata={"outcome": "Over"},
+    )
+    db_session.add(sig1)
+    await db_session.commit()
+
+    token = await _register_pro_user(async_client, db_session, "perf-steam@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    response = await async_client.get("/api/v1/intel/steam", headers=headers)
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) == 1
+    assert payload[0]["id"] == str(sig1.id)
+    assert payload[0]["signal_type"] == "STEAM"

@@ -531,6 +531,7 @@ Enrichment fields are nullable-safe and backward compatible. Contact `api-access
 - Dashboard: `/api/v1/dashboard/cards`
 - Games: `/api/v1/games`, `/api/v1/games/{event_id}`
 - Intel (Pro): `/api/v1/intel/consensus?event_id=...&market=spreads|totals|h2h`, `/api/v1/intel/consensus/latest?event_id=...`
+- Intel Signals Feed (Pro): `/api/v1/intel/dislocations?days=...&market=...`, `/api/v1/intel/steam?days=...&market=...`
 - Intel CLV (Pro): `/api/v1/intel/clv?days=30&event_id=...&signal_type=...&market=...&min_strength=...&limit=...`, `/api/v1/intel/clv/summary?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`, `/api/v1/intel/clv/scorecards?days=30&signal_type=...&market=...&min_samples=...&min_strength=...`
 - Intel Signal Quality (Pro): `/api/v1/intel/signals/quality?days=30&signal_type=...&market=...&min_strength=...&time_bucket=...&time_bucket_in=...`
 - Intel Actionable Books (Pro): `/api/v1/intel/books/actionable?event_id=...&signal_id=...`, `/api/v1/intel/books/actionable/batch?event_id=...&signal_ids=<uuid,uuid,...>`
