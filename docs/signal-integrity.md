@@ -53,10 +53,26 @@ We use these audits to build the **Trust Scorecards** found in the Performance D
 
 ---
 
-## 4. Why This Matters for Partners
+## 4. Heuristic Governance vs. Bayesian Context
 
-Most retail "betting tools" hide their losses. Stratum exposes them.
+Stratum Sports is built on a philosophy of institutional transparency. To achieve this, we separate **Governance** (when and why a signal fires) from **Context** (probabilistic market state).
 
-By showing exactly which signals are "Noisy" (Tier C) and which are "Stable" (Tier A), we allow our Infrastructure Partners to build **Execution Logic** that only fires when the mathematical edge is proven.
+### Governing via Heuristics (Deterministic)
+The core signal engine and the Composite Score ranker are strictly **Heuristic**. They are governed by hardcoded, deterministic rules. 
+*   **Example:** A `STEAM` signal does not "guess" if the market is moving; it fires *only* if $\ge$ 3 sportsbooks move in the exact same direction within a 5-minute window.
+*   **Why?** Because quantitative funds and API partners demand explainability. When a script executes a trade based on a Stratum webhook, the partner can look at the raw data payload and prove exactly why the heuristic rule was met.
+
+### Enhancing via Bayesian Models (Probabilistic)
+While the rules are deterministic, the market environment is not. Stratum runs a **2-state Gaussian Hidden Markov Model (HMM)** alongside the main pipeline to detect the current Market Regime.
+*   **Example:** The Bayesian HMM analyzes the sequence of recent odds movements to probabilistically infer if the market is currently in a `Stable` state or an `Unstable/Shock` state (e.g., absorbing breaking injury news).
+*   **Why?** This provides deep context without polluting the core signal logic. The Bayesian inference is attached as metadata (`meta.regime`) to the deterministic signal. It allows advanced partners to say: *"Only execute this heuristic `STEAM` signal if the Bayesian Regime model is 'Stable'."*
+
+---
+
+## 5. Why This Matters for Partners
+
+Most retail "betting tools" hide their losses behind black-box AI models. Stratum exposes our data clearly.
+
+By combining verifiable heuristic governance with probabilistic Bayesian context, we allow our Infrastructure Partners to build **Execution Logic** that fires only when mathematical edges are proven.
 
 **Stratum turns institutional-grade data into actionable execution integrity.**
