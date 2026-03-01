@@ -234,6 +234,7 @@ async def test_webhook_dispatch_called_when_signals_exist(db_session: AsyncSessi
         direction="up",
         strength_score=65,
         window_minutes=5,
+        velocity_minutes=5.0,
         time_bucket="pre_tip",
         from_value=-3.5,
         to_value=-5.0,
