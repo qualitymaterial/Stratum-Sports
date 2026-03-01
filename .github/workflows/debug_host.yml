@@ -25,5 +25,9 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 frontend
             echo "UFW Status:"
             ufw status || echo "ufw not available"
+            echo "Nginx Status:"
+            systemctl status nginx || echo "nginx service not found"
+            echo "Nginx Config Test:"
+            nginx -t || echo "nginx binary not found"
             echo "Network listening ports:"
             ss -tulpn || netstat -tulpn || echo "network tools not found"
