@@ -35,6 +35,7 @@ def _make_test_signal(**overrides) -> Signal:
         "time_bucket": "pre_tip",
         "from_value": -3.5,
         "to_value": -5.0,
+        "window_minutes": 10,
         "metadata_json": {"sportsbook_key": "fanduel", "velocity_minutes": 3.0},
     }
     defaults.update(overrides)
