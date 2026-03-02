@@ -11,6 +11,7 @@ from app.models.cross_market_divergence_event import CrossMarketDivergenceEvent
 from app.models.cross_market_lead_lag_event import CrossMarketLeadLagEvent
 from app.models.cycle_kpi import CycleKpi
 from app.models.discord_connection import DiscordConnection
+from app.models.exchange_market_snapshot import ExchangeMarketSnapshot
 from app.models.exchange_quote_event import ExchangeQuoteEvent
 from app.models.game import Game
 from app.models.market_consensus_snapshot import MarketConsensusSnapshot
@@ -47,6 +48,7 @@ __all__ = [
     "ClosingConsensus",
     "ClvRecord",
     "CycleKpi",
+    "ExchangeMarketSnapshot",
     "ExchangeQuoteEvent",
     "MarketConsensusSnapshot",
     "MfaBackupCode",

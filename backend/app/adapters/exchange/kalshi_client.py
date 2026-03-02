@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime
 
 import httpx
 
@@ -100,15 +101,34 @@ class KalshiClient:
         if not outcomes and "outcomes" in market_data:
             outcomes = market_data["outcomes"]
 
-        volume = market_data.get("volume")
-        open_interest = market_data.get("open_interest")
+        yes_bid_prob = _probability_from_any(_first_present(market_data, "yes_bid", "yes_bid_price"))
+        yes_ask_prob = _probability_from_any(_first_present(market_data, "yes_ask", "yes_ask_price"))
+        no_bid_prob = _probability_from_any(_first_present(market_data, "no_bid", "no_bid_price"))
+        no_ask_prob = _probability_from_any(_first_present(market_data, "no_ask", "no_ask_price"))
+
+        yes_bid_size = _safe_int(_first_present(market_data, "yes_bid_size", "yes_bid_qty"))
+        yes_ask_size = _safe_int(_first_present(market_data, "yes_ask_size", "yes_ask_qty"))
+        no_bid_size = _safe_int(_first_present(market_data, "no_bid_size", "no_bid_qty"))
+        no_ask_size = _safe_int(_first_present(market_data, "no_ask_size", "no_ask_qty"))
+
+        volume = _safe_int(market_data.get("volume"))
+        open_interest = _safe_int(market_data.get("open_interest"))
+        snapshot_ts = _resolve_snapshot_timestamp(market_data)
 
         result = {
             "market_id": market_id,
             "outcomes": outcomes,
-            "timestamp": market_data.get("close_time") or market_data.get("timestamp"),
-            "volume": int(volume) if volume is not None else 0,
-            "open_interest": int(open_interest) if open_interest is not None else 0,
+            "timestamp": snapshot_ts,
+            "yes_bid_prob": yes_bid_prob,
+            "yes_ask_prob": yes_ask_prob,
+            "no_bid_prob": no_bid_prob,
+            "no_ask_prob": no_ask_prob,
+            "yes_bid_size": yes_bid_size,
+            "yes_ask_size": yes_ask_size,
+            "no_bid_size": no_bid_size,
+            "no_ask_size": no_ask_size,
+            "volume": volume,
+            "open_interest": open_interest,
         }
 
         logger.debug(
@@ -141,3 +161,59 @@ class KalshiClient:
             )
             # Alignment service handles the exception, just raise it
             raise
+
+
+def _first_present(payload: dict, *keys: str) -> object | None:
+    """Return first non-None key value from payload."""
+    for key in keys:
+        if payload.get(key) is not None:
+            return payload.get(key)
+    return None
+
+
+def _safe_float(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _probability_from_any(value: object) -> float | None:
+    parsed = _safe_float(value)
+    if parsed is None:
+        return None
+    prob = parsed / 100.0 if parsed > 1.0 else parsed
+    if 0.0 <= prob <= 1.0:
+        return prob
+    return None
+
+
+def _resolve_snapshot_timestamp(market_data: dict) -> str:
+    """Choose a best-effort quote timestamp from common Kalshi fields."""
+    raw = _first_present(
+        market_data,
+        "timestamp",
+        "updated_at",
+        "last_updated",
+        "last_updated_ts",
+        "last_trade_time",
+        "close_time",
+    )
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    if isinstance(raw, datetime):
+        if raw.tzinfo is None:
+            raw = raw.replace(tzinfo=UTC)
+        return raw.isoformat()
+    return datetime.now(UTC).isoformat()

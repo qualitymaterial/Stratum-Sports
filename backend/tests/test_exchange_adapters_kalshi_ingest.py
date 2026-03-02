@@ -21,6 +21,7 @@ from app.adapters.exchange.errors import ExchangeUpstreamError
 from app.adapters.exchange.kalshi_client import KalshiClient
 from app.adapters.exchange.polymarket_client import PolymarketClient
 from app.models.canonical_event_alignment import CanonicalEventAlignment
+from app.models.exchange_market_snapshot import ExchangeMarketSnapshot
 from app.models.exchange_quote_event import ExchangeQuoteEvent
 from app.services.exchange_ingestion import ExchangeIngestionService
 
@@ -33,6 +34,16 @@ _KALSHI_PAYLOAD = {
         {"name": "YES", "probability": 0.62, "price": 0.62},
         {"name": "NO", "probability": 0.38, "price": 0.38},
     ],
+    "yes_bid_prob": 0.61,
+    "yes_ask_prob": 0.63,
+    "no_bid_prob": 0.37,
+    "no_ask_prob": 0.39,
+    "yes_bid_size": 120,
+    "yes_ask_size": 80,
+    "no_bid_size": 70,
+    "no_ask_size": 60,
+    "volume": 410,
+    "open_interest": 1220,
     "timestamp": "2026-02-26T22:00:00+00:00",
 }
 
@@ -132,6 +143,18 @@ async def test_kalshi_poller_wiring_inserts_quotes(
     ).scalars().all()
     assert len(quote_rows) >= 1
     assert any(q.source == "KALSHI" for q in quote_rows)
+
+    snapshot_rows = (
+        await db_session.execute(
+            select(ExchangeMarketSnapshot).where(
+                ExchangeMarketSnapshot.canonical_event_key == "cek_adapter"
+            )
+        )
+    ).scalars().all()
+    assert len(snapshot_rows) == 1
+    assert snapshot_rows[0].yes_bid_probability == pytest.approx(0.61)
+    assert snapshot_rows[0].yes_ask_probability == pytest.approx(0.63)
+    assert snapshot_rows[0].volume == 410
 
 
 # ── 3  Polymarket disabled by default ────────────────────────────────

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.exchange_market_snapshot import ExchangeMarketSnapshot
 from app.models.exchange_quote_event import ExchangeQuoteEvent
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,10 @@ class ExchangeIngestionService:
     ) -> int:
         """Parse *raw_payload*, persist quote events, return rows inserted."""
         source_upper = source.upper()
+        market_snapshot: dict | None = None
         if source_upper == "KALSHI":
             parsed = self._parse_kalshi(raw_payload)
+            market_snapshot = self._parse_kalshi_market_snapshot(raw_payload)
         elif source_upper == "POLYMARKET":
             parsed = self._parse_polymarket(raw_payload)
         else:
@@ -63,6 +66,18 @@ class ExchangeIngestionService:
             result = await self.db.execute(stmt)
             if result.rowcount > 0:
                 inserted += 1
+
+        if market_snapshot:
+            snapshot_values = {
+                "canonical_event_key": canonical_event_key,
+                "source": source_upper,
+                **market_snapshot,
+            }
+            snapshot_stmt = pg_insert(ExchangeMarketSnapshot).values(**snapshot_values)
+            snapshot_stmt = snapshot_stmt.on_conflict_do_nothing(
+                constraint="uq_exchange_market_snapshots_identity",
+            )
+            await self.db.execute(snapshot_stmt)
 
         await self.db.flush()
 
@@ -148,6 +163,38 @@ class ExchangeIngestionService:
                 }
             )
         return rows
+
+    @staticmethod
+    def _parse_kalshi_market_snapshot(raw_payload: dict) -> dict | None:
+        """Normalise Kalshi market payload into one top-of-book snapshot row."""
+        market_id = raw_payload.get("market_id")
+        if not market_id:
+            return None
+
+        raw_ts = raw_payload.get("timestamp")
+        if raw_ts is None:
+            ts = datetime.now(UTC)
+        elif isinstance(raw_ts, str):
+            ts = _parse_iso(raw_ts)
+        elif isinstance(raw_ts, datetime):
+            ts = raw_ts if raw_ts.tzinfo else raw_ts.replace(tzinfo=UTC)
+        else:
+            ts = datetime.now(UTC)
+
+        return {
+            "market_id": str(market_id),
+            "timestamp": ts,
+            "yes_bid_probability": _safe_probability(raw_payload.get("yes_bid_prob")),
+            "yes_ask_probability": _safe_probability(raw_payload.get("yes_ask_prob")),
+            "no_bid_probability": _safe_probability(raw_payload.get("no_bid_prob")),
+            "no_ask_probability": _safe_probability(raw_payload.get("no_ask_prob")),
+            "yes_bid_size": _safe_int(raw_payload.get("yes_bid_size")),
+            "yes_ask_size": _safe_int(raw_payload.get("yes_ask_size")),
+            "no_bid_size": _safe_int(raw_payload.get("no_bid_size")),
+            "no_ask_size": _safe_int(raw_payload.get("no_ask_size")),
+            "volume": _safe_int(raw_payload.get("volume")),
+            "open_interest": _safe_int(raw_payload.get("open_interest")),
+        }
 
     @staticmethod
     def _parse_polymarket(raw_payload: dict) -> list[dict]:
@@ -240,3 +287,24 @@ def _safe_float(val: object) -> float | None:
         return float(val)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+def _safe_int(val: object) -> int | None:
+    """Return *val* as int or None if conversion fails."""
+    if val is None:
+        return None
+    try:
+        return int(val)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_probability(val: object) -> float | None:
+    """Return probability in [0, 1] from either decimal or cent-price input."""
+    parsed = _safe_float(val)
+    if parsed is None:
+        return None
+    prob = parsed / 100.0 if parsed > 1.0 else parsed
+    if 0.0 <= prob <= 1.0:
+        return prob
+    return None
