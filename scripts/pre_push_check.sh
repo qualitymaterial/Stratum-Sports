@@ -9,6 +9,9 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 echo "[2/4] Validate production compose config"
+BACKEND_IMAGE=ghcr.io/qualitymaterial/stratum-sports-backend:test-sha \
+WORKER_IMAGE=ghcr.io/qualitymaterial/stratum-sports-backend:test-sha \
+FRONTEND_IMAGE=ghcr.io/qualitymaterial/stratum-sports-frontend:test-sha \
 docker compose -f docker-compose.prod.yml --env-file .env.production.example config >/dev/null
 
 echo "[3/4] Run critical backend tests"

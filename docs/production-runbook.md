@@ -27,11 +27,13 @@ Use only one context per block. Do not mix `[Mac]` and `[Droplet]` commands in t
 make prod-smoke
 ```
 
-Optionally override host:
+Optionally override canonical endpoints:
 
 ```bash
 # [Mac]
-PROD_HOST=<DROPLET_IP_OR_DOMAIN> make prod-smoke
+PROD_APP_BASE_URL=https://app.stratumsports.com \
+PROD_API_BASE_URL=https://api.stratumsports.com \
+make prod-smoke
 ```
 
 ### 0.2 Quick container checks on droplet
@@ -72,6 +74,11 @@ Required secrets:
 - `GHCR_USERNAME` (`qualitymaterial`)
 - `GHCR_TOKEN` (PAT with at least `read:packages`)
 
+Canonical production URLs (runbook standard):
+
+- App: `https://app.stratumsports.com`
+- API: `https://api.stratumsports.com`
+
 To copy SSH private key safely:
 
 ```bash
@@ -101,6 +108,7 @@ test -f .env.production || cp .env.production.example .env.production
 Minimum required keys for stable startup:
 
 - `APP_ENV=production`
+- `BACKEND_IMAGE`, `WORKER_IMAGE`, `FRONTEND_IMAGE` (pinned SHA tags, never `:latest`)
 - `JWT_SECRET` (strong, non-placeholder)
 - `OPS_INTERNAL_TOKEN` (strong, non-placeholder)
 - `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_HOST`, `POSTGRES_PORT`
@@ -160,14 +168,22 @@ Only after these pass should you deploy to production.
 
 `[GitHub UI]` Actions -> **Deploy to DigitalOcean** -> **Run workflow** on `main`.
 
+Recommended workflow inputs:
+
+- `auto_rollback_on_failure=true` for safer deploys.
+- `smoke_app_base_url=https://app.stratumsports.com`
+- `smoke_api_base_url=https://api.stratumsports.com`
+
 Deploy workflow is manual-only by design. CI completion does not deploy.
 
 The workflow performs:
 
 - CI verification for target SHA
-- backend/frontend image build + push to GHCR
+- backend/frontend image build + push to GHCR (SHA tags only; no `latest` deploy path)
 - SSH deploy on droplet
-- backend health checks (`/health/live` + `/health/ready`)
+- internal health checks (`/health/live` + `/health/ready`)
+- external smoke checks (app + API canonical URLs)
+- optional auto-rollback to previous image set when smoke checks fail
 
 ### 4.2 Verify deployment
 
@@ -181,7 +197,8 @@ docker compose -f docker-compose.prod.yml --env-file .env.production exec -T bac
 
 ```bash
 # [Mac]
-curl -I --max-time 10 http://<DROPLET_IP>:3000
+curl -I --max-time 10 https://app.stratumsports.com/
+curl -fsS --max-time 10 https://api.stratumsports.com/api/v1/health/live
 ```
 
 ## 5) Release Lane (Promotion Flow)
@@ -310,7 +327,7 @@ Check:
 
 ## 11) Post-Deploy Smoke Checklist
 
-1. Frontend reachable on port 3000
+1. Frontend reachable at `https://app.stratumsports.com/`
 2. Backend health `live` + `ready` both pass
 3. Register/login works
 4. Dashboard loads for authenticated user

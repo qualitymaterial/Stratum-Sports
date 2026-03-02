@@ -34,15 +34,15 @@ pre-push-check:
 	./scripts/pre_push_check.sh
 
 prod-smoke:
-	@HOST="$${PROD_HOST:-api.stratumsports.com}"; \
-	PORT="$${PROD_PORT:-80}"; \
-	echo "Running production smoke checks against $$HOST:$$PORT"; \
-	echo "--- GET /"; \
-	curl -fsS -I --max-time 10 "http://$$HOST:$$PORT" | sed -n '1,6p'; \
+	@APP_BASE_URL="$${PROD_APP_BASE_URL:-https://app.stratumsports.com}"; \
+	API_BASE_URL="$${PROD_API_BASE_URL:-https://api.stratumsports.com}"; \
+	echo "Running production smoke checks against $$APP_BASE_URL and $$API_BASE_URL"; \
+	echo "--- GET app /"; \
+	curl -fsS -I --max-time 10 "$$APP_BASE_URL/" | sed -n '1,6p'; \
 	echo "--- GET /api/v1/health/live"; \
-	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/health/live"; echo; \
+	curl -fsS --max-time 10 "$$API_BASE_URL/api/v1/health/live"; echo; \
 	echo "--- GET /api/v1/health/ready"; \
-	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/health/ready"; echo; \
+	curl -fsS --max-time 10 "$$API_BASE_URL/api/v1/health/ready"; echo; \
 	echo "--- GET /api/v1/public/teaser/kpis?sport_key=basketball_nba"; \
-	curl -fsS --max-time 10 "http://$$HOST:$$PORT/api/v1/public/teaser/kpis?sport_key=basketball_nba"; echo; \
+	curl -fsS --max-time 10 "$$API_BASE_URL/api/v1/public/teaser/kpis?sport_key=basketball_nba"; echo; \
 	echo "prod-smoke complete"

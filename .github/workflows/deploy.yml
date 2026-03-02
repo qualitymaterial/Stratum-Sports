@@ -12,6 +12,21 @@ on:
         required: false
         default: false
         type: boolean
+      auto_rollback_on_failure:
+        description: "If enabled, automatically roll back to previous images when post-deploy smoke checks fail."
+        required: false
+        default: false
+        type: boolean
+      smoke_app_base_url:
+        description: "External app URL used for post-deploy smoke checks."
+        required: false
+        default: "https://app.stratumsports.com"
+        type: string
+      smoke_api_base_url:
+        description: "External API URL used for post-deploy smoke checks."
+        required: false
+        default: "https://api.stratumsports.com"
+        type: string
 
 permissions:
   actions: read
@@ -189,7 +204,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=deploy-backend
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:${{ needs.prepare.outputs.deploy_sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-backend:latest
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
@@ -201,7 +215,6 @@ jobs:
           cache-to: type=gha,mode=max,scope=deploy-frontend
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:${{ needs.prepare.outputs.deploy_sha }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/stratum-sports-frontend:latest
 
   deploy:
     runs-on: ubuntu-latest
@@ -223,13 +236,16 @@ jobs:
           IMAGE_TAG: ${{ needs.prepare.outputs.deploy_sha }}
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          AUTO_ROLLBACK_ON_FAILURE: ${{ inputs.auto_rollback_on_failure }}
+          SMOKE_APP_BASE_URL: ${{ inputs.smoke_app_base_url }}
+          SMOKE_API_BASE_URL: ${{ inputs.smoke_api_base_url }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script_stop: true
           command_timeout: 30m
-          envs: IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN
+          envs: IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN,AUTO_ROLLBACK_ON_FAILURE,SMOKE_APP_BASE_URL,SMOKE_API_BASE_URL
           script: |
             set -eu
             cd /opt/stratum-sports
@@ -297,12 +313,107 @@ jobs:
               compose -f docker-compose.prod.yml --env-file .env.production ps || true
               compose -f docker-compose.prod.yml --env-file .env.production logs --tail=200 backend worker frontend db redis || true
             }
+            upsert_env_var() {
+              key="$1"
+              value="$2"
+              if grep -q "^${key}=" .env.production; then
+                sed -i "s|^${key}=.*|${key}=${value}|" .env.production
+              else
+                printf '%s=%s\n' "$key" "$value" >> .env.production
+              fi
+            }
+            persist_image_env() {
+              upsert_env_var BACKEND_IMAGE "$BACKEND_IMAGE"
+              upsert_env_var WORKER_IMAGE "$WORKER_IMAGE"
+              upsert_env_var FRONTEND_IMAGE "$FRONTEND_IMAGE"
+            }
+            get_running_image() {
+              service="$1"
+              cid="$(compose -f docker-compose.prod.yml --env-file .env.production ps -q "$service" 2>/dev/null || true)"
+              if [ -z "$cid" ]; then
+                return 0
+              fi
+              docker inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null || true
+            }
+            rollback() {
+              if [ "${AUTO_ROLLBACK_ON_FAILURE}" != "true" ]; then
+                echo "INFO: auto rollback disabled; skipping rollback."
+                return 1
+              fi
+              if [ -z "${PREV_BACKEND_IMAGE:-}" ] || [ -z "${PREV_WORKER_IMAGE:-}" ] || [ -z "${PREV_FRONTEND_IMAGE:-}" ]; then
+                echo "ERROR: previous image refs unavailable; cannot rollback automatically."
+                return 1
+              fi
+
+              echo "Attempting rollback to previous image set..."
+              BACKEND_IMAGE="$PREV_BACKEND_IMAGE"
+              WORKER_IMAGE="$PREV_WORKER_IMAGE"
+              FRONTEND_IMAGE="$PREV_FRONTEND_IMAGE"
+              export BACKEND_IMAGE WORKER_IMAGE FRONTEND_IMAGE
+              persist_image_env
+
+              if ! compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build --remove-orphans; then
+                echo "ERROR: rollback compose up failed"
+                diagnose
+                return 1
+              fi
+              if ! compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/live >/dev/null; then
+                echo "ERROR: rollback backend health check failed"
+                diagnose
+                return 1
+              fi
+              echo "Rollback completed."
+              return 0
+            }
+            smoke_checks() {
+              app_base="${SMOKE_APP_BASE_URL%/}"
+              api_base="${SMOKE_API_BASE_URL%/}"
+
+              # Internal health probes (container-local) are authoritative for rollback gating.
+              health_ok=0
+              for attempt in $(seq 1 20); do
+                if compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/live >/dev/null \
+                  && compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/ready >/dev/null \
+                  && curl -fsS --max-time 10 http://localhost/ >/dev/null; then
+                  health_ok=1
+                  break
+                fi
+                sleep 3
+              done
+              if [ "$health_ok" -ne 1 ]; then
+                echo "ERROR: internal post-deploy smoke checks failed"
+                return 1
+              fi
+
+              # External probes enforce canonical host health.
+              curl -fsS --max-time 12 "$app_base/" >/dev/null
+              curl -fsS --max-time 12 "$api_base/api/v1/health/live" >/dev/null
+              curl -fsS --max-time 12 "$api_base/api/v1/health/ready" >/dev/null
+            }
 
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+            PREV_BACKEND_IMAGE="$(get_running_image backend)"
+            PREV_WORKER_IMAGE="$(get_running_image worker)"
+            PREV_FRONTEND_IMAGE="$(get_running_image frontend)"
             BACKEND_IMAGE="ghcr.io/qualitymaterial/stratum-sports-backend:${IMAGE_TAG}"
             WORKER_IMAGE="$BACKEND_IMAGE"
             FRONTEND_IMAGE="ghcr.io/qualitymaterial/stratum-sports-frontend:${IMAGE_TAG}"
             export BACKEND_IMAGE WORKER_IMAGE FRONTEND_IMAGE
+            persist_image_env
+            for ref in "$BACKEND_IMAGE" "$WORKER_IMAGE" "$FRONTEND_IMAGE"; do
+              case "$ref" in
+                *:latest)
+                  echo "ERROR: mutable :latest tag detected in deploy image ref: $ref"
+                  exit 1
+                  ;;
+                *:"$IMAGE_TAG")
+                  ;;
+                *)
+                  echo "ERROR: image ref does not match deploy SHA $IMAGE_TAG: $ref"
+                  exit 1
+                  ;;
+              esac
+            done
 
             if ! compose -f docker-compose.prod.yml --env-file .env.production pull backend worker frontend; then
               echo "ERROR: image pull failed"
@@ -312,21 +423,14 @@ jobs:
             if ! compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build --remove-orphans; then
               echo "ERROR: compose up failed"
               diagnose
+              rollback || true
               exit 1
             fi
 
-            health_ok=0
-            for attempt in $(seq 1 20); do
-              if compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/live >/dev/null \
-                && compose -f docker-compose.prod.yml --env-file .env.production exec -T backend curl -fsS http://localhost:8000/api/v1/health/ready >/dev/null; then
-                health_ok=1
-                break
-              fi
-              sleep 3
-            done
-            if [ "$health_ok" -ne 1 ]; then
-              echo "ERROR: post-deploy health checks failed"
+            if ! smoke_checks; then
+              echo "ERROR: post-deploy smoke checks failed"
               diagnose
+              rollback || true
               exit 1
             fi
             compose -f docker-compose.prod.yml --env-file .env.production ps

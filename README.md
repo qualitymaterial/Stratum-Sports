@@ -78,6 +78,7 @@ cp .env.production.example .env.production
 2. Fill all required secrets and production URLs in `.env.production`.
    - PostgreSQL config should use `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`.
    - `DATABASE_URL` is optional advanced override; if blank or contains the placeholder password token, backend/alembic auto-construct it from `POSTGRES_*`.
+   - `BACKEND_IMAGE`, `WORKER_IMAGE`, and `FRONTEND_IMAGE` must be pinned SHA-tag image refs (no mutable `:latest`).
 
 3. Start production compose stack (pull prebuilt images):
 
@@ -97,10 +98,11 @@ Deployment uses two workflows:
 - `CI` runs on `push` and `pull_request` and must pass first.
 - `Deploy to DigitalOcean` is **manual-only** (`workflow_dispatch`) and verifies CI success for the selected commit before deployment.
 
-The deploy workflow builds images in GitHub and pushes them to GHCR, then the droplet only pulls and restarts containers.
+The deploy workflow builds images in GitHub and pushes SHA-tagged images to GHCR, then the droplet only pulls and restarts containers.
 Post-deploy, the workflow validates:
 - `/api/v1/health/live`
 - `/api/v1/health/ready`
+- canonical external smoke (`https://app.stratumsports.com`, `https://api.stratumsports.com`)
 
 If health checks fail, the workflow prints compose status and service logs before failing.
 
