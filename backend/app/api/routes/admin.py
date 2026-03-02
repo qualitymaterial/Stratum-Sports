@@ -77,6 +77,8 @@ from app.schemas.ops import (
     AdminUserTierUpdateOut,
     AdminUserTierUpdateRequest,
     ConversionFunnelOut,
+    KalshiShadowSkewTelemetryOut,
+    KalshiShadowSkewWindowOut,
     CycleKpiOut,
     OpsTelemetryOut,
     OperatorReport,
@@ -1924,6 +1926,90 @@ async def admin_ops_telemetry(
     db: AsyncSession = Depends(get_db),
     _admin: User = Depends(require_admin_permission(PERMISSION_ADMIN_READ)),
 ) -> OpsTelemetryOut:
+    async def _load_kalshi_shadow_window(window_days: int) -> KalshiShadowSkewWindowOut:
+        window_cutoff = datetime.now(UTC) - timedelta(days=window_days)
+        window_stmt = select(
+            func.count(Signal.id).label("total_signals"),
+            func.count(Signal.id).filter(Signal.kalshi_gate_mode == "shadow").label("shadow_mode_signals"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_liquidity_skew.isnot(None),
+            )
+            .label("with_skew"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_gate_pass.is_(True),
+            )
+            .label("gate_pass_true"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_gate_pass.is_(False),
+            )
+            .label("gate_pass_false"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_gate_pass.is_(None),
+            )
+            .label("gate_pass_null"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_skew_bucket == "A",
+            )
+            .label("bucket_a"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_skew_bucket == "B",
+            )
+            .label("bucket_b"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_skew_bucket == "C",
+            )
+            .label("bucket_c"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_skew_bucket == "D",
+            )
+            .label("bucket_d"),
+            func.count(Signal.id)
+            .filter(
+                Signal.kalshi_gate_mode == "shadow",
+                Signal.kalshi_skew_bucket.is_(None),
+            )
+            .label("bucket_none"),
+        ).where(Signal.created_at >= window_cutoff)
+        row = (await db.execute(window_stmt)).one()
+
+        pass_count = int(row.gate_pass_true or 0)
+        fail_count = int(row.gate_pass_false or 0)
+        pass_denominator = pass_count + fail_count
+        pass_rate = (pass_count / pass_denominator * 100.0) if pass_denominator > 0 else None
+
+        return KalshiShadowSkewWindowOut(
+            total_signals=int(row.total_signals or 0),
+            shadow_mode_signals=int(row.shadow_mode_signals or 0),
+            with_skew=int(row.with_skew or 0),
+            gate_pass_true=pass_count,
+            gate_pass_false=fail_count,
+            gate_pass_null=int(row.gate_pass_null or 0),
+            pass_rate=round(pass_rate, 2) if pass_rate is not None else None,
+            buckets={
+                "A": int(row.bucket_a or 0),
+                "B": int(row.bucket_b or 0),
+                "C": int(row.bucket_c or 0),
+                "D": int(row.bucket_d or 0),
+                "NONE": int(row.bucket_none or 0),
+            },
+        )
+
     cutoff = datetime.now(UTC) - timedelta(days=days)
 
     agg_stmt = select(
@@ -1967,7 +2053,15 @@ async def admin_ops_telemetry(
         "regime_detection_enabled": s.effective_regime_detection_enabled,
         "exchange_divergence_signal_enabled": s.exchange_divergence_signal_enabled,
         "api_usage_tracking_enabled": s.api_usage_tracking_enabled,
+        "kalshi_skew_gate_enabled": s.kalshi_skew_gate_enabled,
     }
+    kalshi_shadow_skew = KalshiShadowSkewTelemetryOut(
+        enabled=s.kalshi_skew_gate_enabled,
+        mode=s.kalshi_skew_gate_mode,
+        threshold=s.kalshi_skew_gate_threshold,
+        last_24h=await _load_kalshi_shadow_window(window_days=1),
+        last_7d=await _load_kalshi_shadow_window(window_days=7),
+    )
 
     return OpsTelemetryOut(
         period_days=days,
@@ -1986,6 +2080,7 @@ async def admin_ops_telemetry(
         degraded_rate=round((degraded_cycles / total_cycles * 100.0) if total_cycles > 0 else 0.0, 2),
         avg_cycle_duration_ms=round(float(agg.avg_duration), 1) if agg.avg_duration is not None else None,
         feature_flags=feature_flags,
+        kalshi_shadow_skew=kalshi_shadow_skew,
     )
 
 

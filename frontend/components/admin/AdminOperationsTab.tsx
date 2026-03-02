@@ -494,6 +494,25 @@ function OpsTelemetrySection({ token }: { token: string }) {
             </div>
           )}
 
+          <div className="mt-3 rounded-lg border border-borderTone bg-panelSoft p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-textMute">Kalshi Shadow Skew</p>
+              <Flag label="Gate Enabled" on={data.kalshi_shadow_skew.enabled} />
+              <span className="text-xs text-textMute">Mode: {data.kalshi_shadow_skew.mode}</span>
+              <span className="text-xs text-textMute">Threshold: {data.kalshi_shadow_skew.threshold.toFixed(2)}</span>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <KalshiShadowWindow
+                label="Last 24h"
+                window={data.kalshi_shadow_skew.last_24h}
+              />
+              <KalshiShadowWindow
+                label="Last 7d"
+                window={data.kalshi_shadow_skew.last_7d}
+              />
+            </div>
+          </div>
+
           <div className="mt-3">
             <p className="text-xs font-medium text-textMute">Feature Flags</p>
             <div className="mt-1 flex flex-wrap gap-2">
@@ -555,6 +574,38 @@ function Flag({ label, on }: { label: string; on: boolean }) {
     >
       {label}: {on ? "ON" : "OFF"}
     </span>
+  );
+}
+
+function KalshiShadowWindow({
+  label,
+  window,
+}: {
+  label: string;
+  window: OpsTelemetry["kalshi_shadow_skew"]["last_24h"];
+}) {
+  return (
+    <div className="rounded border border-borderTone bg-panel p-3">
+      <p className="text-xs font-medium text-textMain">{label}</p>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <span className="text-textMute">Signals: <span className="text-textMain">{window.total_signals}</span></span>
+        <span className="text-textMute">Shadow: <span className="text-textMain">{window.shadow_mode_signals}</span></span>
+        <span className="text-textMute">With Skew: <span className="text-textMain">{window.with_skew}</span></span>
+        <span className="text-textMute">
+          Pass Rate: <span className="text-textMain">{window.pass_rate != null ? `${window.pass_rate.toFixed(1)}%` : "—"}</span>
+        </span>
+        <span className="text-textMute">Pass: <span className="text-positive">{window.gate_pass_true}</span></span>
+        <span className="text-textMute">Fail: <span className="text-negative">{window.gate_pass_false}</span></span>
+        <span className="text-textMute">Null: <span className="text-textMain">{window.gate_pass_null}</span></span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1">
+        {["A", "B", "C", "D", "NONE"].map((bucket) => (
+          <span key={`${label}-${bucket}`} className="rounded border border-borderTone px-1.5 py-0.5 text-xs text-textMute">
+            {bucket}: {window.buckets[bucket] ?? 0}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

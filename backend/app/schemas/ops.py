@@ -606,6 +606,25 @@ class AdminAlertReplayOut(BaseModel):
     failed: int
 
 
+class KalshiShadowSkewWindowOut(BaseModel):
+    total_signals: int
+    shadow_mode_signals: int
+    with_skew: int
+    gate_pass_true: int
+    gate_pass_false: int
+    gate_pass_null: int
+    pass_rate: float | None
+    buckets: dict[str, int]
+
+
+class KalshiShadowSkewTelemetryOut(BaseModel):
+    enabled: bool
+    mode: str
+    threshold: float
+    last_24h: KalshiShadowSkewWindowOut
+    last_7d: KalshiShadowSkewWindowOut
+
+
 class OpsTelemetryOut(BaseModel):
     period_days: int
     total_alerts_sent: int
@@ -623,6 +642,7 @@ class OpsTelemetryOut(BaseModel):
     degraded_rate: float
     avg_cycle_duration_ms: float | None
     feature_flags: dict[str, bool]
+    kalshi_shadow_skew: KalshiShadowSkewTelemetryOut
 
 
 # ---------------------------------------------------------------------------

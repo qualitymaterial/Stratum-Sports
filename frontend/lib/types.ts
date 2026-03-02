@@ -791,6 +791,31 @@ export type OpsTelemetry = {
   degraded_rate: number;
   avg_cycle_duration_ms: number | null;
   feature_flags: Record<string, boolean>;
+  kalshi_shadow_skew: {
+    enabled: boolean;
+    mode: string;
+    threshold: number;
+    last_24h: {
+      total_signals: number;
+      shadow_mode_signals: number;
+      with_skew: number;
+      gate_pass_true: number;
+      gate_pass_false: number;
+      gate_pass_null: number;
+      pass_rate: number | null;
+      buckets: Record<string, number>;
+    };
+    last_7d: {
+      total_signals: number;
+      shadow_mode_signals: number;
+      with_skew: number;
+      gate_pass_true: number;
+      gate_pass_false: number;
+      gate_pass_null: number;
+      pass_rate: number | null;
+      buckets: Record<string, number>;
+    };
+  };
 };
 
 export type StaleAdminItem = {
