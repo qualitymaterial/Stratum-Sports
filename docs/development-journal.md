@@ -1,5 +1,77 @@
 # Development Journal
 
+## 2026-03-01: Kalshi Microstructure Enrichment (Spread/Depth/Flow + Lead-Lag Attach)
+
+### Overview
+Shipped a new exchange microstructure layer that persists Kalshi market snapshots and enriches signal metadata with top-of-book spread, depth imbalance, trade-flow burst, and latest sportsbook-vs-exchange lead-lag context.
+
+Commit: `6b89951`
+
+### Why
+We already had `exchange_liquidity_skew`, but we did not persist enough market-state detail to compute richer exchange features. This closes that gap and gives partners more execution-grade context from the same polling cycle.
+
+### What Was Built
+1. New snapshot model/table for market-level state:
+   - `exchange_market_snapshots`
+   - Fields include:
+     - yes/no bid/ask probabilities
+     - yes/no bid/ask sizes
+     - `volume`, `open_interest`
+     - `timestamp`
+   - Identity constraint: `(source, market_id, timestamp)`
+   - Files:
+     - `backend/app/models/exchange_market_snapshot.py`
+     - `backend/alembic/versions/m7a8b9c0d1e2_add_exchange_market_snapshots.py`
+     - model export in `backend/app/models/__init__.py`
+
+2. Kalshi adapter normalization upgraded:
+   - Parses top-of-book and size fields when present.
+   - Preserves prior outcomes payload behavior.
+   - Uses a safer best-effort snapshot timestamp resolution (`timestamp` / `updated_at` / fallback).
+   - File: `backend/app/adapters/exchange/kalshi_client.py`
+
+3. Exchange ingestion expanded:
+   - Continues writing `exchange_quote_events`.
+   - Now also writes one market snapshot per payload for Kalshi.
+   - Snapshot writes are idempotent (`ON CONFLICT DO NOTHING`).
+   - File: `backend/app/services/exchange_ingestion.py`
+
+4. Signal enrichment expanded (`attach_exchange_liquidity_skew`):
+   - Now attaches exchange microstructure metadata to `signal.metadata_json`:
+     - `exchange_top_book_spread_bps`
+     - `exchange_depth_imbalance`
+     - `exchange_depth_total_size`
+     - `exchange_trade_flow_volume_delta`
+     - `exchange_trade_flow_rate_per_min`
+     - `exchange_trade_flow_window_minutes`
+     - `exchange_trade_flow_open_interest_delta`
+     - `exchange_trade_flow_baseline_rate_per_min`
+     - `exchange_trade_flow_burst_score`
+     - `exchange_lead_source`
+     - `exchange_lead_lag_seconds`
+     - plus aligned break timestamps where available
+   - Backward-compatible skew fallback kept:
+     - if no snapshot exists, `exchange_liquidity_skew` still derives from latest quote event.
+   - File: `backend/app/services/kalshi_gating.py`
+
+### Tests Added/Updated
+1. `backend/tests/test_exchange_adapters_kalshi_ingest.py`
+   - verifies Kalshi ingestion now persists `ExchangeMarketSnapshot`.
+2. `backend/tests/test_kalshi_skew_gate.py`
+   - verifies enrichment of spread/depth/trade-flow burst and lead-lag metadata.
+
+### Operational Note
+This change requires migration:
+```bash
+cd backend
+alembic upgrade head
+```
+
+### Follow-Ups
+1. Add an admin export/debug route for `exchange_market_snapshots` to speed validation in prod.
+2. Add percentile baselines for flow burst by market/contract age (instead of simple trailing median).
+3. Decide whether to expose a subset of these keys on partner-facing response schemas beyond `metadata`.
+
 ## 2026-02-28: Stratum MCP Server (SSE-Ready, Pro-Tier Gated)
 
 ### Overview
