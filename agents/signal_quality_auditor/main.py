@@ -81,11 +81,17 @@ def main():
     # 2. Introspect
     inspector = SchemaInspector(db_url)
     schema_map = inspector.inspect()
+    logger.info(f"Introspected schema: {schema_map}")
     
     # 3. Query
     builder = QueryBuilder(schema_map)
     queries = builder.build_queries()
+    if not queries:
+        logger.error("No queries generated. Check schema mapping.")
+        return
+        
     raw_results = execute_queries(db_url, queries)
+    logger.info(f"Query results: {raw_results}")
     
     # 4. Deterministic Processing
     processor = MetricsProcessor(raw_results)
