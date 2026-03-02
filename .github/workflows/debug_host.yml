@@ -75,9 +75,23 @@ jobs:
             else:
                 with open(env_path, 'w') as f: f.write(f"DATABASE_URL={db_url}\n")
             
+            # Sanity check: verify keys in .env
+            print("Verifying .env keys...")
+            with open(env_path, 'r') as f:
+                for line in f:
+                    if '=' in line and not line.strip().startswith('#'):
+                        print(f"Key Found: {line.split('=')[0]}")
+
             print("E) Running agent once...")
-            # Combined install and run
-            agent_cmd = f"docker compose --env-file {env_path} run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'"
+            # Using -e flags for reliable injection
+            with open(env_path, 'r') as f:
+                env_list = []
+                for line in f:
+                    if '=' in line and not line.strip().startswith('#'):
+                        env_list.append(f"-e {line.strip()}")
+            env_flags = " ".join(env_list)
+
+            agent_cmd = f"docker compose run --rm {env_flags} -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'"
             print(f"Executing agent: {agent_cmd}")
             agent_result = subprocess.run(agent_cmd, shell=True, capture_output=True, text=True)
             agent_output = agent_result.stdout + "\n" + agent_result.stderr
@@ -91,7 +105,7 @@ jobs:
                 print(f"Reason: {agent_output}")
             
             print("\nFinal Cron Entry:")
-            print(f"0 8 * * * cd /opt/stratum-sports && docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py' >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
+            print(f"0 8 * * * cd /opt/stratum-sports && docker compose run --rm {env_flags} -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py' >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
 
             EOF
             python3 setup_agent_prod.py
