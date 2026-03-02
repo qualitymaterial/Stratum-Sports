@@ -66,37 +66,50 @@ jobs:
             env_path = "agents/executive_brief/.env"
             db_url = f"postgresql+psycopg://stratum_agent_ro:{password}@{db_service_name}:5432/{db_name}"
             
+            # Aggressive search for OpenAI Key
             openai_key = None
-            # Search for OpenAI Key in root .env.production or current .env
-            search_paths = [env_path, ".env.production", ".env"]
-            for path in search_paths:
-                if os.path.exists(path):
+            print("Searching for OPENAI_API_KEY...")
+            find_output = run("find /opt/stratum-sports -name '.env*' -not -path '*/.*'").split('\n')
+            print(f"Discovered env files: {find_output}")
+            
+            for path in find_output:
+                if path and os.path.exists(path):
                     with open(path, 'r') as f:
                         for line in f:
                             if "OPENAI_API_KEY=" in line and not line.strip().startswith('#'):
-                                openai_key = line.split('=')[1].strip()
-                                break
+                                key_val = line.split('=', 1)[1].strip().strip("'").strip('"')
+                                if key_val and len(key_val) > 10: # Sanity check for real key
+                                    openai_key = key_val
+                                    print(f"Found candidate key in {path}")
+                                    break
                 if openai_key: break
             
-            current_content = ""
-            if os.path.exists(env_path):
-                with open(env_path, 'r') as f: current_content = f.read()
+            if not openai_key:
+                print("WARNING: Could not find OPENAI_API_KEY in any .env files on the droplet.")
 
-            if "DATABASE_URL=" in current_content:
-                new_content = re.sub(r'DATABASE_URL=.*', f'DATABASE_URL={db_url}', current_content)
+            content = ""
+            if os.path.exists(env_path):
+                with open(env_path, 'r') as f: content = f.read()
+
+            if "DATABASE_URL=" in content:
+                content = re.sub(r'DATABASE_URL=.*', f'DATABASE_URL={db_url}', content)
             else:
-                new_content = current_content + f"\nDATABASE_URL={db_url}\n"
+                content += f"\nDATABASE_URL={db_url}\n"
             
-            if openai_key and "OPENAI_API_KEY=" not in new_content:
-                new_content += f"OPENAI_API_KEY={openai_key}\n"
+            if openai_key and "OPENAI_API_KEY=" not in content:
+                content += f"OPENAI_API_KEY={openai_key}\n"
+            elif openai_key and "OPENAI_API_KEY=" in content:
+                # Update existing if it was a placeholder
+                if "YOUR_OAI_KEY" in content or "sk-PROJ-..." in content:
+                    content = re.sub(r'OPENAI_API_KEY=.*', f'OPENAI_API_KEY={openai_key}', content)
             
-            with open(env_path, 'w') as f: f.write(new_content)
+            with open(env_path, 'w') as f: f.write(content)
             
-            print("Verifying .env keys...")
+            print("Verifying final .env keys:")
             with open(env_path, 'r') as f:
                 for line in f:
                     if '=' in line and not line.strip().startswith('#'):
-                        print(f"Key Found: {line.split('=')[0]}")
+                        print(f"Key: {line.split('=')[0]}")
 
             print("E) Running agent once...")
             env_list = []
@@ -104,12 +117,13 @@ jobs:
                 for line in f:
                     line = line.strip()
                     if '=' in line and not line.startswith('#'):
-                        # Using shlex.quote or similar might be safer, but flags should be simple here
-                        env_list.append(f"-e {line}")
+                        # Using shlex.quote or simple concatenation
+                        k, v = line.split('=', 1)
+                        env_list.append(f"-e {k}='{v}'")
             env_flags = " ".join(env_list)
 
             agent_cmd = f"docker compose run --rm {env_flags} -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'"
-            print(f"Executing agent: {agent_cmd}")
+            print(f"Executing agent...")
             agent_result = subprocess.run(agent_cmd, shell=True, capture_output=True, text=True)
             agent_output = agent_result.stdout + "\n" + agent_result.stderr
             
