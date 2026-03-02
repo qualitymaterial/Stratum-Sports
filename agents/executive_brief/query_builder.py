@@ -16,14 +16,16 @@ class QueryBuilder:
                 SELECT 
                     '7d' as period,
                     COUNT(*) as total_count,
-                    AVG({clv["value_col"]}) as avg_value
+                    AVG({clv["value_col"]}) as avg_value,
+                    SUM(CASE WHEN {clv["value_col"]} > 0 THEN 1 ELSE 0 END)::float / COUNT(*) as pos_rate
                 FROM {clv["table"]}
                 WHERE {clv["timestamp_col"]} >= NOW() - INTERVAL '7 days'
                 UNION ALL
                 SELECT 
                     '30d' as period,
                     COUNT(*) as total_count,
-                    AVG({clv["value_col"]}) as avg_value
+                    AVG({clv["value_col"]}) as avg_value,
+                    SUM(CASE WHEN {clv["value_col"]} > 0 THEN 1 ELSE 0 END)::float / COUNT(*) as pos_rate
                 FROM {clv["table"]}
                 WHERE {clv["timestamp_col"]} >= NOW() - INTERVAL '30 days'
             """
