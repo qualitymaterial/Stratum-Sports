@@ -23,8 +23,15 @@ logger = logging.getLogger(__name__)
 
 def execute_queries(db_url, queries):
     results = {}
+    # Psycopg2 prefers postgres:// and doesn't support +driver prefixes
+    conn_str = db_url
+    if "://" in conn_str:
+        prefix, rest = conn_str.split("://", 1)
+        if "postgres" in prefix:
+            conn_str = "postgres://" + rest
+
     try:
-        conn = psycopg2.connect(db_url)
+        conn = psycopg2.connect(conn_str)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             for name, sql in queries.items():
                 logger.info(f"Executing {name}...")
