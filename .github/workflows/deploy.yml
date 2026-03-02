@@ -20,12 +20,12 @@ on:
       smoke_app_base_url:
         description: "External app URL used for post-deploy smoke checks."
         required: false
-        default: "https://app.stratumsports.com"
+        default: "http://104.236.237.83"
         type: string
       smoke_api_base_url:
         description: "External API URL used for post-deploy smoke checks."
         required: false
-        default: "https://api.stratumsports.com"
+        default: "http://104.236.237.83"
         type: string
 
 permissions:
