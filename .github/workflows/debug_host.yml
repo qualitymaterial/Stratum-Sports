@@ -13,6 +13,8 @@ jobs:
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
             cd /opt/stratum-sports
+            git checkout main && git pull
+            mkdir -p agents/executive_brief
             cat << 'EOF' > setup_agent_prod.py
             import subprocess
             import os
@@ -23,32 +25,17 @@ jobs:
             def run(cmd):
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                 if result.returncode != 0:
-                    print(f"FAILED: {cmd}\nSTDOUT: {result.stdout}\nSTDERR: {result.stderr}")
-                    return None
+                    return f"FAILED: {result.stdout} {result.stderr}"
                 return result.stdout.strip()
 
             print("A) Detecting compose config...")
-            config_files = run("docker inspect stratum-sports-backend-1 --format '{{ index .Config.Labels \"com.docker.compose.project.config_files\" }}'")
-            working_dir = run("docker inspect stratum-sports-backend-1 --format '{{ index .Config.Labels \"com.docker.compose.project.working_dir\" }}'")
-            ps_output = run("docker compose ps")
-            
-            db_service = None
-            if ps_output:
-                for line in ps_output.split('\n'):
-                    if 'db' in line.lower() or 'postgres' in line.lower():
-                        db_service = line.split()[0]
-                        # Trim project prefix if present, but since it's the hostname in the network, we need the service name
-                        # Actually docker compose ps shows the *container* name.
+            ps_output = subprocess.run("docker compose ps", shell=True, capture_output=True, text=True).stdout
             
             # Re-detecting service name more accurately
             db_container = run("docker compose ps -q db") or run("docker compose ps -q postgres")
-            if not db_container:
-                print("Could not find db service name via ps.")
-                db_service_name = "db" # Default guess
-            else:
-                db_service_name = "db" if run("docker compose ps --services | grep ^db$") else "postgres"
+            db_service_name = "db" if " db" in run("docker compose ps --services") else "postgres"
 
-            print(f"DB Container: {db_container}, Service Name Guess: {db_service_name}")
+            print(f"DB Container: {db_container}, Service Name: {db_service_name}")
 
             print("B) Detecting credentials...")
             env_vars = run(f"docker exec stratum-sports-db-1 printenv")
@@ -65,21 +52,24 @@ jobs:
             alphabet = string.ascii_letters + string.digits
             password = ''.join(secrets.choice(alphabet) for i in range(24))
             
+            # Using $do$ to avoid $$ expansion
             sql = f"""
-            DO $$ 
+            DO $do$ 
             BEGIN
               IF NOT EXISTS (SELECT FROM pg_catalog.pg_user WHERE usename = 'stratum_agent_ro') THEN
                 CREATE USER stratum_agent_ro WITH PASSWORD '{password}';
               END IF;
             END
-            $$;
+            $do$;
             GRANT CONNECT ON DATABASE {db_name} TO stratum_agent_ro;
             GRANT USAGE ON SCHEMA public TO stratum_agent_ro;
             GRANT SELECT ON ALL TABLES IN SCHEMA public TO stratum_agent_ro;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO stratum_agent_ro;
             """
             
-            run(f"docker exec stratum-sports-db-1 psql -U {admin_user} -d {db_name} -c \"{sql}\"")
+            # Escape inner double quotes for shell
+            sql_escaped = sql.replace('"', '\\"')
+            run(f"docker exec stratum-sports-db-1 psql -U {admin_user} -d {db_name} -c \"{sql_escaped}\"")
 
             print("D) Updating .env...")
             env_path = "agents/executive_brief/.env"
@@ -97,14 +87,17 @@ jobs:
                     f.write(f"DATABASE_URL={db_url}\n")
             
             print("E) Running agent once...")
-            # Using run with bind mount as backend might not have the code if not pulled yet
-            agent_output = run("docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py")
+            # Ensure pydantic and other deps are in the image or use run with bind mount
+            # The backend container should already have current code if we pulled and restarted? 
+            # No, standard deploy process restarts with new images.
+            # For now, let's use the bind mount to be sure the agent code is there.
+            agent_output = subprocess.run("docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py", shell=True, capture_output=True, text=True).stdout
             
             print("F) Results:")
             print(f"DB service hostname: {db_service_name}")
             print(f"DB name: {db_name}")
             
-            success = "SUCCESS" if agent_output and "Brief saved to" in agent_output else "FAILED"
+            success = "SUCCESS" if "Brief saved to" in agent_output else "FAILED"
             print(f"Agent run: {success}")
             if success == "FAILED":
                 print(f"Reason: {agent_output}")
