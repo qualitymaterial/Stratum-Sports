@@ -11,6 +11,7 @@ import requests
 from schema_inspector import SchemaInspector
 from query_builder import QueryBuilder
 from metrics import MetricsProcessor
+from discord_formatter import format_discord_summary
 
 # Setup
 # Load local .env first
@@ -44,35 +45,9 @@ def execute_queries(db_url, queries):
         logger.error(f"Execution failed: {e}")
     return results
 
-def post_to_discord(webhook_url, final_report):
+def post_to_discord(webhook_url, content):
     if not webhook_url:
         return
-    
-    summary = final_report["summary"]
-    interpretation = final_report.get("executive_interpretation", "No interpretation available.")
-    
-    # Identify degrading or high-risk segments
-    critical: list[str] = []
-    for sig in final_report.get("signals", []):
-        signal_type = sig.get("signal_type")
-        for market_row in sig.get("markets", []):
-            if market_row.get("classification") in {"degrading", "weakening"} or market_row.get("risk_level") == "high":
-                critical.append(f"{signal_type} / {market_row.get('market')}")
-    critical_str = "\n".join(f"- {item}" for item in critical) if critical else "None"
-
-    content = f"""**Signal Quality Audit: {final_report['date']}**
-
-**Summary:**
-- Total Types: {summary['total_signal_types']}
-- Degrading Segments: {summary['degrading_segments_count']}
-- High Risk Segments: {summary['high_risk_segments_count']}
-
-**Critical Segments (High Risk/Degrading/Weakening):**
-{critical_str}
-
-**Interpretation:**
-> {interpretation}
-"""
     try:
         requests.post(webhook_url, json={"content": content})
     except Exception as e:
@@ -150,24 +125,12 @@ def main():
     
     logger.info(f"Audit saved to {file_path}")
 
-    # 7. Terminal summary
-    summary = audit_results["summary"]
-    print(f"total signal types: {summary['total_signal_types']}")
-    print(f"degrading segments count: {summary['degrading_segments_count']}")
-    print(f"high risk segments count: {summary['high_risk_segments_count']}")
-    print("top 3 worst drifts:")
-    top_3 = summary.get("top_3_worst_drifts", [])
-    if not top_3:
-        print("- none")
+    # 7. Weekly summary formatting + dispatch
+    formatted_summary = format_discord_summary(audit_results)
+    if discord_webhook:
+        post_to_discord(discord_webhook, formatted_summary)
     else:
-        for row in top_3:
-            print(
-                f"- {row['signal_type']} / {row['market']}: "
-                f"drift={row['drift']:.6f}, sample_7d={row['sample_7d']}"
-            )
-
-    # 8. Discord
-    post_to_discord(discord_webhook, audit_results)
+        print(formatted_summary)
 
 if __name__ == "__main__":
     main()

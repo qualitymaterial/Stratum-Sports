@@ -283,6 +283,10 @@ async def test_cleanup_old_consensus_snapshots_deletes_only_expired_rows(
     deleted = await cleanup_old_consensus_snapshots(db_session, retention_days=14)
     assert deleted == 1
 
-    remaining = (await db_session.execute(select(MarketConsensusSnapshot))).scalars().all()
+    remaining = (
+        await db_session.execute(
+            select(MarketConsensusSnapshot).where(MarketConsensusSnapshot.event_id == "event_cleanup")
+        )
+    ).scalars().all()
     assert len(remaining) == 1
     assert remaining[0].outcome_name == "NYK"

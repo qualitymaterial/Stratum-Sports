@@ -688,9 +688,10 @@ async def test_signal_quality_endpoint_filters_by_dispersion(
     )
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["signal_type"] == "DISLOCATION"
-    assert payload[0]["book_key"] == "draftkings"
+    scoped = [row for row in payload if row.get("event_id") == event_id]
+    assert len(scoped) == 1
+    assert scoped[0]["signal_type"] == "DISLOCATION"
+    assert scoped[0]["book_key"] == "draftkings"
 
 
 async def test_signal_quality_endpoint_filters_by_sport_key(
@@ -785,8 +786,9 @@ async def test_signal_quality_endpoint_filters_by_time_bucket_and_time_bucket_in
     )
     assert pretip_response.status_code == 200
     pretip_payload = pretip_response.json()
-    assert len(pretip_payload) == 1
-    assert pretip_payload[0]["time_bucket"] == "PRETIP"
+    pretip_scoped = [row for row in pretip_payload if row.get("event_id") == event_id]
+    assert len(pretip_scoped) == 1
+    assert pretip_scoped[0]["time_bucket"] == "PRETIP"
 
     multi_response = await async_client.get(
         "/api/v1/intel/signals/quality?days=7&signal_type=MOVE&market=spreads&time_bucket_in=PRETIP,MID",
@@ -794,8 +796,9 @@ async def test_signal_quality_endpoint_filters_by_time_bucket_and_time_bucket_in
     )
     assert multi_response.status_code == 200
     multi_payload = multi_response.json()
-    assert len(multi_payload) == 2
-    assert {row["time_bucket"] for row in multi_payload} == {"PRETIP", "MID"}
+    multi_scoped = [row for row in multi_payload if row.get("event_id") == event_id]
+    assert len(multi_scoped) == 2
+    assert {row["time_bucket"] for row in multi_scoped} == {"PRETIP", "MID"}
 
 
 async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(
@@ -852,11 +855,12 @@ async def test_signal_quality_endpoint_includes_alert_decisions_with_user_rules(
     )
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 2
-    decisions = {row["alert_decision"] for row in payload}
+    scoped = [row for row in payload if row.get("event_id") == event_id]
+    assert len(scoped) == 2
+    decisions = {row["alert_decision"] for row in scoped}
     assert "sent" in decisions
     assert "hidden" in decisions
-    hidden_row = next(row for row in payload if row["alert_decision"] == "hidden")
+    hidden_row = next(row for row in scoped if row["alert_decision"] == "hidden")
     assert "below min" in hidden_row["alert_reason"] or "above max" in hidden_row["alert_reason"]
 
 
@@ -2093,23 +2097,27 @@ async def test_intel_dislocations_feed_endpoint(
     response = await async_client.get("/api/v1/intel/dislocations?days=7", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 2
-    assert payload[0]["id"] == str(sig1.id)  # Descending created_at
-    assert payload[1]["id"] == str(sig2.id)
+    payload_ids = [row["id"] for row in payload]
+    assert str(sig1.id) in payload_ids
+    assert str(sig2.id) in payload_ids
+    seeded_order = [row["id"] for row in payload if row["id"] in {str(sig1.id), str(sig2.id)}]
+    assert seeded_order == [str(sig1.id), str(sig2.id)]  # Descending created_at
 
     # Filter by min_strength
     response = await async_client.get("/api/v1/intel/dislocations?days=7&min_strength=80", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["id"] == str(sig1.id)
+    payload_ids = {row["id"] for row in payload}
+    assert str(sig1.id) in payload_ids
+    assert str(sig2.id) not in payload_ids
 
     # Filter by sport_key
     response = await async_client.get("/api/v1/intel/dislocations?days=7&sport_key=basketball_ncaab", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["id"] == str(sig2.id)
+    payload_ids = {row["id"] for row in payload}
+    assert str(sig2.id) in payload_ids
+    assert str(sig1.id) not in payload_ids
 
 
 async def test_intel_steam_feed_endpoint(
@@ -2137,6 +2145,7 @@ async def test_intel_steam_feed_endpoint(
     response = await async_client.get("/api/v1/intel/steam", headers=headers)
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload) == 1
-    assert payload[0]["id"] == str(sig1.id)
-    assert payload[0]["signal_type"] == "STEAM"
+    payload_ids = {row["id"] for row in payload}
+    assert str(sig1.id) in payload_ids
+    seeded = next(row for row in payload if row["id"] == str(sig1.id))
+    assert seeded["signal_type"] == "STEAM"

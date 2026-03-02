@@ -107,6 +107,7 @@ class MetricsProcessor:
         # Build per-signal-type structure and deterministic risk logic.
         grouped: Dict[str, List[Dict[str, Any]]] = {}
         top_offenders: List[Dict[str, Any]] = []
+        watchlist_segments: List[Dict[str, Any]] = []
         degrading_segments_count = 0
         high_risk_segments_count = 0
 
@@ -162,6 +163,13 @@ class MetricsProcessor:
             if risk_level == "high":
                 high_risk_segments_count += 1
 
+            watchlist = (
+                sample_30d >= 500
+                and pos_rate_30d is not None
+                and pos_rate_30d < 0.40
+                and classification == "stable"
+            )
+
             market_row = {
                 "market": market,
                 "sample_30d": sample_30d,
@@ -175,8 +183,19 @@ class MetricsProcessor:
                 "classification": classification,
                 "risk_level": risk_level,
                 "drift": round(drift, 6) if drift is not None else None,
+                "watchlist": watchlist,
             }
             grouped.setdefault(signal_type, []).append(market_row)
+
+            if watchlist:
+                watchlist_segments.append(
+                    {
+                        "signal_type": signal_type,
+                        "market": market,
+                        "pos_rate_30d": round(pos_rate_30d, 6),
+                        "sample_30d": sample_30d,
+                    }
+                )
 
             if classification in {"degrading", "weakening"}:
                 reason = (
@@ -218,4 +237,8 @@ class MetricsProcessor:
             "summary": summary,
             "signals": signals,
             "top_offenders": top_offenders,
+            "watchlist_segments": sorted(
+                watchlist_segments,
+                key=lambda row: (row["pos_rate_30d"], -row["sample_30d"], row["signal_type"], row["market"]),
+            ),
         }

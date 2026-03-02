@@ -7,6 +7,7 @@ Read-only internal auditor for CLV performance drift by `signal_type` and `marke
 - Deterministic Wilson 95% confidence interval on 7d positive CLV rate.
 - Deterministic risk logic with low-sample dampening.
 - Top offenders list for the worst degrading/weakening segments.
+- Watchlist tagging for stable, high-sample, low-edge segments.
 - Commentary-only LLM layer (no LLM math, no metric mutation).
 
 ## Data Model Expectations
@@ -82,7 +83,9 @@ On each run, V2 prints:
 - top 3 worst drifts
 
 ## Scheduling
-Example cron entry (daily at 9:00 AM):
+Weekly run is recommended because day-to-day CLV drift is noisy and can create false governance churn. A weekly window is sufficient for stable operational monitoring while still catching persistent degradation.
+
+Weekly Run (Sunday 9:00 UTC):
 ```bash
-0 9 * * * cd /path/to/stratum-sports && python3 agents/signal_quality_auditor/main.py >> agents/signal_quality_auditor/audit.log 2>&1
+0 9 * * 0 cd /opt/stratum-sports && /opt/stratum-sports/.venv/bin/python agents/signal_quality_auditor/main.py >> signal_audit.log 2>&1
 ```
