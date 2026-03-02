@@ -151,8 +151,14 @@ async def compute_and_persist_clv(db: AsyncSession, days_lookback: Optional[int]
         if close_line is not None and entry_line is not None:
             outcome_norm = (outcome_name or "").strip().lower()
             if signal.market == "spreads":
-                # Spreads: higher entry line is better (e.g. +5 vs +3 closing)
-                clv_line = entry_line - close_line
+                # Spreads must be side-normalized:
+                # - favorite entries (<0): entry-close
+                # - underdog entries (>0): close-entry
+                # - pick'em (0): explicit close-entry handling
+                if entry_line < 0:
+                    clv_line = entry_line - close_line
+                else:
+                    clv_line = close_line - entry_line
             elif signal.market == "totals" and outcome_norm.startswith("under"):
                 # Totals-under: higher entry line is better (e.g. 225 vs 220 closing)
                 clv_line = entry_line - close_line
