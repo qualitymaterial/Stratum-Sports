@@ -20,10 +20,12 @@ class SchemaInspector:
             "signals": {"table": None, "timestamp_col": None, "type_col": None}
         }
 
-        # Psycopg2 sometimes prefers postgres:// over postgresql://
+        # Psycopg2 prefers postgres:// and doesn't support +driver prefixes
         conn_str = self.db_url
-        if conn_str.startswith("postgresql://"):
-            conn_str = conn_str.replace("postgresql://", "postgres://", 1)
+        if "://" in conn_str:
+            prefix, rest = conn_str.split("://", 1)
+            if "postgres" in prefix:
+                conn_str = "postgres://" + rest
 
         try:
             conn = psycopg2.connect(conn_str)
