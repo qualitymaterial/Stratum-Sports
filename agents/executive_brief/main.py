@@ -85,7 +85,10 @@ def main():
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": prompt_tmpl.format(data=json.dumps(payload, default=str))},
+                {"role": "system", "content": prompt_tmpl.format(
+                    data=json.dumps(payload, default=str),
+                    today_date=datetime.now().strftime('%Y-%m-%d')
+                )},
                 {"role": "user", "content": "Generate today's executive brief."}
             ],
             response_format={"type": "json_object"}
