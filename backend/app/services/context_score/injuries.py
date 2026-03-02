@@ -13,7 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
-from app.services.context_score.injury_feed import get_sportsdataio_injury_context
+from app.services.context_score.injury_feed import (
+    get_nba_official_injury_context,
+    get_sportsdataio_injury_context,
+)
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -84,13 +87,18 @@ async def _heuristic_injury_context(
 
 async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
     provider = settings.injury_feed_provider.strip().lower()
-    if provider == "sportsdataio":
+    if provider in {"sportsdataio", "nba_official"}:
         game_stmt = select(Game).where(Game.event_id == event_id)
         game = (await db.execute(game_stmt)).scalar_one_or_none()
         if game is not None:
-            live_context = await get_sportsdataio_injury_context(game)
+            if provider == "sportsdataio":
+                live_context = await get_sportsdataio_injury_context(game)
+                fallback_reason = "sportsdataio_unavailable"
+            else:
+                live_context = await get_nba_official_injury_context(game)
+                fallback_reason = "nba_official_unavailable"
             if live_context is not None:
                 return live_context
-            return await _heuristic_injury_context(db, event_id, fallback_reason="sportsdataio_unavailable")
+            return await _heuristic_injury_context(db, event_id, fallback_reason=fallback_reason)
 
     return await _heuristic_injury_context(db, event_id)

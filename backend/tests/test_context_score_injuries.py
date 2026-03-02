@@ -98,6 +98,41 @@ async def test_injury_context_uses_sportsdataio_when_available(
     assert result["score"] == 77
 
 
+async def test_injury_context_uses_nba_official_when_available(
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "injury_ctx_nba_official"
+    db_session.add(_game(event_id, now + timedelta(hours=2)))
+    await db_session.commit()
+
+    monkeypatch.setattr(injuries_service.settings, "injury_feed_provider", "nba_official")
+
+    async def _fake_live_context(_game_obj: Game) -> dict:
+        return {
+            "event_id": event_id,
+            "component": "injuries",
+            "status": "computed",
+            "score": 71,
+            "details": {
+                "source": "nba_official",
+                "players_flagged": 2,
+                "home_players_flagged": 1,
+                "away_players_flagged": 1,
+                "weighted_injury_load": 1.6,
+            },
+            "notes": "Derived from NBA official injury report statuses for teams in this matchup.",
+        }
+
+    monkeypatch.setattr(injuries_service, "get_nba_official_injury_context", _fake_live_context)
+
+    result = await injuries_service.get_injury_context(db_session, event_id)
+    assert result["status"] == "computed"
+    assert result["details"]["source"] == "nba_official"
+    assert result["score"] == 71
+
+
 async def test_injury_context_falls_back_when_live_feed_unavailable(
     db_session: AsyncSession,
     monkeypatch,
@@ -129,6 +164,36 @@ async def test_injury_context_falls_back_when_live_feed_unavailable(
     assert "sportsdataio_unavailable" in result["notes"]
 
 
+async def test_injury_context_nba_official_falls_back_when_unavailable(
+    db_session: AsyncSession,
+    monkeypatch,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "injury_ctx_nba_fallback"
+    db_session.add(_game(event_id, now + timedelta(hours=2)))
+    db_session.add_all(
+        [
+            _spread_snapshot(event_id=event_id, line=-2.5, fetched_at=now - timedelta(minutes=25), sportsbook_key="book1"),
+            _spread_snapshot(event_id=event_id, line=-3.0, fetched_at=now - timedelta(minutes=17), sportsbook_key="book2"),
+            _spread_snapshot(event_id=event_id, line=-3.5, fetched_at=now - timedelta(minutes=8), sportsbook_key="book3"),
+            _spread_snapshot(event_id=event_id, line=-4.0, fetched_at=now - timedelta(minutes=1), sportsbook_key="book4"),
+        ]
+    )
+    await db_session.commit()
+
+    monkeypatch.setattr(injuries_service.settings, "injury_feed_provider", "nba_official")
+
+    async def _fake_none(_game_obj: Game) -> None:
+        return None
+
+    monkeypatch.setattr(injuries_service, "get_nba_official_injury_context", _fake_none)
+
+    result = await injuries_service.get_injury_context(db_session, event_id)
+    assert result["status"] == "computed"
+    assert result["details"]["source"] == "heuristic"
+    assert "nba_official_unavailable" in result["notes"]
+
+
 def test_nfl_endpoint_template_expands_when_season_week_set(monkeypatch) -> None:
     monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_season", "2025REG")
     monkeypatch.setattr(injury_feed.settings, "sportsdataio_nfl_injuries_week", "18")
@@ -147,3 +212,11 @@ def test_nfl_endpoint_template_returns_none_when_week_missing(monkeypatch) -> No
     expanded = injury_feed._expand_templated_endpoint("americanfootball_nfl", endpoint)
 
     assert expanded is None
+
+
+def test_extract_rows_from_csv_text() -> None:
+    payload = "Team,Player,Status\nBoston Celtics,Player A,Out\nNew York Knicks,Player B,Questionable\n"
+    rows = injury_feed._extract_rows_from_csv_text(payload)
+    assert len(rows) == 2
+    assert rows[0]["Team"] == "Boston Celtics"
+    assert rows[1]["Status"] == "Questionable"

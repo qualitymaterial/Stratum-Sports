@@ -150,6 +150,9 @@ class Settings(BaseSettings):
     free_watchlist_limit: int = 3
 
     injury_feed_provider: str = "heuristic"
+    nba_official_injuries_url: str = "https://official.nba.com/nba-injury-report-2020-21-season/"
+    nba_official_timeout_seconds: float = 8.0
+    nba_official_cache_seconds: int = 300
     sportsdataio_api_key: str = ""
     sportsdataio_base_url: str = "https://api.sportsdata.io/v3"
     sportsdataio_injuries_endpoint_nba: str = ""

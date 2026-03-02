@@ -264,6 +264,7 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 1. Pro digest summaries pilot (daily/weekly webhook/email) with delivery SLOs.
 2. Player props ingestion foundation (points/rebounds/assists) behind strict flags.
 3. Observability hardening (SLO dashboard + alerting baselines for signal delivery and partner API).
+4. Conservative external context-data track (free-first) for injury/weather enrichment without adding new paid odds spend.
 
 ### 5.3 Later (6+ weeks)
 1. Props mispricing radar once projection inputs are available.
@@ -287,6 +288,35 @@ This sequence maximizes monetizable analytics value while controlling API spend 
    - Current status: current odds normalizer intentionally skips props markets; only proxy context scoring exists.
    - Gaps: canonical props schema, parser/normalizer support for points/rebounds/assists, retention/indexing strategy, guarded ingest flag.
    - Exit criteria: props snapshots ingest reliably for a narrow market set with parity tests and cost guardrails.
+
+### 5.5 Conservative Data Source Track (Free/Low-Cost)
+**Operator stance:** Keep incremental vendor cost near zero while increasing context quality.
+
+1. **Phase C-1 (Immediate, cost target: `$0`)**
+   - Add NBA official injury report feed integration as a context-score source.
+   - Keep fallback behavior fail-open to existing heuristic injury context.
+   - Exit criteria:
+     - Feed outages do not break polling or signal generation.
+     - Injury context explicitly tags source (`nba_official` vs heuristic fallback).
+
+2. **Phase C-2 (Near-term, cost target: `$0`)**
+   - Add weather overlays for totals workflows using free public APIs.
+   - Persist minimal weather-at-event metadata for explainability and CLV slicing.
+   - Exit criteria:
+     - No additional paid odds requests.
+     - Weather enrichment is additive and nullable-safe in all downstream payloads.
+
+3. **Phase C-3 (Validation, cost target: `$0`)**
+   - Backfill limited historical context windows (injury/weather) for performance intel comparisons.
+   - Quantify CLV uplift for context-filtered cohorts before any paid feed expansion.
+   - Exit criteria:
+     - Published uplift/noise report over rolling 30-day windows.
+     - Decision memo: keep free-only, or justify low-cost add-on spend.
+
+**Guardrails**
+1. No new paid high-frequency odds vendors in this track.
+2. All external context feeds must be feature-flagged and fail-open.
+3. Priority is explainable additive metadata, not opaque scoring jumps.
 
 **Recommended execution order**
 1. Live shock hardening.

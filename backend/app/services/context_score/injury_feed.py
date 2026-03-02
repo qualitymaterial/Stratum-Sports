@@ -9,6 +9,8 @@ This module is intentionally defensive:
 from __future__ import annotations
 
 import logging
+import csv
+import io
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -49,6 +51,21 @@ def _team_aliases(team_name: str | None) -> set[str]:
     if len(parts) >= 2:
         aliases.add(" ".join(parts[-2:]))
     return aliases
+
+
+def _nba_team_aliases(team_name: str | None) -> set[str]:
+    aliases = _team_aliases(team_name)
+    normalized = _normalize(team_name)
+    if not normalized:
+        return aliases
+    # Include common 3-letter team keys from full names (best-effort).
+    words = normalized.split()
+    if words:
+        aliases.add(words[0][:3])
+        aliases.add(words[-1][:3])
+    if len(words) >= 2:
+        aliases.add(f"{words[0][0]}{words[-1][0]}")
+    return {a for a in aliases if a}
 
 
 def _resolve_endpoint(sport_key: str) -> str:
@@ -190,6 +207,85 @@ async def _fetch_rows(sport_key: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _extract_rows_from_csv_text(text_payload: str) -> list[dict[str, Any]]:
+    buf = io.StringIO(text_payload)
+    reader = csv.DictReader(buf)
+    return [{k: v for k, v in row.items()} for row in reader]
+
+
+def _extract_rows_from_freeform_text(text_payload: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for raw_line in text_payload.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        # Handle common separators used in plain text dumps.
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+        elif "," in line:
+            parts = [p.strip() for p in line.split(",")]
+        else:
+            continue
+        if len(parts) < 3:
+            continue
+        rows.append(
+            {
+                "Team": parts[0],
+                "Player": parts[1],
+                "Status": parts[2],
+            }
+        )
+    return rows
+
+
+async def _fetch_nba_official_rows() -> list[dict[str, Any]]:
+    endpoint = settings.nba_official_injuries_url.strip()
+    if not endpoint:
+        return []
+
+    cache_key = f"nba_official:{endpoint}"
+    now = datetime.now(UTC)
+    ttl_seconds = max(30, settings.nba_official_cache_seconds)
+    cached = _CACHE.get(cache_key)
+    if cached and cached[0] > now:
+        return cached[1]
+
+    timeout = max(2.0, settings.nba_official_timeout_seconds)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.get(endpoint)
+        response.raise_for_status()
+        content_type = (response.headers.get("content-type") or "").lower()
+        payload_text = response.text
+
+    rows: list[dict[str, Any]] = []
+    try:
+        if "application/json" in content_type:
+            rows = _extract_rows(response.json())
+        elif "text/csv" in content_type or endpoint.lower().endswith(".csv"):
+            rows = _extract_rows_from_csv_text(payload_text)
+        else:
+            # If this is an HTML landing page, try first CSV link.
+            csv_links = re.findall(r'href=["\']([^"\']+\.csv[^"\']*)["\']', payload_text, flags=re.IGNORECASE)
+            if csv_links:
+                first_csv = urljoin(endpoint, csv_links[0])
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    csv_resp = await client.get(first_csv)
+                    csv_resp.raise_for_status()
+                    rows = _extract_rows_from_csv_text(csv_resp.text)
+            if not rows:
+                rows = _extract_rows_from_freeform_text(payload_text)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "Failed to parse NBA official injury feed payload",
+            exc_info=True,
+            extra={"endpoint": endpoint},
+        )
+        rows = []
+
+    _CACHE[cache_key] = (now + timedelta(seconds=ttl_seconds), rows)
+    return rows
+
+
 async def get_sportsdataio_injury_context(game: Game) -> dict[str, Any] | None:
     if settings.injury_feed_provider.strip().lower() != "sportsdataio":
         return None
@@ -275,4 +371,85 @@ async def get_sportsdataio_injury_context(game: Game) -> dict[str, Any] | None:
             "weighted_injury_load": round(weighted_total, 2),
         },
         "notes": "Derived from SportsDataIO injury statuses for teams in this matchup.",
+    }
+
+
+async def get_nba_official_injury_context(game: Game) -> dict[str, Any] | None:
+    if settings.injury_feed_provider.strip().lower() != "nba_official":
+        return None
+    if game.sport_key != "basketball_nba":
+        return None
+
+    try:
+        rows = await _fetch_nba_official_rows()
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "NBA official injury request failed; falling back to heuristic injury context",
+            exc_info=True,
+            extra={"event_id": game.event_id},
+        )
+        return None
+
+    if not rows:
+        return None
+
+    home_aliases = _nba_team_aliases(game.home_team)
+    away_aliases = _nba_team_aliases(game.away_team)
+    home_flagged = 0
+    away_flagged = 0
+    weighted_total = 0.0
+    impacted_rows = 0
+    strong_status_count = 0
+
+    for row in rows:
+        team_raw = str(
+            row.get("Team")
+            or row.get("TeamName")
+            or row.get("TEAM")
+            or row.get("TEAM_NAME")
+            or row.get("Franchise")
+            or ""
+        )
+        side = _match_game_team(team_raw, home_aliases, away_aliases)
+        if side is None:
+            continue
+
+        status = _extract_status(row)
+        weight = _status_weight(status)
+        if weight <= 0:
+            continue
+
+        impacted_rows += 1
+        weighted_total += weight
+        normalized_status = _normalize(status)
+        if any(flag in normalized_status for flag in ("out", "injured", "reserve", "doubtful")):
+            strong_status_count += 1
+        if side == "home":
+            home_flagged += 1
+        else:
+            away_flagged += 1
+
+    if impacted_rows == 0:
+        return None
+
+    score = int(
+        min(
+            100,
+            round(weighted_total * 15 + strong_status_count * 4 + min(home_flagged + away_flagged, 8) * 2),
+        )
+    )
+
+    return {
+        "event_id": game.event_id,
+        "component": "injuries",
+        "status": "computed",
+        "score": score,
+        "details": {
+            "source": "nba_official",
+            "players_flagged": impacted_rows,
+            "home_players_flagged": home_flagged,
+            "away_players_flagged": away_flagged,
+            "weighted_injury_load": round(weighted_total, 2),
+        },
+        "notes": "Derived from NBA official injury report statuses for teams in this matchup.",
     }

@@ -222,7 +222,10 @@ Auth failure debug checklist:
 - `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`
 
 Optional live injury context (SportsDataIO):
-- `INJURY_FEED_PROVIDER=heuristic|sportsdataio` (default `heuristic`)
+- `INJURY_FEED_PROVIDER=heuristic|sportsdataio|nba_official` (default `heuristic`)
+- `NBA_OFFICIAL_INJURIES_URL` (default `https://official.nba.com/nba-injury-report-2020-21-season/`)
+- `NBA_OFFICIAL_TIMEOUT_SECONDS` (default `8.0`)
+- `NBA_OFFICIAL_CACHE_SECONDS` (default `300`)
 - `SPORTSDATAIO_API_KEY`
 - `SPORTSDATAIO_BASE_URL` (default `https://api.sportsdata.io/v3`)
 - `SPORTSDATAIO_INJURIES_ENDPOINT_NBA`
@@ -233,6 +236,7 @@ Optional live injury context (SportsDataIO):
 
 - Notes:
 - Endpoints are plan-specific at SportsDataIO. Leave endpoint vars blank to keep heuristic fallback behavior.
+- `nba_official` uses a free public source and best-effort parsing (JSON/CSV/HTML). If unavailable, heuristic fallback is automatic.
 - If live feed is unavailable for any reason, context scoring automatically falls back to spread-velocity heuristics.
 
 ## Optional Intelligence Feature Flags
