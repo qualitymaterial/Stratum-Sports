@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${1:-${BASE_URL:-http://134.209.125.6:8000}}"
+BASE_URL="${1:-${BASE_URL:-http://localhost:8000}}"
 API_BASE="${BASE_URL%/}/api/v1"
 
 EMAIL="smoke_$(date +%s)_${RANDOM}@example.com"

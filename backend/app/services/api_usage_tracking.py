@@ -115,11 +115,8 @@ async def get_usage_and_limits(
         ent = (await db.execute(stmt)).scalar_one_or_none()
         soft_limit = ent.soft_limit_monthly if ent else None
         overage_enabled = ent.overage_enabled if ent else False
-        
-        if ent and ent.plan_code in ("api_monthly", "api_annual"):
-            rate_limit = 100
-        else:
-            rate_limit = get_settings().partner_rate_limit_per_minute
+
+        rate_limit = get_settings().partner_rate_limit_per_minute
 
         await cache_soft_limit(redis, user_id, soft_limit)
         await cache_rate_limit(redis, user_id, rate_limit)

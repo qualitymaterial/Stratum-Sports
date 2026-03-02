@@ -31,7 +31,7 @@ Optionally override host:
 
 ```bash
 # [Mac]
-PROD_HOST=104.236.237.83 make prod-smoke
+PROD_HOST=<DROPLET_IP_OR_DOMAIN> make prod-smoke
 ```
 
 ### 0.2 Quick container checks on droplet
@@ -66,7 +66,7 @@ grep -n "stratum" /root/.ssh/authorized_keys
 
 Required secrets:
 
-- `DROPLET_HOST` (example: `104.236.237.83`)
+- `DROPLET_HOST` (example: `<DROPLET_IP_OR_DOMAIN>`)
 - `DROPLET_USER` (`root`)
 - `DROPLET_SSH_KEY` (full private key block from `~/.ssh/id_ed25519`)
 - `GHCR_USERNAME` (`qualitymaterial`)

@@ -39,7 +39,16 @@ import {
   SportKey,
 } from "@/lib/types";
 
-const SIGNAL_OPTIONS = ["ALL", "MOVE", "KEY_CROSS", "MULTIBOOK_SYNC", "DISLOCATION", "STEAM", "EXCHANGE_DIVERGENCE"] as const;
+const SIGNAL_OPTIONS = [
+  "ALL",
+  "MOVE",
+  "KEY_CROSS",
+  "MULTIBOOK_SYNC",
+  "DISLOCATION",
+  "STEAM",
+  "LIVE_SHOCK",
+  "EXCHANGE_DIVERGENCE",
+] as const;
 const MARKET_OPTIONS = ["ALL", "spreads", "totals", "h2h"] as const;
 const PRESET_OPTIONS = ["CUSTOM", "HIGH_CONFIDENCE", "LOW_NOISE", "EARLY_MOVE", "STEAM_ONLY"] as const;
 type PresetOption = (typeof PRESET_OPTIONS)[number];

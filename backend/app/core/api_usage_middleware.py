@@ -54,8 +54,8 @@ class ApiUsageTrackingMiddleware(BaseHTTPMiddleware):
         try:
             partner_limit = await get_cached_rate_limit(redis, user_id)
             if partner_limit is None:
-                # Fallback to Builder limit until cache is populated
-                partner_limit = 100
+                # Fallback to configured partner limit until cache is populated.
+                partner_limit = settings.partner_rate_limit_per_minute
             now = datetime.now(UTC)
             minute_bucket = now.strftime("%Y%m%d%H%M")
             rate_key = f"partner_ratelimit:{user_id}:{minute_bucket}"

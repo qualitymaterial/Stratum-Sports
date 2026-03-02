@@ -34,7 +34,7 @@ pre-push-check:
 	./scripts/pre_push_check.sh
 
 prod-smoke:
-	@HOST="$${PROD_HOST:-157.230.222.181}"; \
+	@HOST="$${PROD_HOST:-api.stratumsports.com}"; \
 	PORT="$${PROD_PORT:-80}"; \
 	echo "Running production smoke checks against $$HOST:$$PORT"; \
 	echo "--- GET /"; \

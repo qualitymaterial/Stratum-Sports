@@ -1,7 +1,9 @@
 """Partner self-serve endpoints for API usage visibility and billing."""
 
+import ipaddress
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select, desc
@@ -16,6 +18,36 @@ from app.models.api_partner_webhook import ApiPartnerWebhook, WebhookDeliveryLog
 from app.models.user import User
 
 router = APIRouter()
+
+
+def _is_valid_partner_webhook_url(value: str) -> tuple[bool, str]:
+    parsed = urlparse(value.strip())
+    if parsed.scheme != "https":
+        return False, "Webhook URL must use https."
+
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return False, "Webhook URL host is required."
+    if host in {"localhost"} or host.endswith(".localhost") or host.endswith(".local"):
+        return False, "Webhook URL host is not allowed."
+
+    # Block direct private/internal address literals.
+    try:
+        ip = ipaddress.ip_address(host)
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return False, "Webhook URL host is not allowed."
+    except ValueError:
+        # Non-IP hostnames are allowed.
+        pass
+
+    return True, ""
 
 
 class WebhookCreate(BaseModel):
@@ -73,7 +105,14 @@ async def create_partner_webhook(
 ) -> WebhookOut:
     """Create a new webhook for the partner."""
     import secrets
-    
+
+    ok, reason = _is_valid_partner_webhook_url(str(payload.url))
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=reason,
+        )
+
     # Check limit? (e.g. max 5 webhooks)
     stmt = select(ApiPartnerWebhook).where(ApiPartnerWebhook.user_id == user.id)
     count = len((await db.execute(stmt)).scalars().all())
@@ -84,7 +123,7 @@ async def create_partner_webhook(
         user_id=user.id,
         url=str(payload.url),
         description=payload.description,
-        secret=f"whsec_{secrets.token_hex(24)}"
+        secret=f"whsec_{secrets.token_hex(24)}",
     )
     db.add(webhook)
     await db.commit()
@@ -109,6 +148,12 @@ async def update_partner_webhook(
         raise HTTPException(status_code=404, detail="Webhook not found")
 
     if payload.url is not None:
+        ok, reason = _is_valid_partner_webhook_url(str(payload.url))
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=reason,
+            )
         webhook.url = str(payload.url)
     if payload.description is not None:
         webhook.description = payload.description
@@ -185,13 +230,13 @@ async def list_partner_webhook_logs(
         .join(ApiPartnerWebhook)
         .where(ApiPartnerWebhook.user_id == user.id)
     )
-    
+
     if webhook_id:
         stmt = stmt.where(WebhookDeliveryLog.webhook_id == webhook_id)
-        
+
     stmt = stmt.order_by(desc(WebhookDeliveryLog.created_at)).limit(limit)
     logs = (await db.execute(stmt)).scalars().all()
-    
+
     return [
         WebhookLogOut.model_validate(log)
         for log in logs

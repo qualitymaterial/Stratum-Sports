@@ -6,10 +6,10 @@ Stratum has pivoted from a premium betting product to a **Market Intelligence In
 The core system now supports real-time signal distribution via a high-performance **Webhook Delivery Engine**, institutional-grade usage metering, and the "Infrastructure" pricing tier.
 
 The highest-leverage path forward is:
-1. Signal delivery scaling (Webhooks v1 shipped).
-2. Institutional analytics (Book dislocation and Steam v2).
-3. Strategic pricing ($149/mo base for Infrastructure partners).
-4. Sales-driven usage anomaly alerting.
+1. Live-shock hardening + channel policy split for public vs private alert surfaces.
+2. Historical/aggregate partner API v1 for external backtesting and conversion.
+3. Pro digest summaries to increase non-realtime engagement and retention.
+4. Player props ingestion foundation under strict cost and reliability guardrails.
 
 This sequence maximizes monetizable analytics value while controlling API spend and preserving reliability.
 
@@ -95,7 +95,7 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 | Runner / scheduler | Polling loop, adaptive cadence, lock, cleanup | `backend/app/tasks/poller.py` (`main`, `run_polling_cycle`, `determine_poll_interval`) |
 | Odds fetch client | External API calls + request-credit header parsing | `backend/app/services/odds_api.py` (`OddsApiClient.fetch_nba_odds`) |
 | Ingestion engine | Normalize, dedupe, persist snapshots, publish realtime updates | `backend/app/services/ingestion.py` (`ingest_odds_cycle`) |
-| Signal engine | Movement detection, key-cross, multibook sync, strength scoring | `backend/app/services/signals.py` (`detect_market_movements`, `compute_strength_score`) |
+| Signal engine | Movement detection, key-cross, multibook sync, dislocation, steam, live-shock, exchange divergence | `backend/app/services/signals.py` (`detect_market_movements`, `compute_strength_score`) |
 | Alert routing | Pro watchlist + Discord preference filtering + send | `backend/app/services/discord_alerts.py` (`dispatch_discord_alerts_for_signals`) |
 | Data shaping for UI/API | Consensus views, chart series, game detail assembly | `backend/app/services/market_data.py` (`build_dashboard_cards`, `build_game_detail`) |
 | Context framework | Stub analytics for injuries/props/pace | `backend/app/services/context_score/*` |
@@ -107,37 +107,54 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 
 ### 2.2 Current Polling Cycle (Fetch -> Transform -> Score -> Alert)
 1. Worker loop starts in `backend/app/tasks/poller.py` and acquires Redis cycle lock (`redis_cycle_lock`).
-2. Poller calls `ingest_odds_cycle` in `backend/app/services/ingestion.py`.
-3. Ingestion calls `OddsApiClient.fetch_nba_odds` in `backend/app/services/odds_api.py`.
-4. Payload normalizes into `OddsSnapshot` rows and `Game` upserts.
-5. Redis dedupe key prevents duplicate snapshot inserts: `odds:last:{event}:{book}:{market}:{outcome}`.
-6. Each inserted snapshot emits Pub/Sub `odds_updates` for realtime stream.
-7. Poller passes updated `event_ids` to `detect_market_movements`.
-8. Signal engine computes `MOVE`, `KEY_CROSS`, `MULTIBOOK_SYNC`, and commits `Signal` rows.
-9. Poller dispatches Discord alerts for Pro watchlist users.
-10. Periodic retention cleanup runs for old snapshots/signals.
-11. Adaptive interval logic responds to provider request-budget headers.
+2. Poller builds close-capture cadence and optional event scoping for near-tip games.
+3. Poller calls `ingest_odds_cycle` in `backend/app/services/ingestion.py`.
+4. Ingestion polls odds per configured sport key via `OddsApiClient.fetch_nba_odds`.
+5. Payload normalizes into `OddsSnapshot` rows and `Game` upserts.
+6. Redis dedupe key prevents duplicate snapshot inserts: `odds:last:{event}:{book}:{market}:{outcome}`.
+7. Each inserted snapshot emits Pub/Sub `odds_updates` for realtime stream.
+8. Ingestion computes and persists consensus snapshots (`market_consensus_snapshots`) when enabled.
+9. Poller passes updated `event_ids` to `detect_market_movements`.
+10. Signal engine computes `MOVE`, `KEY_CROSS`, `MULTIBOOK_SYNC`, `DISLOCATION`, `STEAM`, `LIVE_SHOCK`, and exchange divergence; then commits `Signal` rows.
+11. Poller dispatches Discord alerts and partner webhooks for created signals.
+12. A parallel live-watchlist loop polls only watchlisted live-window games and runs the same ingest/signal/alert path.
+13. Scheduled jobs run in-loop: ops digest, historical backfill, CLV compute, usage flush, and retention cleanup.
+14. Adaptive interval logic responds to provider request-budget headers and close-capture next-due timing.
 
 ### 2.3 Current Signal Rules and Alert Context
 - Spread trigger: abs move `>= 0.5` or key-number cross (`NBA_KEY_NUMBERS`).
 - Total trigger: abs move `>= 1.0`.
 - Multibook trigger: `>= 3` books same direction in 5-minute window.
+- Dislocation trigger: consensus-vs-book deltas with market-specific thresholds.
+- Steam v2 trigger: velocity + synchronized move across at least 4 books in a 3-minute window.
+- Live shock trigger: inplay/near-tip large movement thresholds over a short window (currently hard-coded; pending full config hardening).
+- Exchange divergence: sportsbook-vs-exchange divergence signal path is implemented.
 - Strength score: magnitude + speed + books, clamped to 1..100.
-- Discord controls: `min_strength`, `alert_spreads`, `alert_totals`, `alert_multibook`.
+- Discord controls: `min_strength`, `alert_spreads`, `alert_totals`, `alert_multibook`, and per-connection threshold JSON (books/cooldown/dispersion).
+- Current caveat: structural-core visibility gating is applied in Discord dispatch when `public_structural_core_mode=true`, which suppresses non-structural signal types in that channel.
 - Context score exists but is currently scaffolded (`injuries`, `props`, `pace` proxies).
 
 ### 2.4 Persistence and State
-**Postgres tables (core):**
+**Postgres tables (core + intel):**
 - `games`
 - `odds_snapshots`
 - `signals`
+- `market_consensus_snapshots`
+- `closing_consensus`
+- `clv_records`
+- `regime_snapshots`
 - `watchlists`
 - `discord_connections`
 - `users`
 - `subscriptions`
+- `api_partner_entitlements`
+- `api_partner_keys`
+- `api_partner_usage_periods`
+- `api_partner_webhooks`
 
 **Redis keys/channels (core):**
 - `poller:odds-ingest-lock`
+- `poller:live-watchlist-lock`
 - `odds:last:*`
 - `signal:*`
 - `odds_updates` (pub/sub)
@@ -150,7 +167,11 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 - Key controls:
   - `ODDS_API_*`
   - Poll cadence and daily budget controls
-  - Book/region/market filters
+  - Book/region/market filters + sport-key list
+  - Consensus/dislocation/steam/CLV/backfill toggles and thresholds
+  - Exchange divergence and regime feature flags
+  - Structural-core exposure mode + time-bucket controls
+  - Partner API limits (`partner_soft_limit_monthly`, `partner_rate_limit_per_minute`, overage)
   - `FREE_DELAY_MINUTES`
   - `FREE_WATCHLIST_LIMIT`
 
@@ -163,14 +184,14 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 |---|---:|---|---|
 | Data ingest (pregame odds) | 2 | Async poller, dedupe, upsert, retention cleanup | Single endpoint path only; no modular endpoint selection |
 | Normalization | 2 | Stable schema for h2h/spreads/totals | No generalized normalizer for props/historical/live variants |
-| Scoring/signals | 2 | Clear rules + metadata + unit tests | Missing dislocation/steam-v2/live-shock/CLV signals |
-| Alert routing | 2 | Pro-only, per-user prefs, min-strength, Discord delivery | No batching/digest, no retry queue, no delivery metrics table |
-| Persistence | 2 | Indexed snapshots/signals and normalized games | No consensus snapshot table, no props table, no closing-line table |
-| Scheduling/job coordination | 2 | Redis lock + adaptive intervals + cleanup cadence | Single-loop architecture for all tasks |
-| Monitoring/ops | 1 | Health endpoints, structured logs, optional Sentry | No robust metrics/SLO dashboard |
+| Scoring/signals | 3 | Move/key-cross/multibook + dislocation + steam + live-shock + divergence all integrated | Live-shock config hardening + signal taxonomy consistency still pending |
+| Alert routing | 2 | Discord + partner webhooks + threshold evaluation + cooldown support | Structural-core gating policy needs explicit channel separation; no customer digest pipeline yet |
+| Persistence | 3 | Consensus + closing + CLV + regime persistence shipped | No props table/foundation yet |
+| Scheduling/job coordination | 3 | Main loop + live-watchlist loop + backfill/CLV/digest jobs + adaptive cadence | Workload isolation and queueing still limited |
+| Monitoring/ops | 2 | Health, structured logs, KPI writes, admin ops telemetry | No explicit SLO dashboard/error budgets yet |
 | Docs/runbooks | 2 | README + deploy runbook + user guide | Missing full roadmap spec in one clean execution flow |
-| Testing | 1 | Signal/auth/watchlist/billing/poller tests exist | No broad end-to-end cycle test harness |
-| Backtesting/research | 0-1 | Partial utility work | No full signal-efficacy lifecycle loop |
+| Testing | 2 | Broad unit/integration coverage across signals/admin/billing/CLV/perf-intel | Live-shock loop integration and high-load partner history tests still missing |
+| Backtesting/research | 1 | CLV/performance intel endpoints and exports shipped | Partner-facing historical contract for external backtests still pending |
 
 ### 3.2 Top Strengths
 1. Strong ingestion-to-alert operational loop.
@@ -180,9 +201,9 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 5. Good modular boundaries across fetch/ingest/signal/alert/API layers.
 
 ### 3.3 Top Gaps
-1. No persisted consensus/dislocation layer.
-2. No bounded watchlist live-shock path.
-3. No full close/CLV analytics loop.
+1. No production-hardened bounded watchlist live-shock path (partial implementation exists).
+2. No explicit channel policy split for structural-core gating vs private Pro/API alert channels.
+3. No partner-facing historical/aggregate API contract for backtesting.
 4. No props foundation for phase-2 analytics expansion.
 5. Observability is still below mature SaaS operations level.
 
@@ -200,41 +221,31 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 ### 4.2 Ranked Opportunities
 | Rank | Opportunity | Value | Feasibility | Infra delta | Explainability | Reuse | Total /25 | Tier |
 |---:|---|---:|---:|---:|---:|---:|---:|---|
-| 1 | Book dislocation scanner + dislocation score | 5 | 5 | 5 | 5 | 4 | 24 | Tier 1 |
-| 2 | Steam detection v2 (velocity + tighter book sync) | 5 | 5 | 5 | 4 | 4 | 23 | Tier 1 |
-| 3 | Persisted consensus/dispersion snapshots | 4 | 5 | 4 | 5 | 4 | 22 | Tier 1 |
-| 4 | Watchlist-scoped live shock alerts | 5 | 3 | 3 | 4 | 4 | 19 | Tier 2 |
-| 5 | Historical close ingestion + CLV tracker | 4 | 3 | 3 | 5 | 4 | 19 | Tier 2 |
-| 6 | Player props ingestion foundation | 4 | 3 | 2 | 4 | 5 | 18 | Tier 2 |
-| 7 | Player props mispricing radar | 5 | 2 | 2 | 3 | 5 | 17 | Tier 3 |
+| 1 | Watchlist-scoped live-shock hardening + channel policy split | 5 | 4 | 4 | 5 | 4 | 22 | Tier 1 |
+| 2 | Historical/aggregate partner API access (v1) | 5 | 3 | 4 | 5 | 4 | 21 | Tier 1 |
+| 3 | Pro digest summaries (daily/weekly) | 4 | 4 | 4 | 4 | 4 | 20 | Tier 1 |
+| 4 | Player props ingestion foundation | 4 | 3 | 2 | 4 | 5 | 18 | Tier 2 |
+| 5 | Player props mispricing radar | 5 | 2 | 2 | 3 | 5 | 17 | Tier 3 |
+| 6 | Cross-sport generalization (post-NBA hardening) | 4 | 2 | 3 | 4 | 5 | 18 | Tier 3 |
 
 ### 4.3 Candidate Scoping (Condensed)
-1. **Dislocation scanner**
-   - Value: outlier book detection vs consensus for actionable intel.
-   - Effort: 4-6 days.
-   - Cost impact: near-zero incremental if computed from existing snapshots.
-   - Fit: extends current signal loop.
-2. **Steam v2**
-   - Value: captures coordinated, rapid market shifts.
-   - Effort: 3-5 days.
-   - Cost impact: none incremental.
-3. **Consensus persistence**
-   - Value: stable analytics substrate for dislocation/steam explainability.
-   - Effort: 4-6 days.
-   - Cost impact: none incremental.
-4. **Live shock alerts**
-   - Value: high-value real-time alerting on watchlist events.
+1. **Live-shock hardening + channel policy split**
+   - Value: protects API spend while unlocking high-signal inplay alerts.
+   - Effort: 4-7 days.
+   - Cost impact: low-medium with per-cycle guardrails.
+2. **Historical/aggregate partner API access**
+   - Value: enables partner-side backtesting and accelerates paid conversion.
    - Effort: 1-2 weeks.
-   - Cost impact: medium-high without strict budget controls.
-5. **Historical close + CLV**
-   - Value: quantifies edge and product credibility.
-   - Effort: 1-2 weeks.
-   - Cost impact: low daily after backfill.
-6. **Props foundation**
+   - Cost impact: low-medium (read-heavy query load; no new provider calls).
+3. **Pro digest summaries**
+   - Value: increases engagement and retention outside realtime sessions.
+   - Effort: 4-6 days.
+   - Cost impact: low.
+4. **Props foundation**
    - Value: unlocks next monetization surface.
    - Effort: 1-2 weeks foundation only.
    - Cost impact: high unless tightly scoped.
-7. **Props mispricing radar**
+5. **Props mispricing radar**
    - Value: high but model-dependent.
    - Effort: >2 weeks and additional data dependencies.
    - Cost impact: medium-high.
@@ -244,20 +255,44 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 ## 5) Roadmap (Now / Next / Later)
 
 ### 5.1 Now (0-3 weeks)
-1. Consensus/dispersion persistence.
-2. Dislocation signal type + Discord formatting.
-3. Steam detection v2 using current snapshots.
-4. Minimal intel API endpoints for machine-readable packaging.
+1. Live-shock hardening: feature flags, threshold config, and watchlist-loop burn controls.
+2. Channel policy split: structural-core gating for public surfaces vs private Pro/API alert channels.
+3. Historical/aggregate partner API endpoints v1 (`since/until/cursor` + aggregate buckets + metering).
+4. Signal taxonomy consistency across APIs (`LIVE_SHOCK` filter support where appropriate).
 
 ### 5.2 Next (3-6 weeks)
-1. Watchlist-scoped live shock alerts with hard budget controls.
-2. Historical close ingestion and CLV computations.
-3. Optional Pro digest summaries (daily/weekly).
+1. Pro digest summaries pilot (daily/weekly webhook/email) with delivery SLOs.
+2. Player props ingestion foundation (points/rebounds/assists) behind strict flags.
+3. Observability hardening (SLO dashboard + alerting baselines for signal delivery and partner API).
 
 ### 5.3 Later (6+ weeks)
-1. Player props ingestion foundation (narrow scope first).
-2. Props mispricing radar once projection inputs are available.
-3. Cross-sport generalization after NBA stability is proven.
+1. Props mispricing radar once projection inputs are available.
+2. Cross-sport generalization after NBA stability is proven.
+3. Historical/Aggregate API v2 (bulk export/materialized windows/cohort rollups).
+
+### 5.4 Consolidated Expansion Track (Execution-Ready)
+1. **Watchlist-scoped live shock alerts**
+   - Current status: partial backend implementation exists (`backend/app/services/signals.py` `LIVE_SHOCK` + `backend/app/tasks/poller.py` `run_live_watchlist_loop`).
+   - Gaps: explicit feature flag + thresholds, API burn controls, alert-path tests, and channel policy split for structural-core/public-gating vs private alerts.
+   - Exit criteria: 7-day staging run with stable credit burn and acceptable false-positive rate.
+2. **Historical/aggregate partner API endpoints (v1)**
+   - Current status: internal intel surfaces exist (`/intel/clv/*`, `/intel/signals/*`) but no partner-facing historical contract.
+   - Gaps: partner-key auth surfaces, pagination/time-range filters, aggregate buckets, explicit metering + rate-limit policy for heavier reads.
+   - Exit criteria: partners can query 30-90 day historical windows and aggregate summaries with paid key auth.
+3. **Pro digest summaries**
+   - Current status: internal digest machinery exists (`backend/app/services/ops_digest.py`) and can be adapted.
+   - Gaps: recipient/subscription model, entitlement checks, customer-facing templates, idempotent send tracking, delivery metrics.
+   - Exit criteria: opt-in pilot cohort receives stable daily/weekly digests with delivery/error SLO tracking.
+4. **Player props ingestion foundation**
+   - Current status: current odds normalizer intentionally skips props markets; only proxy context scoring exists.
+   - Gaps: canonical props schema, parser/normalizer support for points/rebounds/assists, retention/indexing strategy, guarded ingest flag.
+   - Exit criteria: props snapshots ingest reliably for a narrow market set with parity tests and cost guardrails.
+
+**Recommended execution order**
+1. Live shock hardening.
+2. Historical/aggregate API v1.
+3. Pro digest summaries.
+4. Props ingestion foundation.
 
 ---
 
@@ -272,23 +307,26 @@ This sequence maximizes monetizable analytics value while controlling API spend 
 6. Usage model is soft-limit + paid overage (not hard cutoff).
 
 ### 6.2 Packaging and Price Model
-1. **API Monthly Plan**
-   - Base price: `$99/month` (current public positioning).
-   - Includes a monthly usage allowance (set in Stripe meter config).
-2. **API Annual Plan**
-   - Annual prepay version of API access.
+1. **Infrastructure Monthly (default)**
+   - Base price: `$149/month`.
+   - Includes `50,000` monthly requests and infrastructure webhook access.
+2. **Infrastructure Annual**
+   - Annual prepay version of Infrastructure access.
    - Includes annual usage allowance and overage billing.
-3. **Overage**
+3. **Optional Builder entry plan**
+   - `$49/month` with lower included request allowance (typically `10,000`).
+   - Can be positioned as a lower-throughput onboarding tier.
+4. **Overage**
    - Metered billing above included allowance.
    - Charged per usage unit (e.g., per 1,000 API calls) on monthly invoice.
-4. **Plan boundaries**
+5. **Plan boundaries**
    - Web Pro and API Partner remain distinct entitlements and separate billing products.
    - Accounts can hold one or both products.
 
 ### 6.3 Entitlements and Access Control
 1. Add explicit API entitlement state per account:
    - `api_access_enabled`
-   - `api_plan_code` (`api_monthly`, `api_annual`)
+   - `api_plan_code` (`api_monthly`, `api_annual`) in current schema; tier-specific codes can be added in a follow-up migration.
    - `api_usage_soft_limit`
    - `api_overage_rate`
 2. API access requires:
@@ -554,6 +592,98 @@ Tier labels represent operational priority bands, not predictive certainty.
 8. Frontend: full performance page, types, API functions.
 9. Tests: ~3000 lines across `test_closing.py`, `test_clv.py`, `test_historical_backfill.py`, `test_performance_intel.py`.
 
+### PR7 — Watchlist-scoped Live Shock hardening
+**Status:** PARTIAL IN CODE; pending production hardening.
+
+**Scope**
+1. Keep live-shock generation scoped to watchlist-tracked live games only.
+2. Add explicit feature flags + configurable thresholds to avoid hard-coded criteria.
+3. Add budget/safety controls (per-cycle max games, max extra requests, kill-switch).
+4. Define structural-core interaction policy so private Pro/API channels can receive intended live-shock alerts without reopening public feeds.
+
+**Files**
+- `backend/app/services/signals.py`
+- `backend/app/tasks/poller.py`
+- `backend/app/services/discord_alerts.py`
+- `backend/app/core/config.py`
+- Tests: `backend/tests/test_live_shock_rules.py`, `backend/tests/test_live_watchlist_loop.py`, `backend/tests/test_discord_alert_payloads.py`
+
+**Config**
+- `LIVE_SHOCK_ENABLED=false`
+- `LIVE_SHOCK_WINDOW_MINUTES=5`
+- `LIVE_SHOCK_MIN_MOVE_SPREAD=4.5`
+- `LIVE_SHOCK_MIN_MOVE_TOTAL=6.5`
+- `LIVE_SHOCK_MIN_ML_PROB_DELTA=0.15`
+- `LIVE_WATCHLIST_LOOP_INTERVAL_SECONDS=60`
+- `LIVE_WATCHLIST_MAX_GAMES_PER_CYCLE=25`
+
+**Acceptance**
+1. Live-shock alerts are emitted only for watchlist games in the live window.
+2. Request burn remains within configured per-cycle/per-day bounds.
+3. No regressions to existing signal generation and Discord/webhook delivery.
+
+### PR8 — Historical/Aggregate Partner API endpoints (v1)
+**Status:** PLANNED.
+
+**Scope**
+1. Add partner-facing historical signal query endpoint with `since`, `until`, `signal_type`, `market`, `min_score`, `limit`, `cursor`.
+2. Add aggregate bucket endpoint (daily/weekly counts, avg strength, CLV rollups where available).
+3. Wire endpoint usage into existing API metering and partner rate-limit headers.
+
+**Files**
+- `backend/app/api/routes/partner.py`
+- `backend/app/services/performance_intel.py`
+- `backend/app/services/api_usage_tracking.py`
+- `backend/app/schemas/partner.py` (new/extended)
+- Tests: `backend/tests/test_partner_historical_api.py`
+
+**Acceptance**
+1. Partners can backtest with stable paginated historical windows.
+2. Aggregate output is deterministic for identical query ranges.
+3. Heavy historical reads are metered and rate-limited separately from webhook push path.
+
+### PR9 — Pro Digest Summaries
+**Status:** PLANNED.
+
+**Scope**
+1. Add user/partner digest subscription preferences (daily/weekly, destination, enabled state).
+2. Build digest payloads from existing intel/performance services (top CLV signals, win-rate proxies, anomalies).
+3. Add idempotent scheduler + send tracking + retry path.
+
+**Files**
+- `backend/app/services/ops_digest.py` (shared internals)
+- `backend/app/services/pro_digest.py` (new)
+- `backend/app/models/pro_digest_subscription.py` (new)
+- `backend/app/models/pro_digest_sent.py` (new)
+- `backend/app/api/routes/partner.py` and/or `backend/app/api/routes/billing.py`
+- Tests: `backend/tests/test_pro_digest.py`
+
+**Acceptance**
+1. Opted-in recipients receive exactly one digest per configured cadence window.
+2. Digest send failures are observable and retryable without duplicate sends.
+3. Free-tier redaction and paid entitlement boundaries are enforced.
+
+### PR10 — Player Props ingestion foundation
+**Status:** PLANNED (Later bucket).
+
+**Scope**
+1. Add narrow props ingest support for `player_points`, `player_rebounds`, `player_assists`.
+2. Add canonical storage model and parser normalization for player identity, line, and price.
+3. Keep behind feature flag and sport whitelist until request-cost profile is validated.
+
+**Files**
+- `backend/app/services/odds_api.py`
+- `backend/app/services/ingestion.py`
+- `backend/app/models/player_prop_snapshot.py` (new)
+- `backend/alembic/versions/<rev>_add_player_prop_snapshots.py`
+- `backend/app/core/config.py`
+- Tests: `backend/tests/test_player_props_normalization.py`, `backend/tests/test_player_props_ingestion.py`
+
+**Acceptance**
+1. Props snapshots persist with deterministic schema and dedupe behavior.
+2. Existing spreads/totals/h2h ingest path remains unchanged when flag is OFF.
+3. Staging burn-rate telemetry proves the props scope is budget-safe before production enablement.
+
 ---
 
 ## 8) Admin Control Plane Roadmap (SaaS Operations)
@@ -775,12 +905,16 @@ Tier labels represent operational priority bands, not predictive certainty.
 3. ~~Merge PR3 and verify dislocation signals + Discord payload quality.~~
 4. ~~Merge PR4 and verify low-noise steam behavior in staging.~~
 5. ~~Enable live flag in staging only; validate request burn and stability.~~ — SHIPPED. `staging_validation_mode` flag, `/health/flags` endpoint, credit burn logging added. Set `STAGING_VALIDATION_MODE=true` on staging to enable all subsystems.
-6. ~~Merge PR5 and validate CLV consistency~~ — SHIPPED (`b8c2ba5`).
+6. ~~Merge PR6 and validate CLV consistency~~ — SHIPPED.
 7. ~~Ship Admin Phase A and B~~ — SHIPPED. Phase A (`previous`), Phase B (`64eee49`, `d3da3b6`).
 8. ~~Add KPI alerts~~ — M5 anomaly alerting shipped (`73738c4`). Remaining: live/historical/props production enablement gating.
+9. Ship PR7 and complete 7-day staged live-shock burn-rate validation.
+10. Ship PR8 and validate partner historical/aggregate API metering under load.
+11. Ship PR9 and run Pro digest pilot with delivery/error SLO tracking.
+12. Ship PR10 in staging-only mode and approve props cost profile for production rollout.
 
 ## Future Surface Area (Not in scope now)
-- Historical API access with explicit date-range query support.
-- Aggregate endpoints (daily performance, bucket summaries, cohort-level rollups).
+- Historical API v2: bulk exports, materialized-window queries, and cohort-level rollups.
+- Aggregate API v2: advanced buckets (venue tier, time bucket, regime, segment joins).
 - Partner keys/entitlements lifecycle and overage billing controls (expand from current monetization track).
 - Score calibration/normalization by market type (moneyline vs spreads vs totals).

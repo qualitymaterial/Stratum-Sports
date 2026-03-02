@@ -13,6 +13,9 @@ export function displaySignalType(signalType: string | null | undefined, display
   if (normalizedSignalType === "EXCHANGE_DIVERGENCE") {
     return "EXCHANGE DIVERGENCE";
   }
+  if (normalizedSignalType === "LIVE_SHOCK") {
+    return "LIVE SHOCK";
+  }
 
   return normalizedSignalType;
 }

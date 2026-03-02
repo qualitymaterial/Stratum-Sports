@@ -134,7 +134,7 @@ Landing page rollout flag:
 
 ## Auth Smoke Test
 
-Run against default production target (`http://134.209.125.6:8000`):
+Run against the default local target (`http://localhost:8000`):
 
 ```bash
 ./scripts/smoke_auth.sh
@@ -180,7 +180,7 @@ Behavior:
 1) Register test user:
 
 ```bash
-curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/register \
+curl -sS -X POST http://<API_HOST>:8000/api/v1/auth/register \
   -H 'Content-Type: application/json' \
   -d '{"email":"verify+'$(date +%s)'@example.com","password":"VerifyPass!123"}'
 ```
@@ -188,7 +188,7 @@ curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/register \
 2) Login:
 
 ```bash
-curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/login \
+curl -sS -X POST http://<API_HOST>:8000/api/v1/auth/login \
   -H 'Content-Type: application/json' \
   -d '{"email":"YOUR_EMAIL","password":"YOUR_PASSWORD"}'
 ```
@@ -196,14 +196,14 @@ curl -sS -X POST http://134.209.125.6:8000/api/v1/auth/login \
 3) Call protected endpoint with bearer token:
 
 ```bash
-curl -sS http://134.209.125.6:8000/api/v1/auth/me \
+curl -sS http://<API_HOST>:8000/api/v1/auth/me \
   -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
 ```
 
 4) Run full smoke test:
 
 ```bash
-./scripts/smoke_auth.sh http://134.209.125.6:8000
+./scripts/smoke_auth.sh http://<API_HOST>:8000
 ```
 
 Auth failure debug checklist:

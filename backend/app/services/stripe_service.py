@@ -175,6 +175,8 @@ async def _sync_api_entitlement(
     stmt = select(ApiPartnerEntitlement).where(ApiPartnerEntitlement.user_id == user.id)
     ent = (await db.execute(stmt)).scalar_one_or_none()
     previous_access = ent.api_access_enabled if ent else None
+    default_soft_limit = settings.partner_soft_limit_monthly
+    default_overage_price = settings.partner_overage_price_cents
 
     if status in {"active", "trialing"}:
         if ent is None:
@@ -182,9 +184,9 @@ async def _sync_api_entitlement(
                 user_id=user.id,
                 plan_code=plan_code,
                 api_access_enabled=True,
-                soft_limit_monthly=10000,
+                soft_limit_monthly=default_soft_limit,
                 overage_enabled=True,
-                overage_price_cents=100,
+                overage_price_cents=default_overage_price,
                 overage_unit_quantity=1000,
             )
             db.add(ent)
@@ -200,6 +202,11 @@ async def _sync_api_entitlement(
         else:
             ent.plan_code = plan_code
             ent.api_access_enabled = True
+            # Backfill missing commercial fields for older rows.
+            if ent.soft_limit_monthly is None:
+                ent.soft_limit_monthly = default_soft_limit
+            if ent.overage_price_cents is None:
+                ent.overage_price_cents = default_overage_price
             if previous_access is False:
                 logger.info(
                     "API access restored",
