@@ -65,17 +65,33 @@ jobs:
             print("D) Updating .env...")
             env_path = "agents/executive_brief/.env"
             db_url = f"postgresql+psycopg://stratum_agent_ro:{password}@{db_service_name}:5432/{db_name}"
-            if os.path.exists(env_path):
-                content = open(env_path).read()
-                if "DATABASE_URL=" in content:
-                    content = re.sub(r'DATABASE_URL=.*', f'DATABASE_URL={db_url}', content)
-                else:
-                    content += f"\nDATABASE_URL={db_url}\n"
-                with open(env_path, 'w') as f: f.write(content)
-            else:
-                with open(env_path, 'w') as f: f.write(f"DATABASE_URL={db_url}\n")
             
-            # Sanity check: verify keys in .env
+            openai_key = None
+            # Search for OpenAI Key in root .env.production or current .env
+            search_paths = [env_path, ".env.production", ".env"]
+            for path in search_paths:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        for line in f:
+                            if "OPENAI_API_KEY=" in line and not line.strip().startswith('#'):
+                                openai_key = line.split('=')[1].strip()
+                                break
+                if openai_key: break
+            
+            current_content = ""
+            if os.path.exists(env_path):
+                with open(env_path, 'r') as f: current_content = f.read()
+
+            if "DATABASE_URL=" in current_content:
+                new_content = re.sub(r'DATABASE_URL=.*', f'DATABASE_URL={db_url}', current_content)
+            else:
+                new_content = current_content + f"\nDATABASE_URL={db_url}\n"
+            
+            if openai_key and "OPENAI_API_KEY=" not in new_content:
+                new_content += f"OPENAI_API_KEY={openai_key}\n"
+            
+            with open(env_path, 'w') as f: f.write(new_content)
+            
             print("Verifying .env keys...")
             with open(env_path, 'r') as f:
                 for line in f:
@@ -83,12 +99,13 @@ jobs:
                         print(f"Key Found: {line.split('=')[0]}")
 
             print("E) Running agent once...")
-            # Using -e flags for reliable injection
+            env_list = []
             with open(env_path, 'r') as f:
-                env_list = []
                 for line in f:
-                    if '=' in line and not line.strip().startswith('#'):
-                        env_list.append(f"-e {line.strip()}")
+                    line = line.strip()
+                    if '=' in line and not line.startswith('#'):
+                        # Using shlex.quote or similar might be safer, but flags should be simple here
+                        env_list.append(f"-e {line}")
             env_flags = " ".join(env_list)
 
             agent_cmd = f"docker compose run --rm {env_flags} -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'"
@@ -105,7 +122,8 @@ jobs:
                 print(f"Reason: {agent_output}")
             
             print("\nFinal Cron Entry:")
-            print(f"0 8 * * * cd /opt/stratum-sports && docker compose run --rm {env_flags} -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py' >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
+            # Use absolute path for .env in cron
+            print(f"0 8 * * * cd /opt/stratum-sports && docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py' >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
 
             EOF
             python3 setup_agent_prod.py
