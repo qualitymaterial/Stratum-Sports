@@ -20,8 +20,13 @@ class SchemaInspector:
             "signals": {"table": None, "timestamp_col": None, "type_col": None}
         }
 
+        # Psycopg2 sometimes prefers postgres:// over postgresql://
+        conn_str = self.db_url
+        if conn_str.startswith("postgresql://"):
+            conn_str = conn_str.replace("postgresql://", "postgres://", 1)
+
         try:
-            conn = psycopg2.connect(self.db_url)
+            conn = psycopg2.connect(conn_str)
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 # 1. List all tables
                 cur.execute("""

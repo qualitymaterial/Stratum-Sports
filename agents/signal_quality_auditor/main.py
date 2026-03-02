@@ -24,8 +24,13 @@ logger = logging.getLogger(__name__)
 
 def execute_queries(db_url, queries):
     results = {}
+    # Psycopg2 sometimes prefers postgres:// over postgresql://
+    conn_str = db_url
+    if conn_str.startswith("postgresql://"):
+        conn_str = conn_str.replace("postgresql://", "postgres://", 1)
+        
     try:
-        conn = psycopg2.connect(db_url)
+        conn = psycopg2.connect(conn_str)
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             for name, sql in queries.items():
                 logger.info(f"Executing {name}...")
