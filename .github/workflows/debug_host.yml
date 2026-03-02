@@ -82,16 +82,12 @@ jobs:
                     f.write(f"DATABASE_URL={db_url}\n")
             
             print("E) Running agent once...")
-            # We must use the .env and install requirements
-            # We'll run pip install first as the container user.
-            # Using -u 0 (root) because we might need to install globally in container or just user.
-            # Better: install to /tmp in container and add to PYTHONPATH or just install.
-            # Let's try installing requirements.
-            setup_cmd = "docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend pip install -r agents/executive_brief/requirements.txt"
+            # Use global --env-file flag for compatibility
+            setup_cmd = f"docker compose --env-file {env_path} run --rm -v /opt/stratum-sports:/repo -w /repo backend pip install -r agents/executive_brief/requirements.txt"
             print(f"Installing deps: {setup_cmd}")
             run(setup_cmd)
 
-            agent_cmd = "docker compose run --rm --env-file agents/executive_brief/.env -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py"
+            agent_cmd = f"docker compose --env-file {env_path} run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py"
             print(f"Executing agent: {agent_cmd}")
             agent_result = subprocess.run(agent_cmd, shell=True, capture_output=True, text=True)
             agent_output = agent_result.stdout + "\n" + agent_result.stderr
@@ -106,7 +102,7 @@ jobs:
                 print(f"Reason: {agent_output}")
             
             print("\nFinal Cron Entry:")
-            print(f"0 8 * * * cd /opt/stratum-sports && docker compose run --rm --env-file agents/executive_brief/.env -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py >> agents/executive_brief/agent.log 2>&1")
+            print(f"0 8 * * * cd /opt/stratum-sports && docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
 
             EOF
             python3 setup_agent_prod.py
