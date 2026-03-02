@@ -29,9 +29,7 @@ jobs:
                 return result.stdout.strip()
 
             print("A) Detecting compose config...")
-            ps_output = subprocess.run("docker compose ps", shell=True, capture_output=True, text=True).stdout
-            
-            # Re-detecting service name more accurately
+            # Re-detecting service name safely
             db_container = run("docker compose ps -q db") or run("docker compose ps -q postgres")
             db_service_name = "db" if " db" in run("docker compose ps --services") else "postgres"
 
@@ -52,7 +50,6 @@ jobs:
             alphabet = string.ascii_letters + string.digits
             password = ''.join(secrets.choice(alphabet) for i in range(24))
             
-            # Using $do$ to avoid $$ expansion
             sql = f"""
             DO $do$ 
             BEGIN
@@ -66,8 +63,6 @@ jobs:
             GRANT SELECT ON ALL TABLES IN SCHEMA public TO stratum_agent_ro;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO stratum_agent_ro;
             """
-            
-            # Escape inner double quotes for shell
             sql_escaped = sql.replace('"', '\\"')
             run(f"docker exec stratum-sports-db-1 psql -U {admin_user} -d {db_name} -c \"{sql_escaped}\"")
 
@@ -87,11 +82,19 @@ jobs:
                     f.write(f"DATABASE_URL={db_url}\n")
             
             print("E) Running agent once...")
-            # Ensure pydantic and other deps are in the image or use run with bind mount
-            # The backend container should already have current code if we pulled and restarted? 
-            # No, standard deploy process restarts with new images.
-            # For now, let's use the bind mount to be sure the agent code is there.
-            agent_output = subprocess.run("docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py", shell=True, capture_output=True, text=True).stdout
+            # We must use the .env and install requirements
+            # We'll run pip install first as the container user.
+            # Using -u 0 (root) because we might need to install globally in container or just user.
+            # Better: install to /tmp in container and add to PYTHONPATH or just install.
+            # Let's try installing requirements.
+            setup_cmd = "docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend pip install -r agents/executive_brief/requirements.txt"
+            print(f"Installing deps: {setup_cmd}")
+            run(setup_cmd)
+
+            agent_cmd = "docker compose run --rm --env-file agents/executive_brief/.env -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py"
+            print(f"Executing agent: {agent_cmd}")
+            agent_result = subprocess.run(agent_cmd, shell=True, capture_output=True, text=True)
+            agent_output = agent_result.stdout + "\n" + agent_result.stderr
             
             print("F) Results:")
             print(f"DB service hostname: {db_service_name}")
@@ -103,7 +106,7 @@ jobs:
                 print(f"Reason: {agent_output}")
             
             print("\nFinal Cron Entry:")
-            print(f"0 8 * * * cd /opt/stratum-sports && docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py >> agents/executive_brief/agent.log 2>&1")
+            print(f"0 8 * * * cd /opt/stratum-sports && docker compose run --rm --env-file agents/executive_brief/.env -v /opt/stratum-sports:/repo -w /repo backend python3 agents/executive_brief/main.py >> agents/executive_brief/agent.log 2>&1")
 
             EOF
             python3 setup_agent_prod.py
