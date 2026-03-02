@@ -11,18 +11,24 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
+            echo "--- AGGRESSIVE NETWORK AUDIT ---"
             CUR_IP=$(curl -s ifconfig.me)
-            echo "Host IP: $CUR_IP"
-            echo "UFW Status:"
-            sudo ufw status verbose || echo "ufw not available"
-            echo "IPTables Filter Table:"
-            sudo iptables -L -n -v | head -n 50
-            echo "Health Check inside BACKEND container:"
-            docker exec stratum-sports-backend-1 curl -v http://localhost:8000/api/v1/health/live || echo "backend failed"
-            echo "Health Check inside FRONTEND container (proxy check):"
-            docker exec stratum-sports-frontend-1 curl -v http://localhost:3000/api/v1/health/live || echo "frontend proxy fail"
-            echo "Health Check FROM HOST to Front-end (Port 80):"
-            curl -v http://localhost:80 || echo "host-to-frontend fail"
+            echo "Observed Public IP: $CUR_IP"
+            echo "--- interfaces ---"
+            ip -4 addr show
+            echo "--- iptables-save (Complete Ruleset) ---"
+            sudo iptables-save
+            echo "--- ss (Socket Statistics) ---"
+            ss -tulpn
+            echo "--- Test Reachability: Starting temporary python server on port 8081 ---"
+            timeout 10s python3 -m http.server 8081 &
+            sleep 2
+            echo "Attempting to curl 8081 from host..."
+            curl -v http://localhost:8081 || echo "local test failed"
+            echo "--- Backend Health ---"
+            docker exec stratum-sports-backend-1 curl -s http://localhost:8000/api/v1/health/live
+            echo "--- Frontend to Backend Internal Curl ---"
+            docker exec stratum-sports-frontend-1 curl -v http://backend:8000/api/v1/health/live
             echo "Backend logs:"
             docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 backend
             echo "Worker logs:"
