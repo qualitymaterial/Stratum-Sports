@@ -14,7 +14,7 @@ Rules:
 3. Be concise and operational.
 
 Output Format:
-{
+{{
   "interpretation": "...",
   "optimizations": ["idea 1", "idea 2", "idea 3"]
-}
+}}
