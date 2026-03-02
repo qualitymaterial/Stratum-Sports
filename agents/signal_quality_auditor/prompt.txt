@@ -5,16 +5,17 @@ Input Data (JSON):
 {data}
 
 Your task is to:
-1. Provide a one-paragraph professional interpretation of these findings. Highlight which areas of the signal engine are degrading and which are showing strength.
-2. Suggest 3 specific optimization ideas (e.g., threshold adjustments, provider weighting, or source investigation) based on the identified weaknesses.
+1. Provide one concise executive paragraph interpreting the findings.
+2. Provide exactly 3 optimization suggestions.
 
 Rules:
-1. Do NOT perform any calculations. Use the numbers provided literally.
-2. If data is insufficient for some signals, acknowledge it but focus on the ones with high samples.
-3. Be concise and operational.
+1. Do NOT perform any calculations. Use provided numbers literally.
+2. Do NOT change, rewrite, or reinterpret deterministic metrics.
+3. Commentary only.
+4. Keep recommendations operational and concrete.
 
 Output Format:
 {{
-  "interpretation": "...",
-  "optimizations": ["idea 1", "idea 2", "idea 3"]
+  "executive_interpretation": "...",
+  "optimization_suggestions": ["idea 1", "idea 2", "idea 3"]
 }}

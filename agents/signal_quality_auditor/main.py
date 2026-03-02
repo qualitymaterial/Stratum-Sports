@@ -49,21 +49,25 @@ def post_to_discord(webhook_url, final_report):
         return
     
     summary = final_report["summary"]
-    interpretation = final_report.get("interpretation", "No interpretation available.")
+    interpretation = final_report.get("executive_interpretation", "No interpretation available.")
     
-    # Identify degrading or high risk signals
-    critical = [s["signal_type"] for s in final_report["signals"] if s["classification"] == "degrading" or s["risk_level"] == "high"]
-    critical_str = "\n".join([f"- {s}" for s in critical]) if critical else "None"
+    # Identify degrading or high-risk segments
+    critical: list[str] = []
+    for sig in final_report.get("signals", []):
+        signal_type = sig.get("signal_type")
+        for market_row in sig.get("markets", []):
+            if market_row.get("classification") in {"degrading", "weakening"} or market_row.get("risk_level") == "high":
+                critical.append(f"{signal_type} / {market_row.get('market')}")
+    critical_str = "\n".join(f"- {item}" for item in critical) if critical else "None"
 
     content = f"""**Signal Quality Audit: {final_report['date']}**
 
 **Summary:**
 - Total Types: {summary['total_signal_types']}
-- Degrading: {summary['degrading_count']}
-- Improving: {summary['improving_count']}
-- Stable: {summary['stable_count']}
+- Degrading Segments: {summary['degrading_segments_count']}
+- High Risk Segments: {summary['high_risk_segments_count']}
 
-**Critical Signals (High Risk/Degrading):**
+**Critical Segments (High Risk/Degrading/Weakening):**
 {critical_str}
 
 **Interpretation:**
@@ -81,8 +85,8 @@ def main():
     model = os.getenv("OPENAI_MODEL", "gpt-4o")
     discord_webhook = os.getenv("DISCORD_WEBHOOK_URL")
 
-    if not db_url or not api_key:
-        logger.error("Missing DATABASE_URL or OPENAI_API_KEY")
+    if not db_url:
+        logger.error("Missing DATABASE_URL")
         return
 
     # 2. Introspect
@@ -105,38 +109,64 @@ def main():
     audit_results = processor.process()
     
     # 5. LLM Interpretation
-    prompt_path = os.path.join(os.path.dirname(__file__), "prompt.txt")
-    with open(prompt_path, "r") as f:
-        prompt_tmpl = f.read()
-    
-    client = OpenAI(api_key=api_key)
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt_tmpl.format(data=json.dumps(audit_results, default=str))},
-                {"role": "user", "content": "Analyze the signal quality data and provide optimizations."}
-            ],
-            response_format={"type": "json_object"}
-        )
-        llm_output = json.loads(response.choices[0].message.content)
-        audit_results.update(llm_output)
-    except Exception as e:
-        logger.error(f"LLM Interpretation failed: {e}")
+    audit_results["executive_interpretation"] = ""
+    audit_results["optimization_suggestions"] = []
+    if api_key:
+        prompt_path = os.path.join(os.path.dirname(__file__), "prompt.txt")
+        with open(prompt_path, "r") as f:
+            prompt_tmpl = f.read()
+        
+        client = OpenAI(api_key=api_key)
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": prompt_tmpl.format(data=json.dumps(audit_results, default=str))},
+                    {"role": "user", "content": "Provide commentary only. Do not change or recompute any metric."}
+                ],
+                response_format={"type": "json_object"}
+            )
+            llm_output = json.loads(response.choices[0].message.content)
+            audit_results["executive_interpretation"] = str(
+                llm_output.get("executive_interpretation", "")
+            )
+            suggestions = llm_output.get("optimization_suggestions", [])
+            if isinstance(suggestions, list):
+                audit_results["optimization_suggestions"] = [str(item) for item in suggestions][:3]
+        except Exception as e:
+            logger.error(f"LLM Interpretation failed: {e}")
+    else:
+        logger.warning("OPENAI_API_KEY missing: skipping interpretation step")
 
     # 6. Save Output
     audit_results["date"] = datetime.now().strftime("%Y-%m-%d")
     out_dir = os.path.join(os.path.dirname(__file__), "out")
     os.makedirs(out_dir, exist_ok=True)
     
-    filename = f"quality_report_{audit_results['date']}.json"
+    filename = f"quality_report_v2_{audit_results['date']}.json"
     file_path = os.path.join(out_dir, filename)
     with open(file_path, "w") as f:
         json.dump(audit_results, f, indent=2)
     
     logger.info(f"Audit saved to {file_path}")
 
-    # 7. Discord
+    # 7. Terminal summary
+    summary = audit_results["summary"]
+    print(f"total signal types: {summary['total_signal_types']}")
+    print(f"degrading segments count: {summary['degrading_segments_count']}")
+    print(f"high risk segments count: {summary['high_risk_segments_count']}")
+    print("top 3 worst drifts:")
+    top_3 = summary.get("top_3_worst_drifts", [])
+    if not top_3:
+        print("- none")
+    else:
+        for row in top_3:
+            print(
+                f"- {row['signal_type']} / {row['market']}: "
+                f"drift={row['drift']:.6f}, sample_7d={row['sample_7d']}"
+            )
+
+    # 8. Discord
     post_to_discord(discord_webhook, audit_results)
 
 if __name__ == "__main__":

@@ -1,104 +1,221 @@
 import logging
-from typing import Dict, Any, List, Optional, cast
+import math
+from datetime import date
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def wilson_interval_95(pos_rate: float, sample_n: int) -> Tuple[Optional[float], Optional[float]]:
+    """Compute Wilson 95% interval for a Bernoulli proportion."""
+    if sample_n <= 0:
+        return None, None
+
+    p = max(0.0, min(1.0, float(pos_rate)))
+    n = float(sample_n)
+    z = 1.96
+    z2 = z * z
+
+    center = (p + (z2 / (2.0 * n))) / (1.0 + (z2 / n))
+    margin = z * math.sqrt((p * (1.0 - p) / n) + (z2 / (4.0 * n * n))) / (1.0 + (z2 / n))
+
+    low = max(0.0, center - margin)
+    high = min(1.0, center + margin)
+    return low, high
+
+
+def _escalate_risk(risk_level: str) -> str:
+    if risk_level == "low":
+        return "medium"
+    if risk_level == "medium":
+        return "high"
+    return "high"
+
+
+def _downgrade_negative_classification(classification: str, risk_level: str) -> Tuple[str, str]:
+    if classification == "degrading":
+        return "weakening", "medium"
+    if classification == "weakening":
+        return "stable", "low"
+    return classification, risk_level
+
+
+def _normalize_rate(raw: Any) -> Optional[float]:
+    if raw is None:
+        return None
+    return float(raw)
+
+
+def _normalize_avg(raw: Any) -> Optional[float]:
+    if raw is None:
+        return None
+    return float(raw)
+
 
 class MetricsProcessor:
     def __init__(self, query_results: Dict[str, List[Dict[str, Any]]]):
         self.query_results = query_results
 
     def process(self) -> Dict[str, Any]:
-        # 1. Pivot results by signal type
-        # Results structure: {signal_type: {attr: val}}
-        master_signals: Dict[str, Dict[str, Any]] = {}
-        
-        # Process 30d stats
-        res_30d = self.query_results.get("clv_30d", [])
-        for r in res_30d:
-            stype = str(r["signal_type"])
-            master_signals[stype] = {
-                "signal_type": stype,
-                "sample_30d": int(r["total_samples"]),
-                "pos_rate_30d": float(r["pos_rate"]) if r["pos_rate"] is not None else 0.0,
-                "avg_clv_30d": float(r["avg_clv"]) if r["avg_clv"] is not None else 0.0,
-                "pos_rate_7d": None,
-                "avg_clv_7d": None,
-                "sample_7d": 0
-            }
-            
-        # Process 7d stats
-        res_7d = self.query_results.get("clv_7d", [])
-        for r in res_7d:
-            stype = str(r["signal_type"])
-            if stype not in master_signals:
-                master_signals[stype] = {
-                    "signal_type": stype,
+        # Keyed by (signal_type, market)
+        segments: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+        # 30d segmented stats
+        for row in self.query_results.get("clv_30d", []):
+            signal_type = str(row["signal_type"])
+            market = str(row["market"])
+            key = (signal_type, market)
+            segments.setdefault(
+                key,
+                {
+                    "signal_type": signal_type,
+                    "market": market,
                     "sample_30d": 0,
+                    "sample_7d": 0,
                     "pos_rate_30d": None,
-                    "avg_clv_30d": None
-                }
-            master_signals[stype].update({
-                "pos_rate_7d": float(r["pos_rate"]) if r["pos_rate"] is not None else 0.0,
-                "avg_clv_7d": float(r["avg_clv"]) if r["avg_clv"] is not None else 0.0,
-                "sample_7d": int(r["total_samples"])
-            })
+                    "pos_rate_7d": None,
+                    "avg_clv_30d": None,
+                    "avg_clv_7d": None,
+                },
+            )
+            segments[key]["sample_30d"] = int(row["total_samples"])
+            segments[key]["pos_rate_30d"] = _normalize_rate(row.get("pos_rate"))
+            segments[key]["avg_clv_30d"] = _normalize_avg(row.get("avg_clv"))
 
-        processed_signals: List[Dict[str, Any]] = []
-        summary = {
-            "total_signal_types": 0,
-            "degrading_count": 0,
-            "improving_count": 0,
-            "stable_count": 0
-        }
+        # 7d segmented stats
+        for row in self.query_results.get("clv_7d", []):
+            signal_type = str(row["signal_type"])
+            market = str(row["market"])
+            key = (signal_type, market)
+            segments.setdefault(
+                key,
+                {
+                    "signal_type": signal_type,
+                    "market": market,
+                    "sample_30d": 0,
+                    "sample_7d": 0,
+                    "pos_rate_30d": None,
+                    "pos_rate_7d": None,
+                    "avg_clv_30d": None,
+                    "avg_clv_7d": None,
+                },
+            )
+            segments[key]["sample_7d"] = int(row["total_samples"])
+            segments[key]["pos_rate_7d"] = _normalize_rate(row.get("pos_rate"))
+            segments[key]["avg_clv_7d"] = _normalize_avg(row.get("avg_clv"))
 
-        # 2. Apply deterministic rules
-        for stype, data in master_signals.items():
-            summary["total_signal_types"] += 1
-            
-            sample_30d = data.get("sample_30d", 0)
-            rate_30d = data.get("pos_rate_30d")
-            rate_7d = data.get("pos_rate_7d")
-            
-            # Defaults
-            classification = "stable"
-            risk_level = "low"
-            
-            if sample_30d is not None and int(sample_30d) < 50:
+        # Build per-signal-type structure and deterministic risk logic.
+        grouped: Dict[str, List[Dict[str, Any]]] = {}
+        top_offenders: List[Dict[str, Any]] = []
+        degrading_segments_count = 0
+        high_risk_segments_count = 0
+
+        for (signal_type, market), seg in sorted(segments.items(), key=lambda kv: (kv[0][0], kv[0][1])):
+            sample_30d = int(seg.get("sample_30d", 0))
+            sample_7d = int(seg.get("sample_7d", 0))
+            pos_rate_30d = seg.get("pos_rate_30d")
+            pos_rate_7d = seg.get("pos_rate_7d")
+            avg_clv_30d = seg.get("avg_clv_30d")
+            avg_clv_7d = seg.get("avg_clv_7d")
+            drift: Optional[float] = None
+            wilson_low: Optional[float] = None
+            wilson_high: Optional[float] = None
+
+            # Baseline classification
+            if sample_30d < 50:
                 classification = "insufficient_data"
-            elif rate_7d is None or rate_30d is None:
-                classification = "insufficient_data"
+                risk_level = "low"
+            elif pos_rate_7d is None or pos_rate_30d is None:
+                classification = "data_gap"
+                risk_level = "low"
             else:
-                # Deterministic float comparison
-                diff = float(cast(float, rate_7d)) - float(cast(float, rate_30d))
-                if diff < -0.05:
+                drift = pos_rate_7d - pos_rate_30d
+                if drift < -0.05:
                     classification = "degrading"
-                    summary["degrading_count"] += 1
-                elif diff > 0.05:
+                    risk_level = "high"
+                elif drift < -0.03:
+                    classification = "weakening"
+                    risk_level = "medium"
+                elif drift > 0.05:
                     classification = "improving"
-                    summary["improving_count"] += 1
+                    risk_level = "low"
                 else:
                     classification = "stable"
-                    summary["stable_count"] += 1
-            
-            # Risk level (High if pos_rate_7d < 48%)
-            if rate_7d is not None and float(cast(float, rate_7d)) < 0.48:
-                risk_level = "high"
-            elif classification == "degrading":
-                risk_level = "medium"
-            
-            # Assemble record
-            processed_signals.append({
-                "signal_type": stype,
+                    risk_level = "low"
+
+                # Low sample in 7d: reduce negative-alert severity by one level
+                if sample_7d < 100:
+                    classification, risk_level = _downgrade_negative_classification(classification, risk_level)
+
+                wilson_low, wilson_high = wilson_interval_95(pos_rate_7d, sample_7d)
+
+                # Wilson upper bound guardrail (negative segments only)
+                if (
+                    classification in {"degrading", "weakening"}
+                    and wilson_high is not None
+                    and wilson_high < 0.48
+                ):
+                    risk_level = "high"
+
+            if classification in {"degrading", "weakening"}:
+                degrading_segments_count += 1
+            if risk_level == "high":
+                high_risk_segments_count += 1
+
+            market_row = {
+                "market": market,
                 "sample_30d": sample_30d,
-                "pos_rate_30d": rate_30d,
-                "pos_rate_7d": rate_7d,
-                "avg_clv_30d": data.get("avg_clv_30d"),
-                "avg_clv_7d": data.get("avg_clv_7d"),
+                "sample_7d": sample_7d,
+                "pos_rate_30d": round(pos_rate_30d, 6) if pos_rate_30d is not None else None,
+                "pos_rate_7d": round(pos_rate_7d, 6) if pos_rate_7d is not None else None,
+                "wilson_low_7d": round(wilson_low, 6) if wilson_low is not None else None,
+                "wilson_high_7d": round(wilson_high, 6) if wilson_high is not None else None,
+                "avg_clv_30d": round(avg_clv_30d, 6) if avg_clv_30d is not None else None,
+                "avg_clv_7d": round(avg_clv_7d, 6) if avg_clv_7d is not None else None,
                 "classification": classification,
-                "risk_level": risk_level
-            })
+                "risk_level": risk_level,
+                "drift": round(drift, 6) if drift is not None else None,
+            }
+            grouped.setdefault(signal_type, []).append(market_row)
+
+            if classification in {"degrading", "weakening"}:
+                reason = (
+                    f"drift={drift:.4f} (7d={pos_rate_7d:.4f}, 30d={pos_rate_30d:.4f}), "
+                    f"sample_7d={sample_7d}"
+                )
+                top_offenders.append(
+                    {
+                        "signal_type": signal_type,
+                        "market": market,
+                        "drift": round(drift, 6),
+                        "sample_7d": sample_7d,
+                        "classification": classification,
+                        "risk_level": risk_level,
+                        "reason": reason,
+                    }
+                )
+
+        top_offenders.sort(key=lambda row: row["drift"])
+        top_3_worst_drifts = top_offenders[:3]
+
+        signals = [
+            {
+                "signal_type": signal_type,
+                "markets": sorted(markets, key=lambda row: row["market"]),
+            }
+            for signal_type, markets in sorted(grouped.items(), key=lambda kv: kv[0])
+        ]
+
+        summary = {
+            "total_signal_types": len(signals),
+            "degrading_segments_count": degrading_segments_count,
+            "high_risk_segments_count": high_risk_segments_count,
+            "top_3_worst_drifts": top_3_worst_drifts,
+        }
 
         return {
+            "date": str(date.today()),
             "summary": summary,
-            "signals": processed_signals
+            "signals": signals,
+            "top_offenders": top_offenders,
         }

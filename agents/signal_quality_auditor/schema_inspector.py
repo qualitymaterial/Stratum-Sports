@@ -1,4 +1,3 @@
-import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
@@ -16,8 +15,15 @@ class SchemaInspector:
         - signals (signals)
         """
         schema_map = {
-            "clv": {"table": None, "timestamp_col": None, "value_col": None, "type_col": None},
-            "signals": {"table": None, "timestamp_col": None, "type_col": None}
+            "clv": {
+                "table": None,
+                "timestamp_col": None,
+                "type_col": None,
+                "market_col": None,
+                "line_col": None,
+                "prob_col": None,
+            },
+            "signals": {"table": None, "timestamp_col": None, "type_col": None},
         }
 
         # Psycopg2 prefers postgres:// and doesn't support +driver prefixes
@@ -44,9 +50,19 @@ class SchemaInspector:
                 if clv_table:
                     schema_map["clv"]["table"] = clv_table
                     cols = self._get_columns(cur, clv_table)
-                    schema_map["clv"]["timestamp_col"] = next((c for c in cols if 'computed' in c or 'time' in c or 'at' in c), None)
-                    schema_map["clv"]["value_col"] = next((c for c in cols if 'clv_line' in c or 'avg_clv' in c or 'prob' in c or 'line' in c), None)
-                    schema_map["clv"]["type_col"] = next((c for c in cols if 'signal_type' in c or 'type' in c), None)
+                    schema_map["clv"]["timestamp_col"] = (
+                        "computed_at"
+                        if "computed_at" in cols
+                        else next((c for c in cols if "computed" in c or "time" in c or c.endswith("_at")), None)
+                    )
+                    schema_map["clv"]["type_col"] = (
+                        "signal_type" if "signal_type" in cols else next((c for c in cols if "type" in c), None)
+                    )
+                    schema_map["clv"]["market_col"] = (
+                        "market" if "market" in cols else next((c for c in cols if "market" in c), None)
+                    )
+                    schema_map["clv"]["line_col"] = "clv_line" if "clv_line" in cols else None
+                    schema_map["clv"]["prob_col"] = "clv_prob" if "clv_prob" in cols else None
 
                 # 3. Match Signals table
                 signal_table = next((t for t in tables if 'signal' in t and t != clv_table), None)
