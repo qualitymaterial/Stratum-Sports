@@ -13,7 +13,10 @@ from query_builder import QueryBuilder
 from metrics import MetricsProcessor
 
 # Setup
-load_dotenv()
+# Load local .env first, then fallback to environment variables
+agent_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(agent_dir, ".env"))
+load_dotenv() # Fallback to standard locations if needed
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

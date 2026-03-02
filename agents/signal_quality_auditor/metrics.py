@@ -1,25 +1,26 @@
 import logging
+from typing import Dict, Any, List, Optional, cast
 
 logger = logging.getLogger(__name__)
 
 class MetricsProcessor:
-    def __init__(self, query_results):
+    def __init__(self, query_results: Dict[str, List[Dict[str, Any]]]):
         self.query_results = query_results
 
-    def process(self):
+    def process(self) -> Dict[str, Any]:
         # 1. Pivot results by signal type
         # Results structure: {signal_type: {attr: val}}
-        master_signals = {}
+        master_signals: Dict[str, Dict[str, Any]] = {}
         
         # Process 30d stats
         res_30d = self.query_results.get("clv_30d", [])
         for r in res_30d:
-            stype = r["signal_type"]
+            stype = str(r["signal_type"])
             master_signals[stype] = {
                 "signal_type": stype,
-                "sample_30d": r["total_samples"],
-                "pos_rate_30d": r["pos_rate"],
-                "avg_clv_30d": r["avg_clv"],
+                "sample_30d": int(r["total_samples"]),
+                "pos_rate_30d": float(r["pos_rate"]) if r["pos_rate"] is not None else 0.0,
+                "avg_clv_30d": float(r["avg_clv"]) if r["avg_clv"] is not None else 0.0,
                 "pos_rate_7d": None,
                 "avg_clv_7d": None,
                 "sample_7d": 0
@@ -28,7 +29,7 @@ class MetricsProcessor:
         # Process 7d stats
         res_7d = self.query_results.get("clv_7d", [])
         for r in res_7d:
-            stype = r["signal_type"]
+            stype = str(r["signal_type"])
             if stype not in master_signals:
                 master_signals[stype] = {
                     "signal_type": stype,
@@ -37,12 +38,12 @@ class MetricsProcessor:
                     "avg_clv_30d": None
                 }
             master_signals[stype].update({
-                "pos_rate_7d": r["pos_rate"],
-                "avg_clv_7d": r["avg_clv"],
-                "sample_7d": r["total_samples"]
+                "pos_rate_7d": float(r["pos_rate"]) if r["pos_rate"] is not None else 0.0,
+                "avg_clv_7d": float(r["avg_clv"]) if r["avg_clv"] is not None else 0.0,
+                "sample_7d": int(r["total_samples"])
             })
 
-        processed_signals = []
+        processed_signals: List[Dict[str, Any]] = []
         summary = {
             "total_signal_types": 0,
             "degrading_count": 0,
@@ -62,12 +63,13 @@ class MetricsProcessor:
             classification = "stable"
             risk_level = "low"
             
-            if sample_30d < 50:
+            if sample_30d is not None and int(sample_30d) < 50:
                 classification = "insufficient_data"
             elif rate_7d is None or rate_30d is None:
                 classification = "insufficient_data"
             else:
-                diff = rate_7d - rate_30d
+                # Deterministic float comparison
+                diff = float(cast(float, rate_7d)) - float(cast(float, rate_30d))
                 if diff < -0.05:
                     classification = "degrading"
                     summary["degrading_count"] += 1
@@ -79,7 +81,7 @@ class MetricsProcessor:
                     summary["stable_count"] += 1
             
             # Risk level (High if pos_rate_7d < 48%)
-            if rate_7d is not None and rate_7d < 0.48:
+            if rate_7d is not None and float(cast(float, rate_7d)) < 0.48:
                 risk_level = "high"
             elif classification == "degrading":
                 risk_level = "medium"
