@@ -1,0 +1,24 @@
+name: manual_agent_run
+on:
+  workflow_dispatch:
+jobs:
+  run_agents:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Executive Brief and Signal Quality Auditor
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            cd /opt/stratum-sports
+            echo "--- RUNNING EXECUTIVE BRIEF ---"
+            docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'
+            
+            echo "--- RUNNING SIGNAL QUALITY AUDITOR ---"
+            # Ensure out folder exists and has right permissions
+            mkdir -p agents/signal_quality_auditor/out
+            chmod -R 777 agents/signal_quality_auditor/out
+            cp agents/executive_brief/.env agents/signal_quality_auditor/.env
+            docker compose run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/signal_quality_auditor/requirements.txt --quiet && python3 agents/signal_quality_auditor/main.py'
