@@ -16,3 +16,7 @@ jobs:
             git pull
             # Use the existing production .env for the test
             docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py'
+            echo "--- BRIEF OUTPUT ---"
+            cat /opt/stratum-sports/agents/executive_brief/out/executive_brief_$(date +%Y-%m-%d).json
+            echo "--- AGENT LOG ---"
+            tail -n 20 /opt/stratum-sports/agents/executive_brief/agent.log
