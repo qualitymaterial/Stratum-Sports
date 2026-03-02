@@ -400,20 +400,25 @@ jobs:
             FRONTEND_IMAGE="ghcr.io/qualitymaterial/stratum-sports-frontend:${IMAGE_TAG}"
             export BACKEND_IMAGE WORKER_IMAGE FRONTEND_IMAGE
             persist_image_env
-            for ref in "$BACKEND_IMAGE" "$WORKER_IMAGE" "$FRONTEND_IMAGE"; do
-              case "$ref" in
-                *:latest)
-                  echo "ERROR: mutable :latest tag detected in deploy image ref: $ref"
-                  exit 1
-                  ;;
-                *:"$IMAGE_TAG")
-                  ;;
-                *)
-                  echo "ERROR: image ref does not match deploy SHA $IMAGE_TAG: $ref"
-                  exit 1
-                  ;;
-              esac
-            done
+            if [ "${BACKEND_IMAGE##*:}" = "latest" ] || [ "${WORKER_IMAGE##*:}" = "latest" ] || [ "${FRONTEND_IMAGE##*:}" = "latest" ]; then
+              echo "ERROR: mutable :latest tag detected in deploy image refs"
+              echo "BACKEND_IMAGE=$BACKEND_IMAGE"
+              echo "WORKER_IMAGE=$WORKER_IMAGE"
+              echo "FRONTEND_IMAGE=$FRONTEND_IMAGE"
+              exit 1
+            fi
+            if [ "$BACKEND_IMAGE" != "ghcr.io/qualitymaterial/stratum-sports-backend:${IMAGE_TAG}" ]; then
+              echo "ERROR: BACKEND_IMAGE does not match deploy SHA $IMAGE_TAG: $BACKEND_IMAGE"
+              exit 1
+            fi
+            if [ "$WORKER_IMAGE" != "ghcr.io/qualitymaterial/stratum-sports-backend:${IMAGE_TAG}" ]; then
+              echo "ERROR: WORKER_IMAGE does not match deploy SHA $IMAGE_TAG: $WORKER_IMAGE"
+              exit 1
+            fi
+            if [ "$FRONTEND_IMAGE" != "ghcr.io/qualitymaterial/stratum-sports-frontend:${IMAGE_TAG}" ]; then
+              echo "ERROR: FRONTEND_IMAGE does not match deploy SHA $IMAGE_TAG: $FRONTEND_IMAGE"
+              exit 1
+            fi
 
             if ! compose -f docker-compose.prod.yml --env-file .env.production pull backend worker frontend; then
               echo "ERROR: image pull failed"
