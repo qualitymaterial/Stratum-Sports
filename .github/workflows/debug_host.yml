@@ -69,19 +69,22 @@ jobs:
             # Aggressive search for OpenAI Key
             openai_key = None
             print("Searching for OPENAI_API_KEY...")
-            find_output = run("find /opt/stratum-sports -name '.env*' -not -path '*/.*'").split('\n')
-            print(f"Discovered env files: {find_output}")
+            # Using grep to find all .env files regardless of path
+            env_files = run("find /opt/stratum-sports -name '.env*'").split('\n')
+            print(f"Potential env files: {[f for f in env_files if f]}")
             
-            for path in find_output:
+            for path in env_files:
                 if path and os.path.exists(path):
-                    with open(path, 'r') as f:
-                        for line in f:
-                            if "OPENAI_API_KEY=" in line and not line.strip().startswith('#'):
-                                key_val = line.split('=', 1)[1].strip().strip("'").strip('"')
-                                if key_val and len(key_val) > 10: # Sanity check for real key
-                                    openai_key = key_val
-                                    print(f"Found candidate key in {path}")
-                                    break
+                    try:
+                        with open(path, 'r') as f:
+                            for line in f:
+                                if "OPENAI_API_KEY=" in line and not line.strip().startswith('#'):
+                                    val = line.split('=', 1)[1].strip().strip("'").strip('"')
+                                    if val and len(val) > 20: 
+                                        openai_key = val
+                                        print(f"Found Key in {path}")
+                                        break
+                    except: continue
                 if openai_key: break
             
             if not openai_key:
@@ -96,12 +99,11 @@ jobs:
             else:
                 content += f"\nDATABASE_URL={db_url}\n"
             
-            if openai_key and "OPENAI_API_KEY=" not in content:
-                content += f"OPENAI_API_KEY={openai_key}\n"
-            elif openai_key and "OPENAI_API_KEY=" in content:
-                # Update existing if it was a placeholder
-                if "YOUR_OAI_KEY" in content or "sk-PROJ-..." in content:
+            if openai_key:
+                if "OPENAI_API_KEY=" in content:
                     content = re.sub(r'OPENAI_API_KEY=.*', f'OPENAI_API_KEY={openai_key}', content)
+                else:
+                    content += f"OPENAI_API_KEY={openai_key}\n"
             
             with open(env_path, 'w') as f: f.write(content)
             
@@ -117,7 +119,6 @@ jobs:
                 for line in f:
                     line = line.strip()
                     if '=' in line and not line.startswith('#'):
-                        # Using shlex.quote or simple concatenation
                         k, v = line.split('=', 1)
                         env_list.append(f"-e {k}='{v}'")
             env_flags = " ".join(env_list)
@@ -136,7 +137,6 @@ jobs:
                 print(f"Reason: {agent_output}")
             
             print("\nFinal Cron Entry:")
-            # Use absolute path for .env in cron
             print(f"0 8 * * * cd /opt/stratum-sports && docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/executive_brief/requirements.txt --quiet && python3 agents/executive_brief/main.py' >> /opt/stratum-sports/agents/executive_brief/agent.log 2>&1")
 
             EOF
