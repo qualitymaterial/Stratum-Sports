@@ -11,24 +11,15 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
           script: |
-            echo "--- AGGRESSIVE NETWORK AUDIT ---"
-            CUR_IP=$(curl -s ifconfig.me)
-            echo "Observed Public IP: $CUR_IP"
-            echo "--- interfaces ---"
-            ip -4 addr show
-            echo "--- iptables-save (Complete Ruleset) ---"
-            sudo iptables-save
-            echo "--- ss (Socket Statistics) ---"
-            ss -tulpn
-            echo "--- Test Reachability: Starting temporary python server on port 8081 ---"
-            timeout 10s python3 -m http.server 8081 &
-            sleep 2
-            echo "Attempting to curl 8081 from host..."
-            curl -v http://localhost:8081 || echo "local test failed"
-            echo "--- Backend Health ---"
-            docker exec stratum-sports-backend-1 curl -s http://localhost:8000/api/v1/health/live
-            echo "--- Frontend to Backend Internal Curl ---"
-            docker exec stratum-sports-frontend-1 curl -v http://backend:8000/api/v1/health/live
+            echo "--- AGGRESSIVE NETWORK AUDIT V2 ---"
+            TRUE_IP=$(curl -s ifconfig.me)
+            echo "Public IP (base64): $(echo $TRUE_IP | base64)"
+            echo "Internal IP Listing (eth0):"
+            ip addr show eth0
+            echo "--- Check for 3000 mapping ---"
+            docker compose -f docker-compose.prod.yml ps
+            echo "--- Local Curl to 80 ---"
+            curl -I http://localhost:80
             echo "Backend logs:"
             docker compose -f docker-compose.prod.yml --env-file .env.production logs --tail 100 backend
             echo "Worker logs:"
