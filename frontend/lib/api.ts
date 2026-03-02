@@ -45,6 +45,7 @@ import {
   WebhookOut,
   WebhookLogOut,
   PartnerBillingSummary,
+  PlayerPropRow,
   PublicTopAlphaCapture,
   PublicLiquidityHeatmap,
 } from "@/lib/types";
@@ -549,6 +550,22 @@ export async function getDashboardCards(
 
 export async function getGameDetail(eventId: string, token: string) {
   return apiRequest<GameDetail>(`/games/${eventId}`, { token });
+}
+
+export async function getGamePlayerProps(
+  eventId: string,
+  token: string,
+  options: {
+    market?: "player_points" | "player_rebounds" | "player_assists";
+    limit?: number;
+  } = {},
+) {
+  const params = new URLSearchParams();
+  appendOptionalParam(params, "market", options.market);
+  appendOptionalParam(params, "limit", options.limit);
+  const query = params.toString();
+  const path = query ? `/games/${eventId}/props?${query}` : `/games/${eventId}/props`;
+  return apiRequest<PlayerPropRow[]>(path, { token });
 }
 
 export async function getGames(

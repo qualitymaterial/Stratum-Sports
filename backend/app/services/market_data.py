@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.tier import delayed_cutoff_for_user, is_pro
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.models.player_prop_snapshot import PlayerPropSnapshot
 from app.models.signal import Signal
 from app.models.user import User
 from app.services.context_score import build_context_score
@@ -17,10 +18,76 @@ from app.services.public_signal_surface import is_structural_core_visible
 from app.services.signals import serialize_signal
 
 logger = logging.getLogger(__name__)
+ALLOWED_PLAYER_PROP_MARKETS = {"player_points", "player_rebounds", "player_assists"}
 
 
 def _avg(values: list[float]) -> float | None:
     return float(mean(values)) if values else None
+
+
+def _collapse_latest_player_props_rows(
+    snapshots: list[PlayerPropSnapshot],
+    *,
+    limit: int | None = None,
+) -> list[dict]:
+    latest_props_keyed: dict[tuple[str, str, str, str], PlayerPropSnapshot] = {}
+    for snap in snapshots:
+        latest_props_keyed[
+            (
+                snap.sportsbook_key,
+                snap.market,
+                snap.player_name,
+                snap.outcome_name,
+            )
+        ] = snap
+
+    rows = [
+        {
+            "sportsbook_key": snap.sportsbook_key,
+            "market": snap.market,
+            "player_name": snap.player_name,
+            "outcome_name": snap.outcome_name,
+            "line": snap.line,
+            "price": snap.price,
+            "fetched_at": snap.fetched_at,
+        }
+        for snap in sorted(
+            latest_props_keyed.values(),
+            key=lambda s: (
+                s.market,
+                s.player_name,
+                s.outcome_name,
+                s.sportsbook_key,
+            ),
+        )
+    ]
+    if isinstance(limit, int) and limit > 0:
+        return rows[:limit]
+    return rows
+
+
+async def list_game_player_props(
+    db: AsyncSession,
+    user: User,
+    event_id: str,
+    *,
+    market: str | None = None,
+    limit: int = 500,
+) -> list[dict]:
+    filters = [PlayerPropSnapshot.event_id == event_id]
+    cutoff = delayed_cutoff_for_user(user)
+    if cutoff:
+        filters.append(PlayerPropSnapshot.fetched_at <= cutoff)
+    if market:
+        filters.append(PlayerPropSnapshot.market == market)
+
+    stmt = (
+        select(PlayerPropSnapshot)
+        .where(and_(*filters))
+        .order_by(PlayerPropSnapshot.fetched_at.asc())
+    )
+    snapshots = (await db.execute(stmt)).scalars().all()
+    return _collapse_latest_player_props_rows(snapshots, limit=limit)
 
 
 async def list_upcoming_games(
@@ -182,6 +249,8 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
     )
     snapshots = (await db.execute(snapshots_stmt)).scalars().all()
 
+    player_props_rows = await list_game_player_props(db, user, event_id, limit=500)
+
     latest_keyed: dict[tuple[str, str, str], OddsSnapshot] = {}
     chart_bucket: dict[datetime, dict[str, list[float]]] = defaultdict(
         lambda: {"spreads": [], "totals": [], "h2h_home": [], "h2h_away": []}
@@ -268,6 +337,7 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         "away_team": game.away_team,
         "commence_time": game.commence_time,
         "odds": odds_rows,
+        "player_props": player_props_rows,
         "chart_series": chart_series,
         "signals": [serialize_signal(signal, pro_user=pro_user) for signal in signals],
         "context_scaffold": context_scaffold,

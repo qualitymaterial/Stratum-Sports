@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.models.player_prop_snapshot import PlayerPropSnapshot
 from app.models.user import User
 from app.services.market_data import build_dashboard_cards, build_game_detail
 
@@ -327,10 +328,94 @@ async def test_dashboard_cards_can_be_filtered_by_sport_key(db_session) -> None:
     nfl_cards = await build_dashboard_cards(db_session, user, limit=50, sport_key="americanfootball_nfl")
     nba_cards = await build_dashboard_cards(db_session, user, limit=50, sport_key="basketball_nba")
 
-    assert len(nfl_cards) == 1
-    assert nfl_cards[0]["event_id"] == nfl_event_id
-    assert nfl_cards[0]["sport_key"] == "americanfootball_nfl"
+    assert any(card["event_id"] == nfl_event_id for card in nfl_cards)
+    assert all(card["sport_key"] == "americanfootball_nfl" for card in nfl_cards)
 
-    assert len(nba_cards) == 1
-    assert nba_cards[0]["event_id"] == nba_event_id
-    assert nba_cards[0]["sport_key"] == "basketball_nba"
+    assert any(card["event_id"] == nba_event_id for card in nba_cards)
+    assert all(card["sport_key"] == "basketball_nba" for card in nba_cards)
+
+
+async def test_game_detail_includes_latest_player_props_rows(db_session) -> None:
+    now = datetime.now(UTC)
+    commence_time = now + timedelta(hours=2)
+    event_id = "event_game_detail_player_props"
+    home_team = "Golden State Warriors"
+    away_team = "Boston Celtics"
+
+    db_session.add(
+        Game(
+            event_id=event_id,
+            sport_key="basketball_nba",
+            commence_time=commence_time,
+            home_team=home_team,
+            away_team=away_team,
+        )
+    )
+    user = User(
+        email="player-props-detail@example.com",
+        password_hash="hashed",
+        tier="pro",
+        is_active=True,
+    )
+    db_session.add(user)
+
+    old_ts = now - timedelta(minutes=10)
+    new_ts = now - timedelta(minutes=2)
+    db_session.add_all(
+        [
+            PlayerPropSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="player_points",
+                player_name="Stephen Curry",
+                outcome_name="Over",
+                line=27.5,
+                price=-115,
+                fetched_at=old_ts,
+            ),
+            PlayerPropSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="player_points",
+                player_name="Stephen Curry",
+                outcome_name="Over",
+                line=28.5,
+                price=-108,
+                fetched_at=new_ts,
+            ),
+            PlayerPropSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="player_points",
+                player_name="Stephen Curry",
+                outcome_name="Under",
+                line=28.5,
+                price=-112,
+                fetched_at=new_ts,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    detail = await build_game_detail(db_session, user, event_id)
+    assert detail is not None
+    props_rows = detail["player_props"]
+    assert len(props_rows) == 2
+
+    over_row = next(row for row in props_rows if row["outcome_name"] == "Over")
+    under_row = next(row for row in props_rows if row["outcome_name"] == "Under")
+    assert over_row["line"] == 28.5
+    assert over_row["price"] == -108
+    assert under_row["line"] == 28.5

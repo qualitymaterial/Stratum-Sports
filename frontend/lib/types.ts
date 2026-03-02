@@ -55,6 +55,16 @@ export type DashboardCard = {
   signals: Signal[];
 };
 
+export type PlayerPropRow = {
+  sportsbook_key: string;
+  market: string;
+  player_name: string;
+  outcome_name: string;
+  line: number | null;
+  price: number;
+  fetched_at: string;
+};
+
 export type GameDetail = {
   event_id: string;
   home_team: string;
@@ -68,6 +78,7 @@ export type GameDetail = {
     price: number;
     fetched_at: string;
   }>;
+  player_props: PlayerPropRow[];
   chart_series: Array<{
     timestamp: string;
     spreads: number | null;

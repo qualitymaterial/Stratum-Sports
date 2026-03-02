@@ -9,9 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, require_pro_user
 from app.core.database import get_db
+from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
 from app.models.user import User
-from app.services.market_data import build_game_detail, list_upcoming_games
+from app.services.market_data import (
+    ALLOWED_PLAYER_PROP_MARKETS,
+    build_game_detail,
+    list_game_player_props,
+    list_upcoming_games,
+)
 
 router = APIRouter()
 
@@ -48,6 +54,28 @@ async def game_detail(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
     return detail
+
+
+@router.get("/{event_id}/props")
+async def game_player_props(
+    event_id: str,
+    market: str | None = Query(
+        None,
+        pattern="^(player_points|player_rebounds|player_assists)$",
+    ),
+    limit: int = Query(500, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    game_stmt = select(Game.event_id).where(Game.event_id == event_id)
+    game_exists = (await db.execute(game_stmt)).scalar_one_or_none()
+    if game_exists is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Game not found")
+
+    if market is not None and market not in ALLOWED_PLAYER_PROP_MARKETS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported player prop market")
+
+    return await list_game_player_props(db, user, event_id, market=market, limit=limit)
 
 
 @router.get("/{event_id}/export.csv")

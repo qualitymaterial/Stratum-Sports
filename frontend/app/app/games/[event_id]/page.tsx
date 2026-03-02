@@ -25,6 +25,13 @@ function formatBookQuote(line: number | null, price: number | null): string {
     : `${formatMoneyline(price)}`;
 }
 
+function formatPropMarketLabel(market: string): string {
+  if (market === "player_points") return "Player Points";
+  if (market === "player_rebounds") return "Player Rebounds";
+  if (market === "player_assists") return "Player Assists";
+  return market;
+}
+
 function buildPlainEnglishInsight(actionable: ActionableBookCard): {
   whatChanged: string;
   whyItMatters: string;
@@ -253,6 +260,17 @@ export default function GameDetailPage() {
     return [...detail.odds].sort((a, b) => {
       const left = `${a.sportsbook_key}-${a.market}-${a.outcome_name}`;
       const right = `${b.sportsbook_key}-${b.market}-${b.outcome_name}`;
+      return left.localeCompare(right);
+    });
+  }, [detail]);
+
+  const groupedPlayerProps = useMemo(() => {
+    if (!detail) {
+      return [];
+    }
+    return [...(detail.player_props ?? [])].sort((a, b) => {
+      const left = `${a.market}-${a.player_name}-${a.outcome_name}-${a.sportsbook_key}`;
+      const right = `${b.market}-${b.player_name}-${b.outcome_name}-${b.sportsbook_key}`;
       return left.localeCompare(right);
     });
   }, [detail]);
@@ -615,6 +633,52 @@ export default function GameDetailPage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
+        <h2 className="mb-3 text-sm uppercase tracking-wider text-textMute">Player Props (Latest by Book)</h2>
+        {groupedPlayerProps.length === 0 && (
+          <p className="text-sm text-textMute">
+            No player props captured for this game yet.
+          </p>
+        )}
+        {groupedPlayerProps.length > 0 && (
+          <div className="max-h-[360px] overflow-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wider text-textMute">
+                  <th className="border-b border-borderTone py-2">Market</th>
+                  <th className="border-b border-borderTone py-2">Player</th>
+                  <th className="border-b border-borderTone py-2">Side</th>
+                  <th className="border-b border-borderTone py-2">Line</th>
+                  <th className="border-b border-borderTone py-2">Price</th>
+                  <th className="border-b border-borderTone py-2">Book</th>
+                  <th className="border-b border-borderTone py-2">Fetched</th>
+                </tr>
+              </thead>
+              <tbody>
+                {groupedPlayerProps.slice(0, 500).map((row, idx) => (
+                  <tr key={`${row.market}-${row.player_name}-${row.outcome_name}-${row.sportsbook_key}-${idx}`}>
+                    <td className="border-b border-borderTone/50 py-2 text-textMute">
+                      {formatPropMarketLabel(row.market)}
+                    </td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.player_name}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.outcome_name}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{formatLine(row.line, 1)}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{formatMoneyline(row.price)}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMain">{row.sportsbook_key}</td>
+                    <td className="border-b border-borderTone/50 py-2 text-textMute">
+                      {new Date(row.fetched_at).toLocaleTimeString([], {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-borderTone bg-panel p-4 shadow-terminal">
