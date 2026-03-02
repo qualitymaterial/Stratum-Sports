@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from statistics import mean
@@ -14,6 +15,8 @@ from app.services.context_score import build_context_score
 from app.services.performance_intel import build_liquidity_heatmap
 from app.services.public_signal_surface import is_structural_core_visible
 from app.services.signals import serialize_signal
+
+logger = logging.getLogger(__name__)
 
 
 def _avg(values: list[float]) -> float | None:
@@ -245,6 +248,20 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         )
     ]
 
+    try:
+        context_scaffold = await build_context_score(db, event_id)
+    except Exception:
+        logger.exception(
+            "Game detail context score build failed; returning fallback scaffold",
+            extra={"event_id": event_id},
+        )
+        context_scaffold = {
+            "event_id": event_id,
+            "components": [],
+            "status": "error",
+            "notes": "Context score temporarily unavailable.",
+        }
+
     return {
         "event_id": game.event_id,
         "home_team": game.home_team,
@@ -253,6 +270,6 @@ async def build_game_detail(db: AsyncSession, user: User, event_id: str) -> dict
         "odds": odds_rows,
         "chart_series": chart_series,
         "signals": [serialize_signal(signal, pro_user=pro_user) for signal in signals],
-        "context_scaffold": await build_context_score(db, event_id),
+        "context_scaffold": context_scaffold,
         "liquidity_heatmap": build_liquidity_heatmap(game),
     }

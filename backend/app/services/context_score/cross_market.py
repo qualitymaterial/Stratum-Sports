@@ -19,12 +19,19 @@ logger = logging.getLogger(__name__)
 
 async def get_cross_market_context(db: AsyncSession, event_id: str) -> dict:
     """Compute cross-market context score for a sportsbook event."""
-    # Look up alignment
-    alignment_stmt = select(CanonicalEventAlignment).where(
-        CanonicalEventAlignment.sportsbook_event_id == event_id
+    # Look up alignment. sportsbook_event_id is not globally unique, so we
+    # choose the most recent mapping and log when duplicates exist.
+    alignment_stmt = (
+        select(CanonicalEventAlignment)
+        .where(CanonicalEventAlignment.sportsbook_event_id == event_id)
+        .order_by(
+            desc(CanonicalEventAlignment.updated_at),
+            desc(CanonicalEventAlignment.created_at),
+        )
+        .limit(2)
     )
-    alignment = (await db.execute(alignment_stmt)).scalar_one_or_none()
-    if alignment is None:
+    alignment_rows = (await db.execute(alignment_stmt)).scalars().all()
+    if not alignment_rows:
         return {
             "event_id": event_id,
             "component": "cross_market",
@@ -32,6 +39,12 @@ async def get_cross_market_context(db: AsyncSession, event_id: str) -> dict:
             "score": None,
             "notes": "No exchange alignment found for this event.",
         }
+    if len(alignment_rows) > 1:
+        logger.warning(
+            "Multiple canonical alignments found for sportsbook event; using latest row",
+            extra={"event_id": event_id, "rows": len(alignment_rows)},
+        )
+    alignment = alignment_rows[0]
 
     cek = alignment.canonical_event_key
     now = datetime.now(UTC)
