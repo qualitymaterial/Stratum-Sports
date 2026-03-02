@@ -313,8 +313,12 @@ async def get_sportsdataio_injury_context(game: Game) -> dict[str, Any] | None:
     if not rows:
         return None
 
-    home_aliases = _team_aliases(game.home_team)
-    away_aliases = _team_aliases(game.away_team)
+    if game.sport_key == "basketball_nba":
+        home_aliases = _nba_team_aliases(game.home_team)
+        away_aliases = _nba_team_aliases(game.away_team)
+    else:
+        home_aliases = _team_aliases(game.home_team)
+        away_aliases = _team_aliases(game.away_team)
     home_flagged = 0
     away_flagged = 0
     weighted_total = 0.0

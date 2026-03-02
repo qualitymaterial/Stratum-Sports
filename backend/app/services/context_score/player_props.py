@@ -6,6 +6,7 @@ or when their movements decouple, it often reflects player-level news being
 priced into one market before the other.
 """
 from datetime import UTC, datetime, timedelta
+from collections import defaultdict
 from statistics import mean
 
 from sqlalchemy import select
@@ -42,6 +43,7 @@ async def get_player_props_context(db: AsyncSession, event_id: str) -> dict:
     snaps = (await db.execute(stmt)).scalars().all()
 
     spread_snaps = [s for s in snaps if s.market == "spreads" and s.line is not None]
+    spread_snaps = [s for s in spread_snaps if s.outcome_name == game.home_team]
     h2h_home = [float(s.price) for s in snaps if s.market == "h2h" and s.outcome_name == game.home_team]
     h2h_away = [float(s.price) for s in snaps if s.market == "h2h" and s.outcome_name == game.away_team]
 
@@ -54,7 +56,10 @@ async def get_player_props_context(db: AsyncSession, event_id: str) -> dict:
             "notes": "Not enough market data to assess divergence.",
         }
 
-    spread_lines = [float(s.line) for s in spread_snaps]
+    spread_by_ts: dict[datetime, list[float]] = defaultdict(list)
+    for snap in spread_snaps:
+        spread_by_ts[snap.fetched_at].append(float(snap.line))
+    spread_lines = [sum(values) / len(values) for _, values in sorted(spread_by_ts.items(), key=lambda item: item[0])]
     spread_drift = spread_lines[-1] - spread_lines[0]
 
     avg_home_ml = mean(h2h_home)
@@ -87,6 +92,7 @@ async def get_player_props_context(db: AsyncSession, event_id: str) -> dict:
             "ml_away_avg": round(avg_away_ml, 1),
             "markets_aligned": alignment,
             "divergence_detected": divergence,
+            "spread_points_used": len(spread_lines),
         },
         "notes": "Derived from spread/moneyline divergence. No live props feed connected.",
     }

@@ -76,10 +76,13 @@ async def get_cross_market_context(db: AsyncSession, event_id: str) -> dict:
 
     # Query latest exchange quote freshness
     quote_stmt = (
-        select(func.max(ExchangeQuoteEvent.timestamp))
+        select(
+            func.max(ExchangeQuoteEvent.created_at),
+            func.max(ExchangeQuoteEvent.timestamp),
+        )
         .where(ExchangeQuoteEvent.canonical_event_key == cek)
     )
-    latest_quote_ts = (await db.execute(quote_stmt)).scalar_one_or_none()
+    latest_quote_created_at, latest_quote_data_ts = (await db.execute(quote_stmt)).one()
 
     # --- Alignment component (0-40) ---
     if not div_rows:
@@ -128,12 +131,18 @@ async def get_cross_market_context(db: AsyncSession, event_id: str) -> dict:
         lag_component = consistency_score + speed_score
 
     # --- Quote freshness component (0-30) ---
-    if latest_quote_ts is None:
+    if latest_quote_created_at is None:
         freshness_component = 6.0
         quote_age_minutes = None
     else:
-        quote_ts = latest_quote_ts if latest_quote_ts.tzinfo is not None else latest_quote_ts.replace(tzinfo=UTC)
-        quote_age_minutes = (now - quote_ts).total_seconds() / 60.0
+        quote_created = (
+            latest_quote_created_at
+            if latest_quote_created_at.tzinfo is not None
+            else latest_quote_created_at.replace(tzinfo=UTC)
+        )
+        # Freshness should use ingest timestamp, not upstream data timestamp
+        # (upstream quote timestamps can be contract close times in the future).
+        quote_age_minutes = max(0.0, (now - quote_created).total_seconds() / 60.0)
         if quote_age_minutes <= 5:
             freshness_component = 30.0
         elif quote_age_minutes <= 15:
@@ -159,6 +168,7 @@ async def get_cross_market_context(db: AsyncSession, event_id: str) -> dict:
             "avg_lag_seconds": round(avg_lag, 1) if avg_lag is not None else None,
             "lead_lag_events_count": len(lag_rows),
             "quote_age_minutes": round(quote_age_minutes, 1) if quote_age_minutes is not None else None,
+            "quote_data_timestamp": latest_quote_data_ts.isoformat() if latest_quote_data_ts is not None else None,
         },
         "notes": "Cross-market alignment between sportsbooks and Kalshi exchange.",
     }

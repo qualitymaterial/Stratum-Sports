@@ -6,6 +6,7 @@ in the last 30 minutes across 3+ books, there is a non-trivial chance that
 injury news is priced in.
 """
 from datetime import UTC, datetime, timedelta
+from collections import defaultdict
 from statistics import stdev
 
 from sqlalchemy import select
@@ -26,6 +27,7 @@ async def _heuristic_injury_context(
     db: AsyncSession,
     event_id: str,
     *,
+    home_team: str | None = None,
     fallback_reason: str | None = None,
 ) -> dict:
     """Existing spread-velocity heuristic used as resilient fallback."""
@@ -39,6 +41,7 @@ async def _heuristic_injury_context(
             OddsSnapshot.market == "spreads",
             OddsSnapshot.fetched_at >= start_ts,
             OddsSnapshot.line.is_not(None),
+            *([OddsSnapshot.outcome_name == home_team] if home_team else []),
         )
         .order_by(OddsSnapshot.fetched_at)
     )
@@ -53,8 +56,20 @@ async def _heuristic_injury_context(
             "notes": "Not enough recent snapshots to evaluate.",
         }
 
-    lines = [float(s.line) for s in snaps]
+    lines_by_ts: dict[datetime, list[float]] = defaultdict(list)
+    for snap in snaps:
+        lines_by_ts[snap.fetched_at].append(float(snap.line))
+    lines = [sum(values) / len(values) for _, values in sorted(lines_by_ts.items(), key=lambda item: item[0])]
     books = {s.sportsbook_key for s in snaps}
+    if len(books) < 3:
+        return {
+            "event_id": event_id,
+            "component": "injuries",
+            "status": "insufficient_data",
+            "score": None,
+            "notes": "Need at least 3 books in window for injury-velocity heuristic.",
+        }
+
     total_move = abs(lines[-1] - lines[0])
     velocity = total_move / window_minutes
     spread_std = stdev(lines) if len(lines) > 1 else 0.0
@@ -65,7 +80,7 @@ async def _heuristic_injury_context(
     velocity_score = min(20.0, velocity * 40)
     score = int(round(move_score + book_score + velocity_score))
 
-    notes = "Derived from spread-line velocity. No live injury feed connected."
+    notes = "Derived from spread-line velocity heuristic."
     if fallback_reason:
         notes = f"{notes} Live injury feed unavailable ({fallback_reason}); heuristic fallback used."
 
@@ -80,16 +95,19 @@ async def _heuristic_injury_context(
             "spread_std": round(spread_std, 3),
             "velocity_pts_per_min": round(velocity, 4),
             "books_sampled": len(books),
+            "consensus_points_used": len(lines),
         },
         "notes": notes,
     }
 
 
 async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
+    game_stmt = select(Game).where(Game.event_id == event_id)
+    game = (await db.execute(game_stmt)).scalar_one_or_none()
+    home_team = game.home_team if game is not None else None
+
     provider = settings.injury_feed_provider.strip().lower()
     if provider in {"sportsdataio", "nba_official"}:
-        game_stmt = select(Game).where(Game.event_id == event_id)
-        game = (await db.execute(game_stmt)).scalar_one_or_none()
         if game is not None:
             if provider == "sportsdataio":
                 live_context = await get_sportsdataio_injury_context(game)
@@ -99,6 +117,11 @@ async def get_injury_context(db: AsyncSession, event_id: str) -> dict:
                 fallback_reason = "nba_official_unavailable"
             if live_context is not None:
                 return live_context
-            return await _heuristic_injury_context(db, event_id, fallback_reason=fallback_reason)
+            return await _heuristic_injury_context(
+                db,
+                event_id,
+                home_team=home_team,
+                fallback_reason=fallback_reason,
+            )
 
-    return await _heuristic_injury_context(db, event_id)
+    return await _heuristic_injury_context(db, event_id, home_team=home_team)

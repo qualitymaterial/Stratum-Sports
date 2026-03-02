@@ -5,9 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.services.context_score as context_score_module
 from app.models.canonical_event_alignment import CanonicalEventAlignment
+from app.models.exchange_quote_event import ExchangeQuoteEvent
 from app.models.game import Game
+from app.models.odds_snapshot import OddsSnapshot
 from app.models.user import User
 from app.services.context_score.cross_market import get_cross_market_context
+from app.services.context_score.player_props import get_player_props_context
 from app.services.market_data import build_game_detail
 
 
@@ -114,3 +117,174 @@ async def test_game_detail_falls_back_when_context_score_fails(
     assert detail["event_id"] == event_id
     assert detail["context_scaffold"]["status"] == "error"
     assert detail["context_scaffold"]["components"] == []
+
+
+async def test_player_props_context_uses_home_side_spread_consensus(
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "evt-player-props-home-consensus"
+    home_team = "Utah Jazz"
+    away_team = "Denver Nuggets"
+    game = Game(
+        event_id=event_id,
+        sport_key="basketball_nba",
+        commence_time=now + timedelta(hours=2),
+        home_team=home_team,
+        away_team=away_team,
+    )
+    db_session.add(game)
+    db_session.add_all(
+        [
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="spreads",
+                outcome_name=home_team,
+                line=10.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=30),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="spreads",
+                outcome_name=away_team,
+                line=-10.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=30),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book2",
+                market="spreads",
+                outcome_name=home_team,
+                line=11.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=5),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book2",
+                market="spreads",
+                outcome_name=away_team,
+                line=-11.0,
+                price=-110,
+                fetched_at=now - timedelta(minutes=5),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="h2h",
+                outcome_name=home_team,
+                line=None,
+                price=220,
+                fetched_at=now - timedelta(minutes=30),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book1",
+                market="h2h",
+                outcome_name=away_team,
+                line=None,
+                price=-260,
+                fetched_at=now - timedelta(minutes=30),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book2",
+                market="h2h",
+                outcome_name=home_team,
+                line=None,
+                price=245,
+                fetched_at=now - timedelta(minutes=5),
+            ),
+            OddsSnapshot(
+                event_id=event_id,
+                sport_key="basketball_nba",
+                commence_time=game.commence_time,
+                home_team=home_team,
+                away_team=away_team,
+                sportsbook_key="book2",
+                market="h2h",
+                outcome_name=away_team,
+                line=None,
+                price=-290,
+                fetched_at=now - timedelta(minutes=5),
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    ctx = await get_player_props_context(db_session, event_id)
+    assert ctx["status"] == "computed"
+    assert ctx["details"]["spread_drift"] == 1.0
+    assert ctx["details"]["spread_points_used"] == 2
+
+
+async def test_cross_market_context_quote_age_uses_ingest_time(
+    db_session: AsyncSession,
+) -> None:
+    now = datetime.now(UTC)
+    event_id = "evt-cross-market-quote-age"
+    cek = "cek-cross-market-quote-age"
+    db_session.add(
+        CanonicalEventAlignment(
+            canonical_event_key=cek,
+            sport="basketball",
+            league="nba",
+            home_team="Boston Celtics",
+            away_team="Philadelphia 76ers",
+            start_time=now + timedelta(hours=2),
+            sportsbook_event_id=event_id,
+            created_at=now,
+            updated_at=now,
+        )
+    )
+    db_session.add(
+        ExchangeQuoteEvent(
+            canonical_event_key=cek,
+            source="KALSHI",
+            market_id="kalshi-test-age",
+            outcome_name="YES",
+            probability=0.55,
+            price=0.55,
+            timestamp=now + timedelta(days=10),  # upstream data timestamp can be in future
+            created_at=now - timedelta(minutes=2),  # ingest timestamp should drive freshness
+        )
+    )
+    await db_session.commit()
+
+    ctx = await get_cross_market_context(db_session, event_id)
+    assert ctx["status"] == "computed"
+    assert ctx["details"]["quote_age_minutes"] is not None
+    assert ctx["details"]["quote_age_minutes"] >= 0
+    assert ctx["details"]["quote_age_minutes"] <= 5

@@ -220,3 +220,29 @@ def test_extract_rows_from_csv_text() -> None:
     assert len(rows) == 2
     assert rows[0]["Team"] == "Boston Celtics"
     assert rows[1]["Status"] == "Questionable"
+
+
+async def test_sportsdataio_context_matches_nba_team_abbreviations(monkeypatch) -> None:
+    monkeypatch.setattr(injury_feed.settings, "injury_feed_provider", "sportsdataio")
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_api_key", "test-key")
+    monkeypatch.setattr(injury_feed.settings, "sportsdataio_injuries_endpoint_nba", "/nba/projections/json/InjuredPlayers")
+
+    async def _fake_rows(_sport_key: str) -> list[dict]:
+        return [
+            {"Team": "BOS", "InjuryStatus": "Out"},
+            {"Team": "PHI", "InjuryStatus": "Questionable"},
+        ]
+
+    monkeypatch.setattr(injury_feed, "_fetch_rows", _fake_rows)
+
+    game = Game(
+        event_id="evt-abbrev",
+        sport_key="basketball_nba",
+        commence_time=datetime.now(UTC) + timedelta(hours=1),
+        home_team="Boston Celtics",
+        away_team="Philadelphia 76ers",
+    )
+    ctx = await injury_feed.get_sportsdataio_injury_context(game)
+    assert ctx is not None
+    assert ctx["details"]["source"] == "sportsdataio"
+    assert ctx["details"]["players_flagged"] == 2
