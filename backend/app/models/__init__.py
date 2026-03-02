@@ -20,6 +20,7 @@ from app.models.odds_snapshot import OddsSnapshot
 from app.models.ops_digest_sent import OpsDigestSent
 from app.models.ops_service_token import OpsServiceToken
 from app.models.password_reset_token import PasswordResetToken
+from app.models.player_prop_snapshot import PlayerPropSnapshot
 from app.models.propagation_event import PropagationEvent
 from app.models.quote_move_event import QuoteMoveEvent
 from app.models.regime_snapshot import RegimeSnapshot
@@ -55,6 +56,7 @@ __all__ = [
     "OpsDigestSent",
     "OpsServiceToken",
     "OddsSnapshot",
+    "PlayerPropSnapshot",
     "PropagationEvent",
     "QuoteMoveEvent",
     "RegimeSnapshot",

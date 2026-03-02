@@ -231,6 +231,103 @@ class OddsApiClient:
 
         return fetch_result
 
+    async def fetch_event_odds(
+        self,
+        *,
+        sport_key: str,
+        event_id: str,
+        markets: str | None = None,
+        regions: str | None = None,
+        bookmakers: str | None = None,
+    ) -> OddsFetchResult:
+        if not settings.odds_api_key:
+            logger.warning("ODDS_API_KEY missing; skipping event fetch")
+            return OddsFetchResult(events=[])
+
+        now = datetime.now(UTC)
+        if self._is_circuit_open(now):
+            logger.warning(
+                "Odds API circuit is open; skipping event fetch",
+                extra={
+                    "event_id": event_id,
+                    "circuit_open_until": self._circuit_open_until.isoformat()
+                    if self._circuit_open_until is not None
+                    else None,
+                    "consecutive_failures": self._consecutive_failures,
+                },
+            )
+            return OddsFetchResult(events=[])
+
+        url = f"{settings.odds_api_base_url}/sports/{sport_key}/events/{event_id}/odds"
+        params = {
+            "apiKey": settings.odds_api_key,
+            "regions": regions if regions is not None else settings.odds_api_regions,
+            "markets": markets if markets is not None else settings.odds_api_markets,
+            "oddsFormat": "american",
+            "dateFormat": "iso",
+        }
+
+        configured_books = bookmakers if bookmakers is not None else settings.odds_api_bookmakers
+        if configured_books.strip():
+            params["bookmakers"] = configured_books
+
+        attempts = max(1, settings.odds_api_retry_attempts)
+        backoff_base = max(0.1, settings.odds_api_retry_backoff_seconds)
+        backoff_cap = max(backoff_base, settings.odds_api_retry_backoff_max_seconds)
+
+        response: httpx.Response | None = None
+        payload: object | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                async with httpx.AsyncClient(timeout=25.0) as client:
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
+                    payload = response.json()
+                self._record_success()
+                break
+            except (httpx.HTTPError, ValueError):
+                self._record_failure()
+                logger.warning(
+                    "Odds API event fetch attempt failed",
+                    exc_info=True,
+                    extra={
+                        "event_id": event_id,
+                        "attempt": attempt,
+                        "attempts_total": attempts,
+                        "consecutive_failures": self._consecutive_failures,
+                    },
+                )
+                if attempt >= attempts or self._is_circuit_open(datetime.now(UTC)):
+                    break
+                sleep_seconds = min(backoff_cap, backoff_base * (2 ** (attempt - 1)))
+                await asyncio.sleep(sleep_seconds)
+
+        if response is None or payload is None:
+            logger.error(
+                "Odds API event fetch failed after retries; continuing with no event payload",
+                extra={"event_id": event_id},
+            )
+            return OddsFetchResult(events=[])
+
+        if isinstance(payload, dict):
+            events = [payload] if payload.get("id") and isinstance(payload.get("bookmakers"), list) else []
+        elif isinstance(payload, list):
+            events = [event for event in payload if isinstance(event, dict)]
+        else:
+            events = []
+            logger.warning(
+                "Unexpected event-odds payload type",
+                extra={"event_id": event_id, "type": str(type(payload))},
+            )
+
+        return OddsFetchResult(
+            events=events,
+            requests_remaining=_parse_header_int(response.headers, "x-requests-remaining"),
+            requests_used=_parse_header_int(response.headers, "x-requests-used"),
+            requests_last=_parse_header_int(response.headers, "x-requests-last"),
+            requests_limit=_parse_header_int(response.headers, "x-requests-limit"),
+        )
+
     def _history_url(
         self,
         *,

@@ -1,5 +1,91 @@
 # Development Journal
 
+## 2026-03-02: Player Props Ingestion Foundation (Conservative, Feature-Flagged)
+
+### Overview
+Implemented and enabled a conservative player-props ingestion foundation using The Odds API non-featured markets path, with strict guardrails to protect request budget and production stability.
+
+### What Was Built
+1. New configuration surface (default-off by code, runtime-enabled via env):
+   - `PLAYER_PROPS_INGEST_ENABLED`
+   - `PLAYER_PROPS_SPORT_KEYS`
+   - `PLAYER_PROPS_MARKETS`
+   - `PLAYER_PROPS_MAX_EVENTS_PER_CYCLE`
+   - `PLAYER_PROPS_COMMENCE_WITHIN_HOURS`
+   - File: `backend/app/core/config.py`
+
+2. New persistence model/table for props snapshots:
+   - `player_prop_snapshots`
+   - Core fields:
+     - event/sport/team context
+     - sportsbook
+     - prop market (`player_points`, `player_rebounds`, `player_assists`)
+     - player name
+     - outcome side (`Over`/`Under`)
+     - line/price
+     - fetch timestamp
+   - Files:
+     - `backend/app/models/player_prop_snapshot.py`
+     - `backend/app/models/__init__.py`
+     - `backend/alembic/versions/n8b9c0d1e2f3_add_player_prop_snapshots.py`
+
+3. Ingestion path expansion (`backend/app/services/ingestion.py`):
+   - Existing core odds ingest remains unchanged.
+   - Adds a second, guarded fetch for props only when enabled.
+   - Restricts fetch scope to:
+     - configured sports
+     - top N upcoming events
+     - commence window (hours)
+   - Adds Redis dedupe keys for props rows before write.
+   - Persists props to `player_prop_snapshots`.
+   - Exposes cycle metrics:
+     - `player_props_enabled`
+     - `player_props_fetches`
+     - `player_props_events_seen`
+     - `player_props_events_seen_by_sport`
+     - `player_props_snapshots_inserted`
+   - Conservative guardrail:
+     - props expansion is skipped when `sport_event_ids` is supplied (live/watchlist-scoped loops), preventing hidden request multiplication in high-frequency loops.
+
+4. Tests added:
+   - `backend/tests/test_player_props_ingestion.py`
+   - Coverage includes:
+     - normalization behavior
+     - enabled-path fetch + persistence behavior
+     - live/watchlist scoped skip behavior
+
+### Runtime Enablement Completed
+Updated runtime env files and restarted services:
+- `.env`
+- `.env.production`
+- `docker compose up -d --no-deps backend worker`
+
+Applied values:
+```env
+PLAYER_PROPS_INGEST_ENABLED=true
+PLAYER_PROPS_SPORT_KEYS=basketball_nba
+PLAYER_PROPS_MARKETS=player_points,player_rebounds,player_assists
+PLAYER_PROPS_MAX_EVENTS_PER_CYCLE=8
+PLAYER_PROPS_COMMENCE_WITHIN_HOURS=18
+```
+
+### Verification
+1. DB migration applied successfully:
+   - `alembic upgrade head`
+   - Current head: `n8b9c0d1e2f3`
+2. Tests passed:
+   - `tests/test_player_props_ingestion.py`
+   - `tests/test_context_score_runtime.py` (regression check)
+3. Live cycle check returned:
+   - `player_props_enabled=True`
+   - `player_props_fetches=0`
+   - `player_props_snapshots_inserted=0`
+   - Reason: there were no NBA games within the configured 18-hour window at check time.
+
+### Next Operational Toggle
+If earlier population is desired, increase:
+- `PLAYER_PROPS_COMMENCE_WITHIN_HOURS=36` (or `48`) to widen eligible event selection.
+
 ## 2026-03-01: Kalshi Microstructure Enrichment (Spread/Depth/Flow + Lead-Lag Attach)
 
 ### Overview

@@ -137,6 +137,11 @@ class Settings(BaseSettings):
     odds_api_retry_backoff_max_seconds: float = 8.0
     odds_api_circuit_failures_to_open: int = 3
     odds_api_circuit_open_seconds: int = 120
+    player_props_ingest_enabled: bool = False
+    player_props_sport_keys: str = "basketball_nba"
+    player_props_markets: str = "player_points,player_rebounds,player_assists"
+    player_props_max_events_per_cycle: int = 8
+    player_props_commence_within_hours: int = 18
     stratum_close_capture_enabled: bool = True
     
     # Kalshi Gating
@@ -305,6 +310,16 @@ class Settings(BaseSettings):
     def odds_api_sport_keys_list(self) -> list[str]:
         values = [v.strip() for v in self.odds_api_sport_keys.split(",") if v.strip()]
         return values or ["basketball_nba"]
+
+    @property
+    def player_props_sport_keys_list(self) -> list[str]:
+        values = [v.strip() for v in self.player_props_sport_keys.split(",") if v.strip()]
+        return values or ["basketball_nba"]
+
+    @property
+    def player_props_markets_list(self) -> list[str]:
+        values = [v.strip() for v in self.player_props_markets.split(",") if v.strip()]
+        return values or ["player_points", "player_rebounds", "player_assists"]
 
     @property
     def effective_regime_detection_enabled(self) -> bool:

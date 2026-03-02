@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models.game import Game
 from app.models.odds_snapshot import OddsSnapshot
+from app.models.player_prop_snapshot import PlayerPropSnapshot
 from app.models.signal import Signal
 from app.services.consensus import compute_and_persist_consensus
 from app.services.odds_api import OddsApiClient, OddsFetchResult
@@ -35,6 +36,22 @@ class NormalizedOddsRow:
     away_team: str
     sportsbook_key: str
     market: str
+    outcome_name: str
+    line: float | None
+    price: int
+    fetched_at: datetime
+
+
+@dataclass(frozen=True)
+class NormalizedPlayerPropRow:
+    event_id: str
+    sport_key: str
+    commence_time: datetime
+    home_team: str
+    away_team: str
+    sportsbook_key: str
+    market: str
+    player_name: str
     outcome_name: str
     line: float | None
     price: int
@@ -74,6 +91,28 @@ def _normalize_line(market: str, outcome: dict) -> float | None:
     if market in {"spreads", "totals"}:
         point = outcome.get("point")
         return float(point) if point is not None else None
+    return None
+
+
+def _normalize_prop_line(outcome: dict) -> float | None:
+    point = outcome.get("point")
+    if point is None:
+        return None
+    try:
+        return float(point)
+    except (TypeError, ValueError):
+        return None
+
+
+def _normalize_prop_player_name(outcome: dict) -> str | None:
+    description = outcome.get("description")
+    if isinstance(description, str) and description.strip():
+        return description.strip()
+
+    participant = outcome.get("participant")
+    if isinstance(participant, str) and participant.strip():
+        return participant.strip()
+
     return None
 
 
@@ -153,6 +192,101 @@ def normalize_event_odds_rows(
     return rows
 
 
+def normalize_event_player_props_rows(
+    event: dict,
+    *,
+    fetched_at: datetime,
+    allowed_markets: set[str],
+) -> list[NormalizedPlayerPropRow]:
+    event_id = event["id"]
+    sport_key = event.get("sport_key", "basketball_nba")
+    commence_time = _parse_iso_datetime(event["commence_time"])
+    home_team = event["home_team"]
+    away_team = event["away_team"]
+
+    rows: list[NormalizedPlayerPropRow] = []
+    bookmakers = event.get("bookmakers", [])
+    for bookmaker in bookmakers:
+        sportsbook_key = bookmaker.get("key")
+        if not sportsbook_key:
+            continue
+
+        for market_entry in bookmaker.get("markets", []):
+            market = market_entry.get("key")
+            if market not in allowed_markets:
+                continue
+
+            for outcome in market_entry.get("outcomes", []):
+                outcome_name = outcome.get("name")
+                price = outcome.get("price")
+                player_name = _normalize_prop_player_name(outcome)
+                if outcome_name is None or price is None or player_name is None:
+                    continue
+
+                rows.append(
+                    NormalizedPlayerPropRow(
+                        event_id=event_id,
+                        sport_key=sport_key,
+                        commence_time=commence_time,
+                        home_team=home_team,
+                        away_team=away_team,
+                        sportsbook_key=sportsbook_key,
+                        market=market,
+                        player_name=player_name,
+                        outcome_name=str(outcome_name),
+                        line=_normalize_prop_line(outcome),
+                        price=int(price),
+                        fetched_at=fetched_at,
+                    )
+                )
+
+    return rows
+
+
+def _select_props_candidate_event_ids(
+    events: list[dict],
+    *,
+    now_utc: datetime,
+    max_events: int,
+    commence_within_hours: int,
+) -> list[str]:
+    candidates: list[tuple[datetime, str]] = []
+    window_end = now_utc + timedelta(hours=max(1, commence_within_hours))
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        event_id = event.get("id")
+        commence_raw = event.get("commence_time")
+        if not isinstance(event_id, str) or not isinstance(commence_raw, str):
+            continue
+        try:
+            commence_time = _parse_iso_datetime(commence_raw)
+        except Exception:
+            continue
+        if commence_time < now_utc or commence_time > window_end:
+            continue
+        candidates.append((commence_time, event_id))
+
+    candidates.sort(key=lambda row: (row[0], row[1]))
+    return [event_id for _commence_time, event_id in candidates[: max(1, max_events)]]
+
+
+def _append_request_headers(
+    result: OddsFetchResult,
+    *,
+    requests_remaining_values: list[int],
+    requests_used_values: list[int],
+    requests_limit_values: list[int],
+) -> int | None:
+    if result.requests_remaining is not None:
+        requests_remaining_values.append(result.requests_remaining)
+    if result.requests_used is not None:
+        requests_used_values.append(result.requests_used)
+    if result.requests_limit is not None:
+        requests_limit_values.append(result.requests_limit)
+    return result.requests_last
+
+
 async def _should_persist_snapshot(
     redis: Redis | None,
     *,
@@ -186,13 +320,18 @@ async def ingest_odds_cycle(
     client = OddsApiClient()
     sport_keys = settings.odds_api_sport_keys_list
     fetch_results: list[tuple[str, OddsFetchResult]] = []
-    
+
     for sport_key in sport_keys:
         if sport_event_ids is not None:
             if sport_key not in sport_event_ids or not sport_event_ids[sport_key]:
                 continue
             event_ids_csv = ",".join(sport_event_ids[sport_key])
-            fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key, event_ids=event_ids_csv)))
+            fetch_results.append(
+                (
+                    sport_key,
+                    await client.fetch_nba_odds(sport_key=sport_key, event_ids=event_ids_csv),
+                )
+            )
         else:
             fetch_results.append((sport_key, await client.fetch_nba_odds(sport_key=sport_key)))
 
@@ -203,25 +342,23 @@ async def ingest_odds_cycle(
     requests_last_total = 0
     requests_last_seen = False
     per_sport_events_seen: dict[str, int] = {}
+    player_props_events_seen_by_sport: dict[str, int] = {}
+    player_props_events: list[dict] = []
+    player_props_fetches = 0
 
     for sport_key, fetch_result in fetch_results:
         sport_events = fetch_result.events if isinstance(fetch_result.events, list) else []
         per_sport_events_seen[sport_key] = len(sport_events)
         events.extend(sport_events)
-        if fetch_result.requests_remaining is not None:
-            requests_remaining_values.append(fetch_result.requests_remaining)
-        if fetch_result.requests_used is not None:
-            requests_used_values.append(fetch_result.requests_used)
-        if fetch_result.requests_limit is not None:
-            requests_limit_values.append(fetch_result.requests_limit)
-        if fetch_result.requests_last is not None:
-            requests_last_total += fetch_result.requests_last
+        requests_last = _append_request_headers(
+            fetch_result,
+            requests_remaining_values=requests_remaining_values,
+            requests_used_values=requests_used_values,
+            requests_limit_values=requests_limit_values,
+        )
+        if requests_last is not None:
+            requests_last_total += requests_last
             requests_last_seen = True
-
-    api_requests_remaining = min(requests_remaining_values) if requests_remaining_values else None
-    api_requests_used = max(requests_used_values) if requests_used_values else None
-    api_requests_limit = max(requests_limit_values) if requests_limit_values else None
-    api_requests_last = requests_last_total if requests_last_seen else None
 
     if eligible_event_ids is not None:
         events = [
@@ -236,6 +373,61 @@ async def ingest_odds_cycle(
                 "events_selected": len(events),
             },
         )
+
+    # Conservative guardrail: skip props expansion during live watchlist loops.
+    if settings.player_props_ingest_enabled and sport_event_ids is None and events:
+        now_utc = datetime.now(UTC)
+        allowed_props_sports = set(settings.player_props_sport_keys_list)
+        allowed_props_markets_csv = ",".join(settings.player_props_markets_list)
+        max_props_events = max(1, settings.player_props_max_events_per_cycle)
+        for sport_key in sport_keys:
+            if sport_key not in allowed_props_sports:
+                continue
+            sport_events = [event for event in events if isinstance(event, dict) and event.get("sport_key") == sport_key]
+            candidate_event_ids = _select_props_candidate_event_ids(
+                sport_events,
+                now_utc=now_utc,
+                max_events=max_props_events,
+                commence_within_hours=settings.player_props_commence_within_hours,
+            )
+            if not candidate_event_ids:
+                continue
+
+            sport_props_events_seen = 0
+            for event_id in candidate_event_ids:
+                if hasattr(client, "fetch_event_odds"):
+                    props_result = await client.fetch_event_odds(
+                        sport_key=sport_key,
+                        event_id=event_id,
+                        markets=allowed_props_markets_csv,
+                    )
+                else:
+                    # Backward compatibility fallback for older OddsApiClient test doubles.
+                    props_result = await client.fetch_nba_odds(
+                        sport_key=sport_key,
+                        markets=allowed_props_markets_csv,
+                        event_ids=event_id,
+                    )
+                player_props_fetches += 1
+                props_events = props_result.events if isinstance(props_result.events, list) else []
+                player_props_events.extend(props_events)
+                sport_props_events_seen += len(props_events)
+                requests_last = _append_request_headers(
+                    props_result,
+                    requests_remaining_values=requests_remaining_values,
+                    requests_used_values=requests_used_values,
+                    requests_limit_values=requests_limit_values,
+                )
+                if requests_last is not None:
+                    requests_last_total += requests_last
+                    requests_last_seen = True
+            player_props_events_seen_by_sport[sport_key] = sport_props_events_seen
+
+    api_requests_remaining = min(requests_remaining_values) if requests_remaining_values else None
+    api_requests_used = max(requests_used_values) if requests_used_values else None
+    api_requests_limit = max(requests_limit_values) if requests_limit_values else None
+    api_requests_last = requests_last_total if requests_last_seen else None
+
     if not events:
         return {
             "inserted": 0,
@@ -252,10 +444,16 @@ async def ingest_odds_cycle(
             "api_requests_limit": api_requests_limit,
             "sports_polled": sport_keys,
             "events_seen_by_sport": per_sport_events_seen,
+            "player_props_enabled": settings.player_props_ingest_enabled,
+            "player_props_fetches": 0,
+            "player_props_events_seen": 0,
+            "player_props_events_seen_by_sport": {},
+            "player_props_snapshots_inserted": 0,
         }
 
     fetched_at = datetime.now(UTC)
     inserted = 0
+    player_props_inserted = 0
     event_ids: set[str] = set()
     consensus_points_written = 0
     consensus_failed = False
@@ -279,9 +477,7 @@ async def ingest_odds_cycle(
             continue
 
         for row in normalized_rows:
-            dedupe_key = (
-                f"odds:last:{row.event_id}:{row.sportsbook_key}:{row.market}:{row.outcome_name}"
-            )
+            dedupe_key = f"odds:last:{row.event_id}:{row.sportsbook_key}:{row.market}:{row.outcome_name}"
             dedupe_value = f"{row.line}|{row.price}"
 
             should_persist = await _should_persist_snapshot(
@@ -309,9 +505,9 @@ async def ingest_odds_cycle(
             persisted_snapshots.append(snapshot)
             inserted += 1
 
-            # Broadcast update via Redis Pub/Sub
             if redis is not None:
                 import json
+
                 update_payload = {
                     "type": "odds_update",
                     "event_id": row.event_id,
@@ -324,9 +520,54 @@ async def ingest_odds_cycle(
                 }
                 await redis.publish("odds_updates", json.dumps(update_payload))
 
+    if player_props_events:
+        allowed_props_markets = set(settings.player_props_markets_list)
+        for event in player_props_events:
+            try:
+                normalized_props_rows = normalize_event_player_props_rows(
+                    event,
+                    fetched_at=fetched_at,
+                    allowed_markets=allowed_props_markets,
+                )
+            except KeyError:
+                logger.warning("Malformed player-props payload skipped", extra={"event": event})
+                continue
+
+            for row in normalized_props_rows:
+                player_key = row.player_name.strip().lower().replace(" ", "_")
+                outcome_key = row.outcome_name.strip().lower().replace(" ", "_")
+                dedupe_key = (
+                    f"odds:props:last:{row.event_id}:{row.sportsbook_key}:{row.market}:{player_key}:{outcome_key}"
+                )
+                dedupe_value = f"{row.line}|{row.price}"
+                should_persist = await _should_persist_snapshot(
+                    redis,
+                    dedupe_key=dedupe_key,
+                    dedupe_value=dedupe_value,
+                )
+                if not should_persist:
+                    continue
+
+                db.add(
+                    PlayerPropSnapshot(
+                        event_id=row.event_id,
+                        sport_key=row.sport_key,
+                        commence_time=row.commence_time,
+                        home_team=row.home_team,
+                        away_team=row.away_team,
+                        sportsbook_key=row.sportsbook_key,
+                        market=row.market,
+                        player_name=row.player_name,
+                        outcome_name=row.outcome_name,
+                        line=row.line,
+                        price=row.price,
+                        fetched_at=row.fetched_at,
+                    )
+                )
+                player_props_inserted += 1
+
     await db.commit()
 
-    # --- Quote Move Ledger (additive) ---
     quote_moves_logged = 0
     if persisted_snapshots:
         try:
@@ -357,6 +598,11 @@ async def ingest_odds_cycle(
             "sports_polled": sport_keys,
             "events_seen_by_sport": per_sport_events_seen,
             "consensus_failed": consensus_failed,
+            "player_props_enabled": settings.player_props_ingest_enabled,
+            "player_props_fetches": player_props_fetches,
+            "player_props_events_seen": len(player_props_events),
+            "player_props_events_seen_by_sport": player_props_events_seen_by_sport,
+            "player_props_snapshots_inserted": player_props_inserted,
         },
     )
     return {
@@ -375,4 +621,9 @@ async def ingest_odds_cycle(
         "sports_polled": sport_keys,
         "events_seen_by_sport": per_sport_events_seen,
         "quote_moves_logged": quote_moves_logged,
+        "player_props_enabled": settings.player_props_ingest_enabled,
+        "player_props_fetches": player_props_fetches,
+        "player_props_events_seen": len(player_props_events),
+        "player_props_events_seen_by_sport": player_props_events_seen_by_sport,
+        "player_props_snapshots_inserted": player_props_inserted,
     }
