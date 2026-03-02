@@ -13,10 +13,12 @@ from query_builder import QueryBuilder
 from metrics import MetricsProcessor
 
 # Setup
-# Load local .env first, then fallback to environment variables
+# Load local .env first
 agent_dir = os.path.dirname(os.path.abspath(__file__))
-load_dotenv(os.path.join(agent_dir, ".env"))
-load_dotenv() # Fallback to standard locations if needed
+local_env = os.path.join(agent_dir, ".env")
+if os.path.exists(local_env):
+    load_dotenv(local_env)
+# Do not call load_dotenv() without arguments to avoid permission errors on /repo/.env
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 

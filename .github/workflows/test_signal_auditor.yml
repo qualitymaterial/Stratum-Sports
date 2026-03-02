@@ -14,6 +14,8 @@ jobs:
           script: |
             cd /opt/stratum-sports
             git pull
+            mkdir -p agents/signal_quality_auditor/out
+            chmod -R 777 agents/signal_quality_auditor/out
             # Use the existing executive brief .env for shared credentials
             docker compose --env-file /opt/stratum-sports/agents/executive_brief/.env run --rm -v /opt/stratum-sports:/repo -w /repo backend sh -c 'pip install -r agents/signal_quality_auditor/requirements.txt --quiet && python3 agents/signal_quality_auditor/main.py'
             echo "--- AUDIT REPORT ---"
